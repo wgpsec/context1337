@@ -1,0 +1,98 @@
+package mcp
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+
+	"github.com/Esonhugh/context1337/internal/search"
+)
+
+// Service holds shared dependencies for all MCP handlers.
+type Service struct {
+	DB      *sql.DB
+	DataDir string
+}
+
+// --- search_skill ---
+
+type SearchSkillInput struct {
+	Query      string `json:"query"               jsonschema:"Search query keywords"`
+	Category   string `json:"category,omitempty"   jsonschema:"Filter by category: exploit|recon|tool|cloud|ctf|lateral"`
+	Difficulty string `json:"difficulty,omitempty" jsonschema:"Filter by difficulty: easy|medium|hard"`
+	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 10)"`
+}
+
+type SkillSummary struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Category    string `json:"category"`
+	Tags        string `json:"tags"`
+	Difficulty  string `json:"difficulty"`
+	Source      string `json:"source"`
+}
+
+func (s *Service) SearchSkill(ctx context.Context, in SearchSkillInput) ([]SkillSummary, error) {
+	if in.Limit <= 0 {
+		in.Limit = 10
+	}
+	results, err := search.Search(s.DB, search.SearchQuery{
+		Query: in.Query, Type: "skill", Category: in.Category,
+		Difficulty: in.Difficulty, Limit: in.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SkillSummary, len(results))
+	for i, r := range results {
+		out[i] = SkillSummary{
+			Name: r.Name, Description: r.Description, Category: r.Category,
+			Tags: r.Tags, Difficulty: r.Difficulty, Source: r.Source,
+		}
+	}
+	return out, nil
+}
+
+// --- get_skill ---
+
+type GetSkillInput struct {
+	Name  string `json:"name"            jsonschema:"Skill name"`
+	Depth string `json:"depth,omitempty" jsonschema:"Loading depth: metadata|summary|full (default summary)"`
+}
+
+type SkillDetail struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Category    string `json:"category"`
+	Tags        string `json:"tags"`
+	Difficulty  string `json:"difficulty"`
+	Source      string `json:"source"`
+	Body        string `json:"body,omitempty"`
+}
+
+func (s *Service) GetSkill(ctx context.Context, in GetSkillInput) (*SkillDetail, error) {
+	if in.Depth == "" {
+		in.Depth = "summary"
+	}
+	r, err := search.GetByName(s.DB, "skill", in.Name)
+	if err != nil {
+		return nil, err
+	}
+	if r == nil {
+		return nil, fmt.Errorf("skill %q not found", in.Name)
+	}
+	detail := &SkillDetail{
+		Name: r.Name, Description: r.Description, Category: r.Category,
+		Tags: r.Tags, Difficulty: r.Difficulty, Source: r.Source,
+	}
+	switch in.Depth {
+	case "metadata":
+		// No body
+	case "summary":
+		detail.Body = r.Body
+	case "full":
+		detail.Body = r.Body
+		// TODO Phase 2: append references/ directory content
+	}
+	return detail, nil
+}

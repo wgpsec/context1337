@@ -1,0 +1,57 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"testing"
+
+	"github.com/Esonhugh/context1337/internal/search"
+	"github.com/Esonhugh/context1337/internal/storage"
+)
+
+func setupTestRouter(t *testing.T) http.Handler {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := storage.OpenDB(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	search.InsertResource(db, search.Resource{
+		Type: "skill", Name: "test-skill", Source: "builtin",
+		FilePath: "skills/test/SKILL.md", Category: "exploit",
+		Description: "Test skill",
+	})
+
+	return NewRouter(db, dir, "", nil)
+}
+
+func TestHealthEndpoint(t *testing.T) {
+	router := setupTestRouter(t)
+	req := httptest.NewRequest("GET", "/api/health", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	var body map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&body)
+	if body["status"] != "ok" {
+		t.Errorf("status = %v, want ok", body["status"])
+	}
+}
+
+func TestStatsEndpoint(t *testing.T) {
+	router := setupTestRouter(t)
+	req := httptest.NewRequest("GET", "/api/stats", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}

@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""Build the FTS5 index (builtin.db) from AboutSecurity data.
+
+Usage:
+    python build_index.py --input ./AboutSecurity/ --dict ./security_dict.txt --output ./builtin.db
+"""
+import argparse
+import json
+import os
+import sqlite3
+import sys
+
+import jieba
+import yaml
+
+
+def init_jieba(dict_path: str):
+    """Load custom security dictionary into jieba."""
+    if dict_path and os.path.exists(dict_path):
+        jieba.load_userdict(dict_path)
+        print(f"Loaded custom dict: {dict_path}")
+
+
+def tokenize(text: str) -> str:
+    """Tokenize text using jieba cut_for_search mode."""
+    tokens = jieba.cut_for_search(text)
+    return " ".join(t.strip() for t in tokens if t.strip())
+
+
+def create_schema(conn: sqlite3.Connection):
+    """Create the database schema."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS resources (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            type        TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            source      TEXT NOT NULL,
+            file_path   TEXT NOT NULL,
+            category    TEXT,
+            tags        TEXT,
+            mitre       TEXT,
+            difficulty  TEXT,
+            description TEXT,
+            body        TEXT,
+            metadata    TEXT,
+            created_at  TEXT DEFAULT (datetime('now')),
+            updated_at  TEXT DEFAULT (datetime('now')),
+            UNIQUE(type, name, source)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_resources_type ON resources(type);
+        CREATE INDEX IF NOT EXISTS idx_resources_source ON resources(source);
+        CREATE INDEX IF NOT EXISTS idx_resources_category ON resources(type, category);
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS resources_fts USING fts5(
+            name, description, tags, category, mitre, body,
+            content='resources', content_rowid='id',
+            tokenize='unicode61'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS resources_ai AFTER INSERT ON resources BEGIN
+            INSERT INTO resources_fts(rowid, name, description, tags, category, mitre, body)
+            VALUES (new.id, new.name, new.description, new.tags, new.category, new.mitre, new.body);
+        END;
+
+        CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+    """)
+
+
+def parse_skill_md(path: str) -> dict:
+    """Parse a SKILL.md file, extracting frontmatter and body."""
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    if not content.startswith("---"):
+        return None
+
+    end = content.find("\n---", 3)
+    if end < 0:
+        return None
+
+    fm = yaml.safe_load(content[3:end])
+    body = content[end + 4:].strip()
+
+    meta = fm.get("metadata", {})
+    return {
+        "name": fm.get("name", ""),
+        "description": fm.get("description", ""),
+        "tags": meta.get("tags", ""),
+        "category": meta.get("category", ""),
+        "difficulty": meta.get("difficulty", ""),
+        "body": body,
+        "file_path": path,
+    }
+
+
+def index_skills(conn: sqlite3.Connection, base_dir: str):
+    """Index all SKILL.md files."""
+    skills_dir = os.path.join(base_dir, "skills")
+    if not os.path.isdir(skills_dir):
+        print(f"Warning: {skills_dir} not found")
+        return 0
+
+    count = 0
+    for root, dirs, files in os.walk(skills_dir):
+        for f in files:
+            if f != "SKILL.md":
+                continue
+            path = os.path.join(root, f)
+            skill = parse_skill_md(path)
+            if not skill or not skill["name"]:
+                continue
+
+            tok_body = tokenize(f"{skill['description']} {skill['body']}")
+            tok_tags = tokenize(skill["tags"])
+
+            conn.execute(
+                "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,tags,mitre,difficulty,description,body) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                ("skill", skill["name"], "builtin", skill["file_path"],
+                 skill["category"], tok_tags, "", skill["difficulty"],
+                 tokenize(skill["description"]), tok_body),
+            )
+            count += 1
+
+    return count
+
+
+def index_dicts(conn: sqlite3.Connection, base_dir: str):
+    """Index dictionary files metadata."""
+    dic_dir = os.path.join(base_dir, "Dic")
+    if not os.path.isdir(dic_dir):
+        return 0
+
+    count = 0
+    for root, dirs, files in os.walk(dic_dir):
+        for f in files:
+            path = os.path.join(root, f)
+            rel = os.path.relpath(path, dic_dir)
+            parts = rel.split(os.sep)
+            cat = parts[0] if parts else ""
+            conn.execute(
+                "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,description,body) VALUES (?,?,?,?,?,?,?)",
+                ("dict", rel, "builtin", path, cat, f"{cat} dictionary: {f}", tokenize(f"{cat} {f}")),
+            )
+            count += 1
+    return count
+
+
+def index_payloads(conn: sqlite3.Connection, base_dir: str):
+    """Index payload files metadata."""
+    pay_dir = os.path.join(base_dir, "Payload")
+    if not os.path.isdir(pay_dir):
+        return 0
+
+    count = 0
+    for root, dirs, files in os.walk(pay_dir):
+        for f in files:
+            path = os.path.join(root, f)
+            rel = os.path.relpath(path, pay_dir)
+            parts = rel.split(os.sep)
+            cat = parts[0] if parts else ""
+            conn.execute(
+                "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,description,body) VALUES (?,?,?,?,?,?,?)",
+                ("payload", rel, "builtin", path, cat, f"{cat} payload: {f}", tokenize(f"{cat} {f}")),
+            )
+            count += 1
+    return count
+
+
+def index_tools(conn: sqlite3.Connection, base_dir: str):
+    """Index tool YAML files."""
+    tools_dir = os.path.join(base_dir, "Tools")
+    if not os.path.isdir(tools_dir):
+        return 0
+
+    count = 0
+    for f in os.listdir(tools_dir):
+        if not f.endswith(".yaml"):
+            continue
+        path = os.path.join(tools_dir, f)
+        with open(path, "r") as fh:
+            tool = yaml.safe_load(fh)
+        if not tool:
+            continue
+
+        desc = tool.get("description", "")
+        cat = tool.get("category", "")
+        meta = json.dumps({"binary": tool.get("binary", ""), "homepage": tool.get("homepage", "")})
+
+        conn.execute(
+            "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,description,body,metadata) VALUES (?,?,?,?,?,?,?,?)",
+            ("tool", tool.get("id", f), "builtin", path, cat,
+             tokenize(desc), tokenize(f"{desc} {tool.get('name', '')}"), meta),
+        )
+        count += 1
+    return count
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Build AboutSecurity FTS5 index")
+    parser.add_argument("--input", required=True, help="AboutSecurity data directory")
+    parser.add_argument("--dict", default="", help="Custom jieba dictionary file")
+    parser.add_argument("--output", required=True, help="Output SQLite database path")
+    args = parser.parse_args()
+
+    init_jieba(args.dict)
+
+    if os.path.exists(args.output):
+        os.remove(args.output)
+
+    conn = sqlite3.connect(args.output)
+    create_schema(conn)
+
+    skills = index_skills(conn, args.input)
+    dicts = index_dicts(conn, args.input)
+    payloads = index_payloads(conn, args.input)
+    tools = index_tools(conn, args.input)
+
+    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('builtin_version', ?)",
+                 (f"v1-{skills}s-{dicts}d-{payloads}p-{tools}t",))
+
+    conn.execute("INSERT INTO resources_fts(resources_fts) VALUES('optimize')")
+    conn.execute("PRAGMA journal_mode=DELETE")
+
+    conn.commit()
+    conn.close()
+
+    print(f"Built {args.output}: {skills} skills, {dicts} dicts, {payloads} payloads, {tools} tools")
+
+
+if __name__ == "__main__":
+    main()

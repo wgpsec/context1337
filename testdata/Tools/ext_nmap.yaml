@@ -1,0 +1,21 @@
+id: ext_nmap
+name: Nmap
+description: Network exploration tool and security scanner
+homepage: https://nmap.org
+category: scan
+binary: nmap
+install:
+  - apt install -y nmap
+parameters:
+  - name: target
+    type: string
+    required: true
+    description: Target host or network
+  - name: ports
+    type: string
+    required: false
+    description: Port specification
+command_template: "nmap {{if .ports}}-p {{.ports}}{{end}} {{.target}}"
+output:
+  mode: stdout
+  parser: grepable
