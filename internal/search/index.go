@@ -97,9 +97,9 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, error) {
 	args = append(args, q.Limit)
 
 	query := fmt.Sprintf(`
-		SELECT r.id, r.type, r.name, r.source, r.file_path,
-		       r.category, r.tags, r.mitre, r.difficulty,
-		       r.description, r.body, r.metadata,
+		SELECT r.id, r.type, COALESCE(r.name,''), COALESCE(r.source,''), COALESCE(r.file_path,''),
+		       COALESCE(r.category,''), COALESCE(r.tags,''), COALESCE(r.mitre,''), COALESCE(r.difficulty,''),
+		       COALESCE(r.description,''), COALESCE(r.body,''), COALESCE(r.metadata,''),
 		       bm25(resources_fts) AS score
 		FROM resources_fts
 		JOIN resources r ON r.id = resources_fts.rowid
@@ -150,7 +150,7 @@ func ListByType(db *sql.DB, typ, category string, limit int) ([]Resource, error)
 	where := strings.Join(conditions, " AND ")
 	args = append(args, limit)
 
-	query := fmt.Sprintf("SELECT id, type, name, source, file_path, category, tags, mitre, difficulty, description, metadata FROM resources WHERE %s ORDER BY name LIMIT ?", where)
+	query := fmt.Sprintf("SELECT id, type, COALESCE(name,''), COALESCE(source,''), COALESCE(file_path,''), COALESCE(category,''), COALESCE(tags,''), COALESCE(mitre,''), COALESCE(difficulty,''), COALESCE(description,''), COALESCE(metadata,'') FROM resources WHERE %s ORDER BY name LIMIT ?", where)
 
 	rows, err := db.Query(query, args...)
 	if err != nil {
@@ -175,8 +175,9 @@ func ListByType(db *sql.DB, typ, category string, limit int) ([]Resource, error)
 func GetByName(db *sql.DB, typ, name string) (*Resource, error) {
 	var r Resource
 	err := db.QueryRow(`
-		SELECT id, type, name, source, file_path, category, tags, mitre,
-		       difficulty, description, body, metadata
+		SELECT id, type, COALESCE(name,''), COALESCE(source,''), COALESCE(file_path,''),
+		       COALESCE(category,''), COALESCE(tags,''), COALESCE(mitre,''),
+		       COALESCE(difficulty,''), COALESCE(description,''), COALESCE(body,''), COALESCE(metadata,'')
 		FROM resources WHERE type=? AND name=? LIMIT 1`, typ, name).Scan(
 		&r.ID, &r.Type, &r.Name, &r.Source, &r.FilePath,
 		&r.Category, &r.Tags, &r.Mitre, &r.Difficulty,

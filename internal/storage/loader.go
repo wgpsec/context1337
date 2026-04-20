@@ -101,6 +101,12 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		"payloads": filepath.Join(cfg.TeamDir, "Payload"),
 		"tools":    filepath.Join(cfg.TeamDir, "Tools"),
 	}
+	// Resolve symlinks so filepath.Walk descends into linked directories
+	for k, v := range dirs {
+		if resolved, err := filepath.EvalSymlinks(v); err == nil {
+			dirs[k] = resolved
+		}
+	}
 
 	if info, err := os.Stat(dirs["skills"]); err == nil && info.IsDir() {
 		skills, err := ScanSkills(dirs["skills"])
