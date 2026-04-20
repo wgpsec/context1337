@@ -67,7 +67,7 @@ func NewMCPServer(db *sql.DB, dataDir string) http.Handler {
 		Description: "Get the full configuration for a specific security tool",
 	}, wrapHandler(svc.GetTool))
 
-	return gomcp.NewSSEHandler(func(_ *http.Request) *gomcp.Server {
+	return gomcp.NewStreamableHTTPHandler(func(_ *http.Request) *gomcp.Server {
 		return server
 	}, nil)
 }

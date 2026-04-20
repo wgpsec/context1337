@@ -11,9 +11,9 @@ import (
 func NewRouter(db *sql.DB, dataDir, apiKey string, mcpHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
-	// MCP endpoint — strip /mcp prefix so go-sdk sees /sse and /message
+	// MCP endpoint — Streamable HTTP handler mounted at /mcp
 	if mcpHandler != nil {
-		mux.Handle("/mcp/", http.StripPrefix("/mcp", mcpHandler))
+		mux.Handle("/mcp", mcpHandler)
 	}
 
 	// REST API endpoints

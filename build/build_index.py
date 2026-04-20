@@ -174,25 +174,31 @@ def index_tools(conn: sqlite3.Connection, base_dir: str):
         return 0
 
     count = 0
-    for f in os.listdir(tools_dir):
-        if not f.endswith(".yaml"):
-            continue
-        path = os.path.join(tools_dir, f)
-        with open(path, "r") as fh:
-            tool = yaml.safe_load(fh)
-        if not tool:
-            continue
+    for root, dirs, files in os.walk(tools_dir):
+        for f in files:
+            if not f.endswith(".yaml"):
+                continue
+            path = os.path.join(root, f)
+            with open(path, "r") as fh:
+                tool = yaml.safe_load(fh)
+            if not tool:
+                continue
 
-        desc = tool.get("description", "")
-        cat = tool.get("category", "")
-        meta = json.dumps({"binary": tool.get("binary", ""), "homepage": tool.get("homepage", "")})
+            desc = tool.get("description", "")
+            cat = tool.get("category", "")
+            if not cat:
+                # Derive category from subdirectory name
+                rel = os.path.relpath(root, tools_dir)
+                if rel != ".":
+                    cat = rel.split(os.sep)[0]
+            meta = json.dumps({"binary": tool.get("binary", ""), "homepage": tool.get("homepage", "")})
 
-        conn.execute(
-            "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,description,body,metadata) VALUES (?,?,?,?,?,?,?,?)",
-            ("tool", tool.get("id", f), "builtin", path, cat,
-             tokenize(desc), tokenize(f"{desc} {tool.get('name', '')}"), meta),
-        )
-        count += 1
+            conn.execute(
+                "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,description,body,metadata) VALUES (?,?,?,?,?,?,?,?)",
+                ("tool", tool.get("id", f), "builtin", path, cat,
+                 tokenize(desc), tokenize(f"{desc} {tool.get('name', '')}"), meta),
+            )
+            count += 1
     return count
 
 

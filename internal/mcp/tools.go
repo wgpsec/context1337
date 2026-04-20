@@ -50,7 +50,7 @@ func (s *Service) ListTools(ctx context.Context, in ListToolsInput) ([]ToolSumma
 }
 
 type GetToolInput struct {
-	ID string `json:"id" jsonschema:"Tool ID e.g. nmap or sqlmap"`
+	ID string `json:"id" jsonschema:"Tool ID e.g. dnsx, nmap, sqlmap"`
 }
 
 type ToolDetail struct {
@@ -62,6 +62,15 @@ func (s *Service) GetTool(ctx context.Context, in GetToolInput) (*ToolDetail, er
 	r, err := search.GetByName(s.DB, "tool", in.ID)
 	if err != nil {
 		return nil, err
+	}
+	// Fallback: search by keyword
+	if r == nil {
+		results, err := search.Search(s.DB, search.SearchQuery{
+			Query: in.ID, Type: "tool", Limit: 1,
+		})
+		if err == nil && len(results) > 0 {
+			r = &results[0].Resource
+		}
 	}
 	if r == nil {
 		return nil, fmt.Errorf("tool %q not found", in.ID)
