@@ -7,6 +7,12 @@
 *.db-wal
 *.db-shm
 
+# Local dev symlinks to AboutSecurity data
+/data/Dic
+/data/Payload
+/data/Tools
+/data/skills
+
 # IDE
 .idea/
 .vscode/

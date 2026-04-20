@@ -23,23 +23,61 @@ make docker-ref ABOUTSECURITY_REF=dev
 docker run -p 8080:8080 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
 ```
 
-### Local Development
+### Local Development (recommended for first-time users)
+
+Only requires Go 1.25+ and Python 3 installed on your machine.
 
 ```bash
+git clone https://github.com/wgpsec/context1337.git
+cd context1337
+
+# One command does everything:
+# 1. Clones AboutSecurity repo (if not already present)
+# 2. Installs Python dependencies (jieba, pyyaml)
+# 3. Builds FTS5 search index (builtin.db)
+# 4. Compiles Go binary
+# 5. Symlinks data directories
+# 6. Starts the server
+make run
+
 # Build & run (requires data/ populated with builtin.db or AboutSecurity content)
 make build
 ./absec serve --port 8080 --data-dir ./data
 ```
 
+The server will be available at `http://localhost:8080`.
+
+---
+
 ## MCP Client Configuration
 
-### Claude Desktop / Claude Code
+### Claude Code (CLI)
+
+```bash
+# Add as user-level MCP server (available in all projects)
+claude mcp add aboutsecurity --transport http --scope user http://localhost:8080/mcp
+
+# Or project-level only (run from within your project directory)
+claude mcp add aboutsecurity --transport http http://localhost:8080/mcp
+```
+
+If you set `ABOUTSECURITY_API_KEY` on the server, add the auth header:
+
+```bash
+claude mcp add aboutsecurity --transport http --header "Authorization: Bearer your-api-key" --scope user http://localhost:8080/mcp
+```
+
+After adding, restart Claude Code and run `/mcp` to verify the connection shows `connected`.
+
+### Claude Desktop
+
+Edit your Claude Desktop config file (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
 {
   "mcpServers": {
     "aboutsecurity": {
-      "url": "http://localhost:8080/mcp/sse",
+      "url": "http://localhost:8080/mcp",
       "headers": {
         "Authorization": "Bearer your-api-key"
       }
@@ -54,11 +92,24 @@ make build
 {
   "mcpServers": {
     "aboutsecurity": {
-      "serverUrl": "http://localhost:8080/mcp/sse"
+      "serverUrl": "http://localhost:8080/mcp"
     }
   }
 }
 ```
+
+## Usage Examples
+
+Once connected, just ask your AI assistant naturally:
+
+- "Search for SQL injection techniques"
+- "Show me XSS payloads"
+- "What password dictionaries are available?"
+- "How to use nmap for port scanning?"
+- "Tell me about k8spider tool"
+- "List all reconnaissance tools"
+
+The AI will automatically call the right MCP tools (`search_skill`, `get_tool`, `list_dicts`, etc.) to find relevant security knowledge.
 
 ## Available MCP Tools
 
@@ -72,6 +123,18 @@ make build
 | `get_payload` | Get payload file content with pagination |
 | `list_tools` | List tool configurations by function |
 | `get_tool` | Get full tool YAML configuration |
+
+## Makefile Targets
+
+| Target | Description |
+|--------|-------------|
+| `make run` | Build + index + start server (first run auto-clones data) |
+| `make build` | Compile Go binary only |
+| `make index` | Build FTS5 search index only |
+| `make test` | Run unit tests |
+| `make test-integration` | Run integration tests |
+| `make docker` | Build Docker image |
+| `make clean` | Remove binary, databases, and symlinks |
 
 ## REST API
 
@@ -93,5 +156,5 @@ make build
 ```
 Build time:   AboutSecurity/ → Python+jieba → builtin.db (FTS5 index)
 Startup:      cp builtin.db → runtime.db, scan team/ → INSERT
-Runtime:      MCP SSE + REST API, pure Go tokenizer for new content
+Runtime:      MCP Streamable HTTP + REST API, pure Go tokenizer for new content
 ```
