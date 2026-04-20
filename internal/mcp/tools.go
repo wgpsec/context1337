@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/Esonhugh/context1337/internal/search"
 )
@@ -59,7 +61,16 @@ func (s *Service) GetTool(ctx context.Context, in GetToolInput) (*ToolDetail, er
 	if r == nil {
 		return nil, fmt.Errorf("tool %q not found", in.ID)
 	}
-	config, err := os.ReadFile(r.FilePath)
+	// Resolve file path: try DB path first, fall back to DataDir/Tools/
+	readPath := r.FilePath
+	if _, err := os.Stat(readPath); err != nil {
+		clean := filepath.Clean(r.Name + ".yaml")
+		if strings.Contains(clean, "..") {
+			return nil, fmt.Errorf("invalid tool path")
+		}
+		readPath = filepath.Join(s.DataDir, "Tools", clean)
+	}
+	config, err := os.ReadFile(readPath)
 	if err != nil {
 		return nil, fmt.Errorf("read tool config: %w", err)
 	}

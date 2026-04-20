@@ -123,6 +123,31 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		}
 	}
 
+	if info, err := os.Stat(dirs["payloads"]); err == nil && info.IsDir() {
+		payloads, err := ScanPayloads(dirs["payloads"])
+		if err != nil {
+			log.Printf("loader: scan team payloads: %v", err)
+		}
+		for _, p := range payloads {
+			insertResource(db, "payload", p.Path, "team", p.FilePath,
+				p.Type, "", "", "", "")
+		}
+	}
+
+	if info, err := os.Stat(dirs["tools"]); err == nil && info.IsDir() {
+		tools, err := ScanTools(dirs["tools"])
+		if err != nil {
+			log.Printf("loader: scan team tools: %v", err)
+		}
+		for _, t := range tools {
+			metadata := fmt.Sprintf(`{"binary":"%s"}`, t.Binary)
+			insertResource(db, "tool", t.ID, "team", t.FilePath,
+				t.Category, "", "", t.Description, t.RawYAML)
+			// Update metadata separately
+			db.Exec("UPDATE resources SET metadata=? WHERE type='tool' AND name=? AND source='team'", metadata, t.ID)
+		}
+	}
+
 	return nil
 }
 
