@@ -13,10 +13,16 @@ test-integration:
 run: build
 	./absec serve --port 8080 --data-dir ./data
 
-# Docker — must run from parent directory where AboutSecurity/ lives
-# Example: cd .. && make -C aboutsecurity-mcp docker
+# Docker — self-contained build, clones AboutSecurity from GitHub
 docker:
-	docker build -t context1337:latest -f build/Dockerfile ..
+	docker build -t context1337:latest -f build/Dockerfile .
+
+# Build with a specific branch/tag of AboutSecurity
+# Example: make docker-ref ABOUTSECURITY_REF=dev
+ABOUTSECURITY_REF ?= main
+docker-ref:
+	docker build -t context1337:latest -f build/Dockerfile \
+		--build-arg ABOUTSECURITY_REF=$(ABOUTSECURITY_REF) .
 
 clean:
 	rm -f absec

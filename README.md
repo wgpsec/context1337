@@ -1,15 +1,19 @@
 # context1337 — AboutSecurity MCP Server
 
-Standalone MCP resource service that turns [AboutSecurity](https://github.com/Esonhugh/AboutSecurity) from a file repo into a consumable API. Like context7, but for security.
+Standalone MCP resource service that turns [AboutSecurity](https://github.com/wgpsec/AboutSecurity) from a file repo into a consumable API. Like context7, but for security.
 
 ## Quick Start
 
 ### Docker (recommended)
 
 ```bash
-# From the parent directory containing both AboutSecurity/ and aboutsecurity-mcp/
-docker build -t context1337:latest -f aboutsecurity-mcp/build/Dockerfile .
+# Self-contained build — clones AboutSecurity from GitHub automatically
+docker build -t context1337:latest -f build/Dockerfile .
 docker run -p 8080:8080 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
+
+# Build with a specific branch/tag
+docker build -t context1337:latest -f build/Dockerfile \
+  --build-arg ABOUTSECURITY_REF=dev .
 ```
 
 ### Local Development

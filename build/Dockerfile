@@ -1,9 +1,11 @@
 # Stage 1: Build FTS5 index with Python + jieba
 FROM python:3.12-slim AS indexer
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir jieba pyyaml
-# AboutSecurity is COPYed from parent context via docker build -f
-COPY AboutSecurity/ /src/AboutSecurity/
-COPY aboutsecurity-mcp/build/build_index.py aboutsecurity-mcp/build/security_dict.txt /src/build/
+ARG ABOUTSECURITY_REPO=https://github.com/wgpsec/AboutSecurity.git
+ARG ABOUTSECURITY_REF=main
+RUN git clone --depth 1 --branch ${ABOUTSECURITY_REF} ${ABOUTSECURITY_REPO} /src/AboutSecurity
+COPY build/build_index.py build/security_dict.txt /src/build/
 RUN python /src/build/build_index.py \
     --input /src/AboutSecurity/ \
     --dict /src/build/security_dict.txt \
@@ -12,9 +14,9 @@ RUN python /src/build/build_index.py \
 # Stage 2: Build Go binary
 FROM golang:1.25 AS builder
 WORKDIR /src
-COPY aboutsecurity-mcp/go.mod aboutsecurity-mcp/go.sum ./
+COPY go.mod go.sum ./
 RUN go mod download
-COPY aboutsecurity-mcp/ .
+COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /artifacts/absec ./cmd/absec/
 
 # Stage 3: Minimal runtime
