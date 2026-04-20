@@ -36,8 +36,13 @@ func (s *Service) ListTools(ctx context.Context, in ListToolsInput) ([]ToolSumma
 			json.Unmarshal([]byte(r.Metadata), &meta)
 			binary = meta["binary"]
 		}
+		// r.Name stores tool ID (e.g. "nmap"), r.Body stores raw YAML with the real name
+		toolName := r.Name
+		if r.Description != "" {
+			toolName = r.Description
+		}
 		out[i] = ToolSummary{
-			ID: r.Name, Name: r.Description, Function: r.Category,
+			ID: r.Name, Name: toolName, Function: r.Category,
 			Description: r.Description, Binary: binary,
 		}
 	}

@@ -10,7 +10,6 @@ func TestLoader_FirstBoot(t *testing.T) {
 	dir := t.TempDir()
 	builtinPath := filepath.Join(dir, "builtin.db")
 	runtimePath := filepath.Join(dir, "runtime", "runtime.db")
-	skillsDir := filepath.Join(dir, "skills")
 
 	// Create a minimal builtin.db
 	bdb, err := OpenDB(builtinPath)
@@ -23,7 +22,6 @@ func TestLoader_FirstBoot(t *testing.T) {
 	cfg := LoaderConfig{
 		BuiltinDB: builtinPath,
 		RuntimeDB: runtimePath,
-		SkillsDir: skillsDir,
 	}
 
 	db, err := InitRuntime(cfg)

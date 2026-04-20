@@ -10,7 +10,7 @@ RUN python /src/build/build_index.py \
     --output /artifacts/builtin.db
 
 # Stage 2: Build Go binary
-FROM golang:1.23 AS builder
+FROM golang:1.25 AS builder
 WORKDIR /src
 COPY aboutsecurity-mcp/go.mod aboutsecurity-mcp/go.sum ./
 RUN go mod download

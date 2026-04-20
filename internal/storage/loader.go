@@ -7,17 +7,15 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/Esonhugh/context1337/internal/tokenize"
 )
 
 // LoaderConfig defines paths for the startup loader.
 type LoaderConfig struct {
-	BuiltinDB   string
-	RuntimeDB   string
-	SkillsDir   string
-	DictsDir    string
-	PayloadsDir string
-	ToolsDir    string
-	TeamDir     string
+	BuiltinDB string
+	RuntimeDB string
+	TeamDir   string
 }
 
 // InitRuntime handles the three-layer startup lifecycle:
@@ -78,13 +76,16 @@ func InitRuntime(cfg LoaderConfig) (*sql.DB, error) {
 }
 
 // insertResource inserts a resource directly via SQL, avoiding an import cycle
-// with the search package.
+// with the search package. Description and body are pre-tokenized for FTS5
+// consistency with the Python build-time indexer (jieba).
 func insertResource(db *sql.DB, typ, name, source, filePath, category, tags, difficulty, description, body string) error {
+	tokDesc := tokenize.TokenizeToString(description)
+	tokBody := tokenize.TokenizeToString(body)
 	_, err := db.Exec(`
 		INSERT OR REPLACE INTO resources
 			(type, name, source, file_path, category, tags, difficulty, description, body, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-		typ, name, source, filePath, category, tags, difficulty, description, body,
+		typ, name, source, filePath, category, tags, difficulty, tokDesc, tokBody,
 	)
 	return err
 }
