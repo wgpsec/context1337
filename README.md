@@ -7,13 +7,20 @@ Standalone MCP resource service that turns [AboutSecurity](https://github.com/wg
 ### Docker (recommended)
 
 ```bash
-# Self-contained build — clones AboutSecurity from GitHub automatically
-docker build -t context1337:latest -f build/Dockerfile .
-docker run -p 8080:8080 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
+# Default: clones AboutSecurity from GitHub automatically
+make docker
 
-# Build with a specific branch/tag
-docker build -t context1337:latest -f build/Dockerfile \
-  --build-arg ABOUTSECURITY_REF=dev .
+# Use local AboutSecurity repo (skip git clone, faster rebuild)
+make docker-local
+# or specify path:
+make docker-local ABOUTSECURITY_LOCAL=../AboutSecurity
+
+# Pin to a specific branch/tag
+make docker-ref ABOUTSECURITY_REF=dev
+```
+
+```bash
+docker run -p 8080:8080 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
 ```
 
 ### Local Development

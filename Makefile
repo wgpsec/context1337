@@ -13,16 +13,21 @@ test-integration:
 run: build
 	./absec serve --port 8080 --data-dir ./data
 
-# Docker — self-contained build, clones AboutSecurity from GitHub
+# Docker — default: clones AboutSecurity from GitHub
 docker:
-	docker build -t context1337:latest -f build/Dockerfile .
+	DOCKER_BUILDKIT=1 docker build -t context1337:latest -f build/Dockerfile .
 
-# Build with a specific branch/tag of AboutSecurity
-# Example: make docker-ref ABOUTSECURITY_REF=dev
+# Build with a specific branch/tag
 ABOUTSECURITY_REF ?= main
 docker-ref:
-	docker build -t context1337:latest -f build/Dockerfile \
+	DOCKER_BUILDKIT=1 docker build -t context1337:latest -f build/Dockerfile \
 		--build-arg ABOUTSECURITY_REF=$(ABOUTSECURITY_REF) .
+
+# Build with local AboutSecurity repo (skip git clone)
+ABOUTSECURITY_LOCAL ?= ../AboutSecurity
+docker-local:
+	DOCKER_BUILDKIT=1 docker build -t context1337:latest -f build/Dockerfile \
+		--build-context aboutsecurity=$(ABOUTSECURITY_LOCAL) .
 
 clean:
 	rm -f absec
