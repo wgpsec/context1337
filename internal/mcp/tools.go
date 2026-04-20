@@ -11,15 +11,46 @@ import (
 	"github.com/Esonhugh/context1337/internal/search"
 )
 
+type SearchToolsInput struct {
+	Query    string `json:"query"              jsonschema:"Search keyword e.g. nmap, port scan, dns"`
+	Function string `json:"function,omitempty" jsonschema:"Filter: scan|fuzz|osint|poc|brute|postexploit"`
+	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 10)"`
+}
+
+func (s *Service) SearchTools(ctx context.Context, in SearchToolsInput) ([]ToolSummary, error) {
+	if in.Limit <= 0 {
+		in.Limit = 10
+	}
+	results, err := search.Search(s.DB, search.SearchQuery{
+		Query: in.Query, Type: "tool", Category: in.Function, Limit: in.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ToolSummary, len(results))
+	for i, r := range results {
+		var binary string
+		if r.Metadata != "" {
+			var meta map[string]string
+			json.Unmarshal([]byte(r.Metadata), &meta)
+			binary = meta["binary"]
+		}
+		out[i] = ToolSummary{
+			Name: r.Name, Description: r.Description,
+			Function: r.Category, Binary: binary,
+		}
+	}
+	return out, nil
+}
+
 type ListToolsInput struct {
 	Function string `json:"function,omitempty" jsonschema:"Filter: scan|fuzz|osint|poc|brute|postexploit"`
 }
 
 type ToolSummary struct {
-	ID          string `json:"id"`
 	Name        string `json:"name"`
-	Function    string `json:"function"`
 	Description string `json:"description"`
+	Function    string `json:"function"`
 	Binary      string `json:"binary,omitempty"`
 }
 
@@ -36,44 +67,39 @@ func (s *Service) ListTools(ctx context.Context, in ListToolsInput) ([]ToolSumma
 			json.Unmarshal([]byte(r.Metadata), &meta)
 			binary = meta["binary"]
 		}
-		// r.Name stores tool ID (e.g. "nmap"), r.Body stores raw YAML with the real name
-		toolName := r.Name
-		if r.Description != "" {
-			toolName = r.Description
-		}
 		out[i] = ToolSummary{
-			ID: r.Name, Name: toolName, Function: r.Category,
-			Description: r.Description, Binary: binary,
+			Name: r.Name, Description: r.Description,
+			Function: r.Category, Binary: binary,
 		}
 	}
 	return out, nil
 }
 
 type GetToolInput struct {
-	ID string `json:"id" jsonschema:"Tool ID e.g. dnsx, nmap, sqlmap"`
+	Name string `json:"name" jsonschema:"Tool name e.g. dnsx, nmap, sqlmap"`
 }
 
 type ToolDetail struct {
-	ID     string `json:"id"`
+	Name   string `json:"name"`
 	Config string `json:"config"`
 }
 
 func (s *Service) GetTool(ctx context.Context, in GetToolInput) (*ToolDetail, error) {
-	r, err := search.GetByName(s.DB, "tool", in.ID)
+	r, err := search.GetByName(s.DB, "tool", in.Name)
 	if err != nil {
 		return nil, err
 	}
 	// Fallback: search by keyword
 	if r == nil {
 		results, err := search.Search(s.DB, search.SearchQuery{
-			Query: in.ID, Type: "tool", Limit: 1,
+			Query: in.Name, Type: "tool", Limit: 1,
 		})
 		if err == nil && len(results) > 0 {
 			r = &results[0].Resource
 		}
 	}
 	if r == nil {
-		return nil, fmt.Errorf("tool %q not found", in.ID)
+		return nil, fmt.Errorf("tool %q not found", in.Name)
 	}
 	// Resolve file path: try DB path first, fall back to DataDir/Tools/
 	readPath := r.FilePath
@@ -88,5 +114,5 @@ func (s *Service) GetTool(ctx context.Context, in GetToolInput) (*ToolDetail, er
 	if err != nil {
 		return nil, fmt.Errorf("read tool config: %w", err)
 	}
-	return &ToolDetail{ID: in.ID, Config: string(config)}, nil
+	return &ToolDetail{Name: in.Name, Config: string(config)}, nil
 }

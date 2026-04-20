@@ -25,46 +25,61 @@ func NewMCPServer(db *sql.DB, dataDir string) http.Handler {
 
 	// --- Skill tools ---
 	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "list_skills",
+		Description: "List penetration testing skills by category. Params: category (optional: exploit|recon|tool|cloud|ctf|lateral|evasion|malware|dfir|threat-intel|ai-security|code-audit|postexploit|general), difficulty (optional: easy|medium|hard), limit (optional, default 100)",
+	}, wrapHandler(svc.ListSkills))
+
+	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_skill",
-		Description: "Search penetration testing skills by keyword, category, or difficulty",
+		Description: "Search penetration testing skills by keyword. Params: query (keyword), category (optional: exploit|recon|tool|cloud|ctf|lateral), difficulty (optional: easy|medium|hard), limit (optional, default 10)",
 	}, wrapHandler(svc.SearchSkill))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_skill",
-		Description: "Get detailed information about a specific skill by name",
+		Description: "Get skill detail by exact name. Params: name (skill name from search/list results), depth (optional: metadata|summary|full, default summary)",
 	}, wrapHandler(svc.GetSkill))
 
 	// --- Dictionary tools ---
 	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "search_dicts",
+		Description: "Search security dictionaries by keyword. Params: query (keyword e.g. password, SSH, admin), type (optional: auth|network|port|web|regular), limit (optional, default 20)",
+	}, wrapHandler(svc.SearchDicts))
+
+	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_dicts",
-		Description: "List available security dictionaries, optionally filtered by type",
+		Description: "List all security dictionaries. Params: type (optional: auth|network|port|web|regular)",
 	}, wrapHandler(svc.ListDicts))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_dict",
-		Description: "Get the content of a specific dictionary file with pagination",
+		Description: "Read dictionary file content. Params: path (relative path from list_dicts e.g. Auth/password/Top100.txt), offset (optional), limit (optional)",
 	}, wrapHandler(svc.GetDict))
 
 	// --- Payload tools ---
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_payload",
-		Description: "Search security payloads by keyword or type (sqli, xss, ssrf, etc.)",
+		Description: "Search security payloads. Params: query (keyword), type (optional: sqli|xss|ssrf|xxe|lfi|rce|cors)",
 	}, wrapHandler(svc.SearchPayload))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_payload",
-		Description: "Get the content of a specific payload file with pagination",
+		Description: "Read payload file content. Params: path (relative path from search_payload e.g. XSS/events.txt), offset (optional), limit (optional)",
 	}, wrapHandler(svc.GetPayload))
 
 	// --- Tool config tools ---
 	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "search_tools",
+		Description: "Search security tools by keyword. Params: query (keyword e.g. nmap, port scan, dns), function (optional: scan|fuzz|osint|poc|brute|postexploit), limit (optional, default 10)",
+	}, wrapHandler(svc.SearchTools))
+
+	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_tools",
-		Description: "List available security tool configurations by function category",
+		Description: "List security tool configurations. Params: function (optional: scan|fuzz|osint|poc|brute|postexploit)",
 	}, wrapHandler(svc.ListTools))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_tool",
-		Description: "Get the full configuration for a specific security tool",
+		Description: "Get full YAML configuration for a tool. Params: name (tool name from list_tools/search_tools e.g. nmap, sqlmap, dnsx)",
 	}, wrapHandler(svc.GetTool))
 
 	return gomcp.NewStreamableHTTPHandler(func(_ *http.Request) *gomcp.Server {

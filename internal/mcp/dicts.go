@@ -10,6 +10,29 @@ import (
 	"github.com/Esonhugh/context1337/internal/storage"
 )
 
+type SearchDictsInput struct {
+	Query string `json:"query"             jsonschema:"Search keyword e.g. password, SSH, admin"`
+	Type  string `json:"type,omitempty"    jsonschema:"Filter by type: auth|network|port|web|regular"`
+	Limit int    `json:"limit,omitempty"   jsonschema:"Max results (default 20)"`
+}
+
+func (s *Service) SearchDicts(ctx context.Context, in SearchDictsInput) ([]DictSummary, error) {
+	if in.Limit <= 0 {
+		in.Limit = 20
+	}
+	results, err := search.Search(s.DB, search.SearchQuery{
+		Query: in.Query, Type: "dict", Category: in.Type, Limit: in.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DictSummary, len(results))
+	for i, r := range results {
+		out[i] = DictSummary{Path: r.Name, Type: r.Category, Description: r.Description, Source: r.Source}
+	}
+	return out, nil
+}
+
 type ListDictsInput struct {
 	Type string `json:"type,omitempty" jsonschema:"Filter by type: auth|network|port|web|regular"`
 }

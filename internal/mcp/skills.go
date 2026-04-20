@@ -14,11 +14,40 @@ type Service struct {
 	DataDir string
 }
 
+// --- list_skills ---
+
+type ListSkillsInput struct {
+	Category   string `json:"category,omitempty"   jsonschema:"Filter by category: exploit|recon|tool|cloud|ctf|lateral|evasion|malware|dfir|threat-intel|ai-security|code-audit|postexploit|general"`
+	Difficulty string `json:"difficulty,omitempty" jsonschema:"Filter by difficulty: easy|medium|hard"`
+	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 100)"`
+}
+
+func (s *Service) ListSkills(ctx context.Context, in ListSkillsInput) ([]SkillSummary, error) {
+	if in.Limit <= 0 {
+		in.Limit = 100
+	}
+	resources, err := search.ListByType(s.DB, "skill", in.Category, in.Limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SkillSummary, 0, len(resources))
+	for _, r := range resources {
+		if in.Difficulty != "" && r.Difficulty != in.Difficulty {
+			continue
+		}
+		out = append(out, SkillSummary{
+			Name: r.Name, Description: r.Description, Category: r.Category,
+			Tags: r.Tags, Difficulty: r.Difficulty, Source: r.Source,
+		})
+	}
+	return out, nil
+}
+
 // --- search_skill ---
 
 type SearchSkillInput struct {
 	Query      string `json:"query"               jsonschema:"Search query keywords"`
-	Category   string `json:"category,omitempty"   jsonschema:"Filter by category: exploit|recon|tool|cloud|ctf|lateral"`
+	Category   string `json:"category,omitempty"   jsonschema:"Filter by category: exploit|recon|tool|cloud|ctf|lateral|evasion|malware|dfir|threat-intel|ai-security|code-audit|postexploit|general"`
 	Difficulty string `json:"difficulty,omitempty" jsonschema:"Filter by difficulty: easy|medium|hard"`
 	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 10)"`
 }
