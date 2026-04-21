@@ -81,6 +81,38 @@ type FileMeta struct {
 	Tags        string `yaml:"tags"`
 }
 
+// ReferenceFile represents a single reference file from a skill's references/ directory.
+type ReferenceFile struct {
+	Name    string
+	Content string
+}
+
+// ReadReferences reads all .md files from skillDir/references/, sorted by name.
+// Returns empty slice (not error) if references/ doesn't exist.
+func ReadReferences(skillDir string) ([]ReferenceFile, error) {
+	refDir := filepath.Join(skillDir, "references")
+	entries, err := os.ReadDir(refDir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var refs []ReferenceFile
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(refDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		refs = append(refs, ReferenceFile{Name: e.Name(), Content: string(data)})
+	}
+	return refs, nil
+}
+
 func ParseDirMeta(dir string) (*DirMeta, error) {
 	path := filepath.Join(dir, "_meta.yaml")
 	data, err := os.ReadFile(path)
@@ -333,6 +365,75 @@ func ScanTools(dir string) ([]ToolData, error) {
 		return nil
 	})
 	return tools, err
+}
+
+// DocEntry represents a document from the Doc/ directory.
+type DocEntry struct {
+	Name        string
+	Description string
+	Category    string
+	Body        string
+	FilePath    string
+}
+
+// ScanDocs scans a Doc/ directory for .md and .txt files.
+// Name is derived from filename without extension.
+// Description is the first non-empty, non-heading line.
+func ScanDocs(dir string) ([]DocEntry, error) {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var docs []DocEntry
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		ext := filepath.Ext(e.Name())
+		if ext != ".md" && ext != ".txt" {
+			continue
+		}
+		if isSkipFile(e.Name()) {
+			continue
+		}
+
+		path := filepath.Join(dir, e.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		body := string(data)
+		name := strings.TrimSuffix(e.Name(), ext)
+		desc := extractFirstLine(body)
+
+		docs = append(docs, DocEntry{
+			Name:        name,
+			Description: desc,
+			Category:    "reference",
+			Body:        body,
+			FilePath:    path,
+		})
+	}
+	return docs, nil
+}
+
+// extractFirstLine returns the first non-empty, non-heading line as a description.
+func extractFirstLine(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "---") {
+			continue
+		}
+		if len(line) > 200 {
+			return line[:200]
+		}
+		return line
+	}
+	return ""
 }
 
 func ReadFileLines(path string, offset, limit int) (string, int, error) {
