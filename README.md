@@ -44,7 +44,7 @@ make run
 
 # Build & run (requires data/ populated with builtin.db or AboutSecurity content)
 make build
-./absec serve --port 8088 --data-dir ./data
+./absec serve --port 8088 --data-dir ./data  # default: --tool-mode lite
 ```
 
 The server will be available at `http://localhost:8088`.
@@ -105,28 +105,49 @@ Edit your Claude Desktop config file (`~/Library/Application Support/Claude/clau
 Once connected, just ask your AI assistant naturally:
 
 **Search across all types**
-- "Search for SQL injection resources" → `search(query="SQL injection")` finds skills, payloads, and tools
-- "What XSS payloads are available?" → `search(query="XSS", type="payload")`
-- "List all scanning tools" → `search(type="tool", category="scan")`
-- "Show me all exploit skills" → `search(type="skill", category="exploit")`
+- "Search for SQL injection resources" → `search_security(query="SQL injection")` finds skills, payloads, and tools
+- "What XSS payloads are available?" → `search_security(query="XSS", type="payload")`
+- "List all scanning tools" → `search_security(type="tool", category="scan")`
+- "Show me all exploit skills" → `search_security(type="skill", category="exploit")`
 
 **Get detailed knowledge**
-- "Explain the SQL injection skill in detail" → `get(name="sql-injection", type="skill", depth="full")` includes references
-- "Show me the nmap tool configuration" → `get(name="nmap", type="tool")` returns YAML config
+- "Explain the SQL injection skill in detail" → `get_security_detail(name="sql-injection", type="skill", depth="full")` includes references
+- "Show me the nmap tool configuration" → `get_security_detail(name="nmap", type="tool")` returns YAML config
 
 **Read data files**
-- "Show the top 100 passwords dictionary" → `get_file(path="Auth/password/Top100.txt", type="dict")`
-- "Get XSS event handler payloads" → `get_file(path="XSS/events.txt", type="payload")`
+- "Show the top 100 passwords dictionary" → `read_security_file(path="Auth/password/Top100.txt", type="dict")`
+- "Get XSS event handler payloads" → `read_security_file(path="XSS/events.txt", type="payload")`
 
 The AI will automatically call the right MCP tools to find relevant security knowledge.
 
-## Available MCP Tools (3)
+## Available MCP Tools
+
+Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools.
+
+### Lite mode (default, 3 tools)
 
 | Tool | Description |
 |------|-------------|
-| `search` | Search or list all resource types (skill, dict, payload, tool). Optional type/category filter. Empty query lists all. |
-| `get` | Get full detail for a skill (with depth control + references) or tool (YAML config) |
-| `get_file` | Read dictionary or payload file content with line-level pagination |
+| `search_security` | Search or list all resource types (skill, dict, payload, tool). Optional type/category filter. Empty query lists all. |
+| `get_security_detail` | Get full detail for a skill (with depth control + references) or tool (YAML config) |
+| `read_security_file` | Read dictionary or payload file content with line-level pagination |
+
+### Full mode (12 tools)
+
+| Tool | Description |
+|------|-------------|
+| `search_skill` | Search penetration testing skills by keyword |
+| `search_dicts` | Search password dictionaries by keyword |
+| `search_payload` | Search attack payloads by keyword |
+| `search_tools` | Search security tool configs by keyword |
+| `list_skills` | Browse all skills |
+| `list_dicts` | Browse all dictionaries |
+| `list_payloads` | Browse all payloads |
+| `list_tools` | Browse all tools |
+| `get_skill` | Get skill detail (with depth + references) |
+| `get_tool` | Get tool YAML config |
+| `get_dict` | Read dictionary file with line pagination |
+| `get_payload` | Read payload file with line pagination |
 
 ## Makefile Targets
 
@@ -154,6 +175,7 @@ The AI will automatically call the right MCP tools to find relevant security kno
 | `ABOUTSECURITY_PORT` | `8088` | HTTP listen port |
 | `ABOUTSECURITY_DATA_DIR` | `./data` | Data directory root |
 | `ABOUTSECURITY_API_KEY` | (empty=no auth) | API key for Bearer auth |
+| `ABOUTSECURITY_TOOL_MODE` | `lite` | Tool registration mode: `lite` (3 tools) or `full` (12 tools) |
 
 ## Architecture
 

@@ -44,7 +44,7 @@ make run
 
 # 手动构建和运行
 make build
-./absec serve --port 8088 --data-dir ./data
+./absec serve --port 8088 --data-dir ./data  # 默认：--tool-mode lite
 ```
 
 服务启动后访问 `http://localhost:8088`。
@@ -105,28 +105,49 @@ claude mcp add aboutsecurity --transport http --header "Authorization: Bearer yo
 连接后，直接用自然语言与 AI 助手对话：
 
 **跨类型搜索**
-- "搜索 SQL 注入相关资源" → `search(query="SQL injection")` 同时找到 skill、payload、tool
-- "有哪些 XSS payload？" → `search(query="XSS", type="payload")`
-- "列出所有扫描类工具" → `search(type="tool", category="scan")`
-- "有哪些漏洞利用技能？" → `search(type="skill", category="exploit")`
+- "搜索 SQL 注入相关资源" → `search_security(query="SQL injection")` 同时找到 skill、payload、tool
+- "有哪些 XSS payload？" → `search_security(query="XSS", type="payload")`
+- "列出所有扫描类工具" → `search_security(type="tool", category="scan")`
+- "有哪些漏洞利用技能？" → `search_security(type="skill", category="exploit")`
 
 **获取详细知识**
-- "详细讲解 SQL 注入攻击技术" → `get(name="sql-injection", type="skill", depth="full")` 包含参考资料
-- "nmap 工具的配置是什么？" → `get(name="nmap", type="tool")` 返回 YAML 配置
+- "详细讲解 SQL 注入攻击技术" → `get_security_detail(name="sql-injection", type="skill", depth="full")` 包含参考资料
+- "nmap 工具的配置是什么？" → `get_security_detail(name="nmap", type="tool")` 返回 YAML 配置
 
 **读取数据文件**
-- "给我常见弱口令字典前 100 行" → `get_file(path="Auth/password/Top100.txt", type="dict")`
-- "XSS 事件触发的 payload 有哪些？" → `get_file(path="XSS/events.txt", type="payload")`
+- "给我常见弱口令字典前 100 行" → `read_security_file(path="Auth/password/Top100.txt", type="dict")`
+- "XSS 事件触发的 payload 有哪些？" → `read_security_file(path="XSS/events.txt", type="payload")`
 
 AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 
-## 可用 MCP 工具（3 个）
+## 可用 MCP 工具
+
+默认为 **精简模式**（3 个工具）。使用 `--tool-mode full` 启用 12 个分类工具。
+
+### 精简模式（默认，3 个工具）
 
 | 工具 | 说明 |
 |------|------|
-| `search` | 搜索或列出所有资源类型（skill、dict、payload、tool）。支持 type/category 过滤，空 query 列出全部 |
-| `get` | 获取 skill（支持 depth 和 references）或 tool（YAML 配置）的详细内容 |
-| `get_file` | 按行分页读取字典或 payload 文件内容 |
+| `search_security` | 搜索或列出所有资源类型（skill、dict、payload、tool）。支持 type/category 过滤，空 query 列出全部 |
+| `get_security_detail` | 获取 skill（支持 depth 和 references）或 tool（YAML 配置）的详细内容 |
+| `read_security_file` | 按行分页读取字典或 payload 文件内容 |
+
+### 完整模式（12 个工具）
+
+| 工具 | 说明 |
+|------|------|
+| `search_skill` | 按关键词搜索渗透测试技能 |
+| `search_dicts` | 按关键词搜索密码字典 |
+| `search_payload` | 按关键词搜索攻击载荷 |
+| `search_tools` | 按关键词搜索安全工具配置 |
+| `list_skills` | 浏览所有技能 |
+| `list_dicts` | 浏览所有字典 |
+| `list_payloads` | 浏览所有载荷 |
+| `list_tools` | 浏览所有工具 |
+| `get_skill` | 获取技能详情（支持 depth 和 references） |
+| `get_tool` | 获取工具 YAML 配置 |
+| `get_dict` | 按行分页读取字典文件 |
+| `get_payload` | 按行分页读取载荷文件 |
 
 ## Makefile 命令
 
@@ -154,6 +175,7 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 | `ABOUTSECURITY_PORT` | `8088` | HTTP 监听端口 |
 | `ABOUTSECURITY_DATA_DIR` | `./data` | 数据目录根路径 |
 | `ABOUTSECURITY_API_KEY` | （空=无认证） | Bearer 认证密钥 |
+| `ABOUTSECURITY_TOOL_MODE` | `lite` | 工具注册模式：`lite`（3 个工具）或 `full`（12 个工具） |
 
 ## 架构
 
