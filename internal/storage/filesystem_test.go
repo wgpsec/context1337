@@ -117,6 +117,24 @@ func TestParseDirMeta(t *testing.T) {
 	}
 }
 
+func TestScanTools_Recursive(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "Tools")
+	tools, err := ScanTools(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for _, tool := range tools {
+		found[tool.ID] = true
+	}
+	if !found["ext_nmap"] {
+		t.Error("expected ext_nmap from top-level")
+	}
+	if !found["masscan"] {
+		t.Error("expected masscan from scan/ subdirectory")
+	}
+}
+
 func TestParseDirMeta_NoFile(t *testing.T) {
 	meta, err := ParseDirMeta(t.TempDir())
 	if err != nil {

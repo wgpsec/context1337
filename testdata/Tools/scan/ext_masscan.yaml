@@ -1,0 +1,6 @@
+id: masscan
+name: "Masscan 端口扫描"
+description: "Mass IP port scanner"
+homepage: "https://github.com/robertdavidgraham/masscan"
+category: scan
+binary: masscan

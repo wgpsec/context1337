@@ -308,21 +308,28 @@ func ParseToolYAML(path string) (*ToolData, error) {
 
 func ScanTools(dir string) ([]ToolData, error) {
 	var tools []ToolData
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
-			continue
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
 		}
-		tool, err := ParseToolYAML(filepath.Join(dir, e.Name()))
+		if !strings.HasSuffix(d.Name(), ".yaml") || d.Name() == "_meta.yaml" {
+			return nil
+		}
+		tool, err := ParseToolYAML(path)
 		if err != nil {
-			continue
+			return nil // skip unparseable
+		}
+		if tool.Category == "" {
+			rel, _ := filepath.Rel(dir, path)
+			parts := strings.SplitN(rel, string(filepath.Separator), 2)
+			if len(parts) > 1 {
+				tool.Category = parts[0]
+			}
 		}
 		tools = append(tools, *tool)
-	}
-	return tools, nil
+		return nil
+	})
+	return tools, err
 }
 
 func ReadFileLines(path string, offset, limit int) (string, int, error) {
