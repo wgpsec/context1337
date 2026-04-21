@@ -21,7 +21,7 @@ type ToolMode string
 const (
 	// ToolModeLite registers the 3 core tools (search, detail, file).
 	ToolModeLite ToolMode = "lite"
-	// ToolModeFull registers all tools (12 planned). Currently falls back to lite.
+	// ToolModeFull registers the 12 per-type tools (search/list/get per resource type).
 	ToolModeFull ToolMode = "full"
 )
 
