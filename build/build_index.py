@@ -89,6 +89,7 @@ def parse_skill_md(path: str) -> dict:
         "tags": meta.get("tags", ""),
         "category": meta.get("category", ""),
         "difficulty": meta.get("difficulty", ""),
+        "mitre": meta.get("mitre_attack", ""),
         "body": body,
         "file_path": path,
     }
@@ -117,7 +118,7 @@ def index_skills(conn: sqlite3.Connection, base_dir: str):
             conn.execute(
                 "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,tags,mitre,difficulty,description,body) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 ("skill", skill["name"], "builtin", skill["file_path"],
-                 skill["category"], tok_tags, "", skill["difficulty"],
+                 skill["category"], tok_tags, skill["mitre"], skill["difficulty"],
                  tokenize(skill["description"]), tok_body),
             )
             count += 1
