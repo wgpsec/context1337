@@ -37,6 +37,7 @@ func serveCmd() *cobra.Command {
 	var dataDir string
 	var benchmark bool
 	var benchmarkScenario string
+	var toolMode string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -47,6 +48,16 @@ func serveCmd() *cobra.Command {
 			}
 			if dataDir != "" {
 				os.Setenv("ABOUTSECURITY_DATA_DIR", dataDir)
+			}
+
+			// Resolve tool-mode: flag > env var > default "lite"
+			if toolMode == "" || toolMode == "lite" {
+				if envMode := os.Getenv("ABOUTSECURITY_TOOL_MODE"); envMode != "" && !cmd.Flags().Changed("tool-mode") {
+					toolMode = envMode
+				}
+			}
+			if toolMode == "" {
+				toolMode = "lite"
 			}
 
 			cfg, err := config.Load()
@@ -78,11 +89,11 @@ func serveCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			mcpHandler := mcphandler.NewMCPServer(db, cfg.DataDir)
+			mcpHandler := mcphandler.NewMCPServer(db, cfg.DataDir, mcphandler.ToolMode(toolMode))
 			handler := api.NewRouter(db, cfg.DataDir, cfg.APIKey, mcpHandler)
 
 			addr := fmt.Sprintf(":%d", cfg.Port)
-			log.Printf("absec server starting on %s (data: %s)", addr, cfg.DataDir)
+			log.Printf("absec server starting on %s (data: %s, tool-mode: %s)", addr, cfg.DataDir, toolMode)
 			return http.ListenAndServe(addr, handler)
 		},
 	}
@@ -91,5 +102,6 @@ func serveCmd() *cobra.Command {
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory")
 	cmd.Flags().BoolVar(&benchmark, "benchmark", false, "Enable MCP tool call logging")
 	cmd.Flags().StringVar(&benchmarkScenario, "benchmark-scenario", "default", "Scenario label for benchmark logs")
+	cmd.Flags().StringVar(&toolMode, "tool-mode", "lite", "Tool registration mode: lite (3 tools) or full (12 tools)")
 	return cmd
 }

@@ -15,37 +15,64 @@ import (
 // is recorded (tool name, input, response size, item count, latency).
 var BenchLogger *benchlog.Logger
 
+// ToolMode controls which set of tools the MCP server exposes.
+type ToolMode string
+
+const (
+	// ToolModeLite registers the 3 core tools (search, detail, file).
+	ToolModeLite ToolMode = "lite"
+	// ToolModeFull registers all tools (12 planned). Currently falls back to lite.
+	ToolModeFull ToolMode = "full"
+)
+
 // NewService creates a new MCP service with all handlers.
 func NewService(db *sql.DB, dataDir string) *Service {
 	return &Service{DB: db, DataDir: dataDir}
 }
 
-// NewMCPServer creates an MCP server with 3 unified tools and returns an HTTP handler.
-func NewMCPServer(db *sql.DB, dataDir string) http.Handler {
+// NewMCPServer creates an MCP server and returns an HTTP handler.
+// The mode parameter controls which tools are registered.
+func NewMCPServer(db *sql.DB, dataDir string, mode ToolMode) http.Handler {
 	svc := NewService(db, dataDir)
 	server := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
-		Version: "0.4.0",
+		Version: "0.5.0",
 	}, nil)
 
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "search",
-		Description: "Search or list security resources (skills, dictionaries, payloads, tools). Params: query (optional keyword — omit to list all), type (optional: skill|dict|payload|tool — omit to search all types), category (optional), difficulty (optional, skill only: easy|medium|hard), offset (default 0), limit (default 20). Returns paginated results with type, name, description, category.",
-	}, wrapHandler(svc.Search))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "get",
-		Description: "Get detailed content for a skill or tool by name. Params: name (from search results), type (skill|tool), depth (optional, skill only: metadata|summary|full, default summary). depth=full includes references. Returns full content including body (skill) or config YAML (tool).",
-	}, wrapHandler(svc.Get))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "get_file",
-		Description: "Read dictionary or payload file content with line-level pagination. Params: path (from search results, e.g. Auth/password/Top100.txt), type (dict|payload), offset (default 0 lines), limit (default 200 lines). Returns file content with total_lines count.",
-	}, wrapHandler(svc.GetFile))
+	switch mode {
+	case ToolModeFull:
+		registerFullTools(server, svc)
+	default:
+		registerLiteTools(server, svc)
+	}
 
 	return gomcp.NewStreamableHTTPHandler(func(_ *http.Request) *gomcp.Server {
 		return server
 	}, nil)
+}
+
+// registerLiteTools registers the 3 core tools: search, detail, and file read.
+func registerLiteTools(server *gomcp.Server, svc *Service) {
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "search_security",
+		Description: "Search the AboutSecurity penetration testing knowledge base. Covers: exploit techniques (SQL injection, XSS, SSRF, RCE...), password/bruteforce wordlists, attack payloads, and security tool configs (nmap, sqlmap, dirsearch...). ALWAYS use this tool when the user asks about hacking, penetration testing, security vulnerabilities, dictionaries, payloads, or security tools. Params: query (optional keyword — omit to list all), type (optional: skill|dict|payload|tool — omit to search all types), category (optional), difficulty (optional, skill only: easy|medium|hard), offset (default 0), limit (default 20). Returns paginated results with type, name, description, category.",
+	}, wrapHandler(svc.Search))
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "get_security_detail",
+		Description: "Get detailed penetration testing knowledge for a skill or tool by name. Use after search_security to retrieve full content. Params: name (from search results), type (skill|tool), depth (optional, skill only: metadata|summary|full, default summary). depth=full includes references. Returns full content including body (skill) or config YAML (tool).",
+	}, wrapHandler(svc.Get))
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "read_security_file",
+		Description: "Read security dictionary (wordlists/passwords) or attack payload file content with line-level pagination. Use after search_security to read file data. Params: path (from search results, e.g. Auth/password/Top100.txt), type (dict|payload), offset (default 0 lines), limit (default 200 lines). Returns file content with total_lines count.",
+	}, wrapHandler(svc.GetFile))
+}
+
+// registerFullTools registers the full set of tools. Currently it falls back
+// to registerLiteTools — additional tools will be added in a follow-up task.
+func registerFullTools(server *gomcp.Server, svc *Service) {
+	registerLiteTools(server, svc)
 }
 
 // wrapHandler adapts a typed service method (func(ctx, In) (Out, error)) into
