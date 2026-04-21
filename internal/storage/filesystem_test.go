@@ -256,6 +256,34 @@ func TestReadReferences_NoDir(t *testing.T) {
 	}
 }
 
+func TestScanSkills_ReferencesInBody(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "skills")
+	skills, err := ScanSkills(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var refSkill *SkillData
+	for i := range skills {
+		if skills[i].Name == "test-ref" {
+			refSkill = &skills[i]
+			break
+		}
+	}
+	if refSkill == nil {
+		t.Fatal("test-ref skill not found")
+	}
+	if !strings.Contains(refSkill.Body, "Advanced Techniques") {
+		t.Error("body should contain references content")
+	}
+	if !strings.Contains(refSkill.Body, "WAF bypass") {
+		t.Error("body should contain bypass reference content")
+	}
+	if !strings.Contains(refSkill.Body, "Main body content") {
+		t.Error("body should contain original SKILL.md body")
+	}
+}
+
 func TestScanSkills_Mitre(t *testing.T) {
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "exploit", "test-mitre")

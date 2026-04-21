@@ -193,6 +193,17 @@ func ScanSkills(dir string) ([]SkillData, error) {
 		if err != nil {
 			return err
 		}
+		// Append references content to body for FTS5 indexing
+		skillDir := filepath.Dir(path)
+		refs, _ := ReadReferences(skillDir)
+		if len(refs) > 0 {
+			var parts []string
+			parts = append(parts, skill.Body)
+			for _, ref := range refs {
+				parts = append(parts, "\n\n---\n## [ref] "+ref.Name+"\n"+ref.Content)
+			}
+			skill.Body = strings.Join(parts, "")
+		}
 		skills = append(skills, *skill)
 		return nil
 	})
