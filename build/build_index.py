@@ -112,7 +112,21 @@ def index_skills(conn: sqlite3.Connection, base_dir: str):
             if not skill or not skill["name"]:
                 continue
 
-            tok_body = tokenize(f"{skill['description']} {skill['body']}")
+            # Append references content to body for FTS5
+            body = skill["body"]
+            ref_dir = os.path.join(root, "references")
+            if os.path.isdir(ref_dir):
+                for ref_name in sorted(os.listdir(ref_dir)):
+                    if not ref_name.endswith(".md"):
+                        continue
+                    ref_path = os.path.join(ref_dir, ref_name)
+                    try:
+                        with open(ref_path, "r", encoding="utf-8") as rf:
+                            body += f"\n\n---\n## [ref] {ref_name}\n" + rf.read()
+                    except Exception:
+                        pass
+
+            tok_body = tokenize(f"{skill['description']} {body}")
             tok_tags = tokenize(skill["tags"])
 
             conn.execute(

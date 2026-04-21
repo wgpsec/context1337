@@ -390,5 +390,45 @@ Test body
         self.assertIn("T1190", row[0])
 
 
+class TestSkillReferences(unittest.TestCase):
+    def setUp(self):
+        self.conn = _create_db()
+        self.tmpdir = tempfile.mkdtemp()
+        skill_dir = os.path.join(self.tmpdir, "skills", "exploit", "test-refs")
+        os.makedirs(skill_dir)
+        with open(os.path.join(skill_dir, "SKILL.md"), "w") as f:
+            f.write("""---
+name: test-refs
+description: Skill with references
+metadata:
+  tags: "test"
+  category: "exploit"
+---
+Main body
+""")
+        ref_dir = os.path.join(skill_dir, "references")
+        os.makedirs(ref_dir)
+        with open(os.path.join(ref_dir, "advanced.md"), "w") as f:
+            f.write("# Advanced\nDetailed techniques")
+        with open(os.path.join(ref_dir, "bypass.md"), "w") as f:
+            f.write("# Bypass\nWAF bypass methods")
+
+    def tearDown(self):
+        self.conn.close()
+        shutil.rmtree(self.tmpdir)
+
+    def test_references_appended_to_body(self):
+        build_index.index_skills(self.conn, self.tmpdir)
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT body FROM resources WHERE name='test-refs'"
+        ).fetchone()
+        self.assertIsNotNone(row)
+        body = row[0]
+        self.assertIn("Advanced", body)
+        self.assertIn("Bypass", body)
+        self.assertIn("Main", body)
+
+
 if __name__ == "__main__":
     unittest.main()
