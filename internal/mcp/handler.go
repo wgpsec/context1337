@@ -26,7 +26,7 @@ func NewMCPServer(db *sql.DB, dataDir string) http.Handler {
 	// --- Skill tools ---
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_skills",
-		Description: "List penetration testing skills by category. Params: category (optional: exploit|recon|tool|cloud|ctf|lateral|evasion|malware|dfir|threat-intel|ai-security|code-audit|postexploit|general), difficulty (optional: easy|medium|hard), limit (optional, default 100)",
+		Description: "List penetration testing skills by category. Params: category (optional: exploit|recon|tool|cloud|ctf|lateral|evasion|malware|dfir|threat-intel|ai-security|code-audit|postexploit|general), difficulty (optional: easy|medium|hard), offset (optional, default 0), limit (optional, default 50)",
 	}, wrapHandler(svc.ListSkills))
 
 	gomcp.AddTool(server, &gomcp.Tool{

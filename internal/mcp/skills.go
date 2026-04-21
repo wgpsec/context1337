@@ -19,37 +19,8 @@ type Service struct {
 type ListSkillsInput struct {
 	Category   string `json:"category,omitempty"   jsonschema:"Filter by category: exploit|recon|tool|cloud|ctf|lateral|evasion|malware|dfir|threat-intel|ai-security|code-audit|postexploit|general"`
 	Difficulty string `json:"difficulty,omitempty" jsonschema:"Filter by difficulty: easy|medium|hard"`
-	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 100)"`
-}
-
-func (s *Service) ListSkills(ctx context.Context, in ListSkillsInput) ([]SkillSummary, error) {
-	if in.Limit <= 0 {
-		in.Limit = 100
-	}
-	resources, err := search.ListByTypeCompat(s.DB, "skill", in.Category, in.Limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]SkillSummary, 0, len(resources))
-	for _, r := range resources {
-		if in.Difficulty != "" && r.Difficulty != in.Difficulty {
-			continue
-		}
-		out = append(out, SkillSummary{
-			Name: r.Name, Description: r.Description, Category: r.Category,
-			Tags: r.Tags, Difficulty: r.Difficulty, Source: r.Source,
-		})
-	}
-	return out, nil
-}
-
-// --- search_skill ---
-
-type SearchSkillInput struct {
-	Query      string `json:"query"               jsonschema:"Search query keywords"`
-	Category   string `json:"category,omitempty"   jsonschema:"Filter by category: exploit|recon|tool|cloud|ctf|lateral|evasion|malware|dfir|threat-intel|ai-security|code-audit|postexploit|general"`
-	Difficulty string `json:"difficulty,omitempty" jsonschema:"Filter by difficulty: easy|medium|hard"`
-	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 10)"`
+	Offset     int    `json:"offset,omitempty"     jsonschema:"Pagination offset (default 0)"`
+	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 50)"`
 }
 
 type SkillSummary struct {
@@ -61,25 +32,70 @@ type SkillSummary struct {
 	Source      string `json:"source"`
 }
 
-func (s *Service) SearchSkill(ctx context.Context, in SearchSkillInput) ([]SkillSummary, error) {
+type SkillListResult struct {
+	Total  int            `json:"total"`
+	Offset int            `json:"offset"`
+	Limit  int            `json:"limit"`
+	Items  []SkillSummary `json:"items"`
+}
+
+func (s *Service) ListSkills(ctx context.Context, in ListSkillsInput) (*SkillListResult, error) {
 	if in.Limit <= 0 {
-		in.Limit = 10
+		in.Limit = 50
 	}
-	results, _, err := search.Search(s.DB, search.SearchQuery{
-		Query: in.Query, Type: "skill", Category: in.Category,
-		Difficulty: in.Difficulty, Limit: in.Limit,
+	result, err := search.ListByType(s.DB, search.ListQuery{
+		Type: "skill", Category: in.Category, Difficulty: in.Difficulty,
+		Offset: in.Offset, Limit: in.Limit,
 	})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]SkillSummary, len(results))
-	for i, r := range results {
-		out[i] = SkillSummary{
+	items := make([]SkillSummary, len(result.Items))
+	for i, r := range result.Items {
+		items[i] = SkillSummary{
 			Name: r.Name, Description: r.Description, Category: r.Category,
 			Tags: r.Tags, Difficulty: r.Difficulty, Source: r.Source,
 		}
 	}
-	return out, nil
+	return &SkillListResult{Total: result.Total, Offset: in.Offset, Limit: in.Limit, Items: items}, nil
+}
+
+// --- search_skill ---
+
+type SearchSkillInput struct {
+	Query      string `json:"query"               jsonschema:"Search query keywords"`
+	Category   string `json:"category,omitempty"   jsonschema:"Filter by category: exploit|recon|tool|cloud|ctf|lateral|evasion|malware|dfir|threat-intel|ai-security|code-audit|postexploit|general"`
+	Difficulty string `json:"difficulty,omitempty" jsonschema:"Filter by difficulty: easy|medium|hard"`
+	Offset     int    `json:"offset,omitempty"     jsonschema:"Pagination offset (default 0)"`
+	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 10)"`
+}
+
+type SkillSearchResult struct {
+	Total  int            `json:"total"`
+	Offset int            `json:"offset"`
+	Limit  int            `json:"limit"`
+	Items  []SkillSummary `json:"items"`
+}
+
+func (s *Service) SearchSkill(ctx context.Context, in SearchSkillInput) (*SkillSearchResult, error) {
+	if in.Limit <= 0 {
+		in.Limit = 10
+	}
+	results, total, err := search.Search(s.DB, search.SearchQuery{
+		Query: in.Query, Type: "skill", Category: in.Category,
+		Difficulty: in.Difficulty, Offset: in.Offset, Limit: in.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]SkillSummary, len(results))
+	for i, r := range results {
+		items[i] = SkillSummary{
+			Name: r.Name, Description: r.Description, Category: r.Category,
+			Tags: r.Tags, Difficulty: r.Difficulty, Source: r.Source,
+		}
+	}
+	return &SkillSearchResult{Total: total, Offset: in.Offset, Limit: in.Limit, Items: items}, nil
 }
 
 // --- get_skill ---

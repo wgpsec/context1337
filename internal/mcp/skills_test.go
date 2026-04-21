@@ -37,31 +37,76 @@ func setupTestService(t *testing.T) *Service {
 	return &Service{DB: db, DataDir: dir}
 }
 
-func TestSearchSkill(t *testing.T) {
+func TestListSkills_Paginated(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
-	results, err := svc.SearchSkill(ctx, SearchSkillInput{Query: "SQL injection", Limit: 10})
+	result, err := svc.ListSkills(ctx, ListSkillsInput{Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) == 0 {
+	if result.Total != 2 {
+		t.Errorf("total = %d, want 2", result.Total)
+	}
+	if len(result.Items) != 1 {
+		t.Errorf("items = %d, want 1", len(result.Items))
+	}
+}
+
+func TestListSkills_DifficultyFilter(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+	result, err := svc.ListSkills(ctx, ListSkillsInput{Difficulty: "easy", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Errorf("total = %d, want 1", result.Total)
+	}
+	if len(result.Items) != 1 || result.Items[0].Name != "xss-reflected" {
+		t.Errorf("expected xss-reflected only, got %v", result.Items)
+	}
+}
+
+func TestSearchSkill(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+	result, err := svc.SearchSkill(ctx, SearchSkillInput{Query: "SQL injection", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) == 0 {
 		t.Fatal("expected results")
 	}
-	if results[0].Name != "sql-injection" {
-		t.Errorf("top = %q, want sql-injection", results[0].Name)
+	if result.Items[0].Name != "sql-injection" {
+		t.Errorf("top = %q, want sql-injection", result.Items[0].Name)
+	}
+}
+
+func TestSearchSkill_Paginated(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+	result, err := svc.SearchSkill(ctx, SearchSkillInput{Query: "attack", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total < 1 {
+		t.Errorf("total = %d, want >= 1", result.Total)
+	}
+	if len(result.Items) != 1 {
+		t.Errorf("items = %d, want 1", len(result.Items))
 	}
 }
 
 func TestSearchSkill_CategoryFilter(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
-	results, err := svc.SearchSkill(ctx, SearchSkillInput{
+	result, err := svc.SearchSkill(ctx, SearchSkillInput{
 		Query: "attack", Category: "exploit", Limit: 10,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range results {
+	for _, r := range result.Items {
 		if r.Category != "exploit" {
 			t.Errorf("result %q has category %q, want exploit", r.Name, r.Category)
 		}
