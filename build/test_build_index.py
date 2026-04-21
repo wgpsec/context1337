@@ -430,39 +430,5 @@ Main body
         self.assertIn("Main", body)
 
 
-class TestIndexDocs(unittest.TestCase):
-    def setUp(self):
-        self.conn = _create_db()
-        self.tmpdir = tempfile.mkdtemp()
-        doc_dir = os.path.join(self.tmpdir, "Doc")
-        os.makedirs(doc_dir)
-        with open(os.path.join(doc_dir, "Cheatsheet.md"), "w") as f:
-            f.write("# Cheatsheet\nPentest workflow reference guide")
-        with open(os.path.join(doc_dir, "默认密码.md"), "w") as f:
-            f.write("# Default Passwords\nCommon credentials for devices")
-
-    def tearDown(self):
-        self.conn.close()
-        shutil.rmtree(self.tmpdir)
-
-    def test_docs_indexed(self):
-        count = build_index.index_docs(self.conn, self.tmpdir)
-        self.conn.commit()
-        self.assertEqual(count, 2)
-
-        rows = self.conn.execute(
-            "SELECT name, description, body FROM resources WHERE type='doc' ORDER BY name"
-        ).fetchall()
-        self.assertEqual(len(rows), 2)
-        names = [r[0] for r in rows]
-        self.assertIn("Cheatsheet", names)
-        self.assertIn("默认密码", names)
-
-    def test_no_doc_dir(self):
-        with tempfile.TemporaryDirectory() as d:
-            count = build_index.index_docs(self.conn, d)
-            self.assertEqual(count, 0)
-
-
 if __name__ == "__main__":
     unittest.main()

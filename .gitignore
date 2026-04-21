@@ -18,5 +18,9 @@
 .vscode/
 *.swp
 
+# Python
+__pycache__/
+
 # OS
 .DS_Store
+docs/superpowers/

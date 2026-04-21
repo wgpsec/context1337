@@ -187,44 +187,6 @@ func TestScanDicts_SkipsMetaFiles(t *testing.T) {
 	}
 }
 
-func TestScanDocs(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "Doc")
-	docs, err := ScanDocs(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(docs) != 2 {
-		t.Fatalf("docs = %d, want 2", len(docs))
-	}
-
-	found := map[string]bool{}
-	for _, d := range docs {
-		found[d.Name] = true
-		if d.Body == "" {
-			t.Errorf("doc %q has empty body", d.Name)
-		}
-		if d.FilePath == "" {
-			t.Errorf("doc %q has empty file_path", d.Name)
-		}
-	}
-	if !found["Cheatsheet"] {
-		t.Error("expected Cheatsheet doc")
-	}
-	if !found["默认密码"] {
-		t.Error("expected 默认密码 doc")
-	}
-}
-
-func TestScanDocs_EmptyDir(t *testing.T) {
-	docs, err := ScanDocs(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(docs) != 0 {
-		t.Errorf("expected 0 docs, got %d", len(docs))
-	}
-}
-
 func TestReadReferences(t *testing.T) {
 	skillDir := filepath.Join(testdataDir(), "skills", "exploit", "test-ref")
 	refs, err := ReadReferences(skillDir)

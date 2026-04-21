@@ -14,7 +14,7 @@ func NewService(db *sql.DB, dataDir string) *Service {
 	return &Service{DB: db, DataDir: dataDir}
 }
 
-// NewMCPServer creates an MCP protocol server with all 15 tools registered
+// NewMCPServer creates an MCP protocol server with all 12 tools registered
 // and returns an http.Handler that serves it via Streamable HTTP transport.
 func NewMCPServer(db *sql.DB, dataDir string) http.Handler {
 	svc := NewService(db, dataDir)
@@ -86,22 +86,6 @@ func NewMCPServer(db *sql.DB, dataDir string) http.Handler {
 		Name:        "get_tool",
 		Description: "Get full YAML configuration for a tool. Params: name (tool name from list/search e.g. nmap, sqlmap, dnsx). Returns config YAML plus metadata (category, binary, homepage).",
 	}, wrapHandler(svc.GetTool))
-
-	// --- Doc tools ---
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "list_docs",
-		Description: "List reference documents. Params: offset (default 0), limit (default 50). Returns paginated result with total count.",
-	}, wrapHandler(svc.ListDocs))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "search_doc",
-		Description: "Search reference documents by keyword. Params: query (keyword), offset (default 0), limit (default 10). Returns paginated result with total count.",
-	}, wrapHandler(svc.SearchDoc))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "get_doc",
-		Description: "Get full content of a reference document. Params: name (document name from list/search e.g. Cheatsheet, Checklist.zh-cn, 默认密码).",
-	}, wrapHandler(svc.GetDoc))
 
 	return gomcp.NewStreamableHTTPHandler(func(_ *http.Request) *gomcp.Server {
 		return server
