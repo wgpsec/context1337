@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -146,5 +147,47 @@ func TestGetSkill_NotFound(t *testing.T) {
 	_, err := svc.GetSkill(ctx, GetSkillInput{Name: "nonexistent"})
 	if err == nil {
 		t.Fatal("expected error for nonexistent skill")
+	}
+}
+
+func TestGetSkill_Full_WithReferences(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	// Create a skill directory with references
+	skillDir := filepath.Join(svc.DataDir, "skills", "exploit", "sql-injection")
+	os.MkdirAll(filepath.Join(skillDir, "references"), 0o755)
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: sql-injection\n---\nbody"), 0o644)
+	os.WriteFile(filepath.Join(skillDir, "references", "advanced.md"), []byte("# Advanced\nSQL techniques"), 0o644)
+	os.WriteFile(filepath.Join(skillDir, "references", "waf-bypass.md"), []byte("# WAF Bypass\nBypass methods"), 0o644)
+
+	// Update the test resource to have the correct file_path
+	svc.DB.Exec("UPDATE resources SET file_path=? WHERE name='sql-injection'",
+		filepath.Join(skillDir, "SKILL.md"))
+
+	result, err := svc.GetSkill(ctx, GetSkillInput{Name: "sql-injection", Depth: "full"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Body == "" {
+		t.Error("full depth should include body")
+	}
+	if len(result.References) != 2 {
+		t.Fatalf("references = %d, want 2", len(result.References))
+	}
+	if result.References[0].Name != "advanced.md" {
+		t.Errorf("first ref = %q, want advanced.md", result.References[0].Name)
+	}
+}
+
+func TestGetSkill_Summary_NoReferences(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+	result, err := svc.GetSkill(ctx, GetSkillInput{Name: "sql-injection", Depth: "summary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.References != nil {
+		t.Error("summary depth should not include references")
 	}
 }

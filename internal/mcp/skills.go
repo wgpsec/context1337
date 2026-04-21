@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 
 	"github.com/Esonhugh/context1337/internal/search"
+	"github.com/Esonhugh/context1337/internal/storage"
 )
 
 // Service holds shared dependencies for all MCP handlers.
@@ -106,13 +108,19 @@ type GetSkillInput struct {
 }
 
 type SkillDetail struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Category    string `json:"category"`
-	Tags        string `json:"tags"`
-	Difficulty  string `json:"difficulty"`
-	Source      string `json:"source"`
-	Body        string `json:"body,omitempty"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Category    string           `json:"category"`
+	Tags        string           `json:"tags"`
+	Difficulty  string           `json:"difficulty"`
+	Source      string           `json:"source"`
+	Body        string           `json:"body,omitempty"`
+	References  []SkillReference `json:"references,omitempty"`
+}
+
+type SkillReference struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
 }
 
 func (s *Service) GetSkill(ctx context.Context, in GetSkillInput) (*SkillDetail, error) {
@@ -137,7 +145,14 @@ func (s *Service) GetSkill(ctx context.Context, in GetSkillInput) (*SkillDetail,
 		detail.Body = r.Body
 	case "full":
 		detail.Body = r.Body
-		// TODO Phase 2: append references/ directory content
+		skillDir := filepath.Dir(r.FilePath)
+		refs, err := storage.ReadReferences(skillDir)
+		if err == nil && len(refs) > 0 {
+			detail.References = make([]SkillReference, len(refs))
+			for i, ref := range refs {
+				detail.References[i] = SkillReference{Name: ref.Name, Content: ref.Content}
+			}
+		}
 	}
 	return detail, nil
 }
