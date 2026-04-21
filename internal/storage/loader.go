@@ -115,7 +115,7 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		}
 		for _, s := range skills {
 			insertResource(db, "skill", s.Name, "team", s.FilePath,
-				s.Category, s.Tags, "", s.Difficulty, s.Description, s.Body)
+				s.Category, s.Tags, s.Mitre, s.Difficulty, s.Description, s.Body)
 		}
 	}
 
