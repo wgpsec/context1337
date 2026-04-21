@@ -78,14 +78,14 @@ func InitRuntime(cfg LoaderConfig) (*sql.DB, error) {
 // insertResource inserts a resource directly via SQL, avoiding an import cycle
 // with the search package. Description and body are pre-tokenized for FTS5
 // consistency with the Python build-time indexer (jieba).
-func insertResource(db *sql.DB, typ, name, source, filePath, category, tags, difficulty, description, body string) error {
+func insertResource(db *sql.DB, typ, name, source, filePath, category, tags, mitre, difficulty, description, body string) error {
 	tokDesc := tokenize.TokenizeToString(description)
 	tokBody := tokenize.TokenizeToString(body)
 	_, err := db.Exec(`
 		INSERT OR REPLACE INTO resources
-			(type, name, source, file_path, category, tags, difficulty, description, body, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-		typ, name, source, filePath, category, tags, difficulty, tokDesc, tokBody,
+			(type, name, source, file_path, category, tags, mitre, difficulty, description, body, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+		typ, name, source, filePath, category, tags, mitre, difficulty, tokDesc, tokBody,
 	)
 	return err
 }
@@ -115,7 +115,7 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		}
 		for _, s := range skills {
 			insertResource(db, "skill", s.Name, "team", s.FilePath,
-				s.Category, s.Tags, s.Difficulty, s.Description, s.Body)
+				s.Category, s.Tags, "", s.Difficulty, s.Description, s.Body)
 		}
 	}
 
@@ -126,7 +126,7 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		}
 		for _, d := range dicts {
 			insertResource(db, "dict", d.Path, "team", d.FilePath,
-				d.Type, "", "", "", "")
+				d.Category, d.Tags, "", "", d.Description, "")
 		}
 	}
 
@@ -137,7 +137,7 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		}
 		for _, p := range payloads {
 			insertResource(db, "payload", p.Path, "team", p.FilePath,
-				p.Type, "", "", "", "")
+				p.Category, p.Tags, "", "", p.Description, "")
 		}
 	}
 
@@ -147,9 +147,9 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			log.Printf("loader: scan team tools: %v", err)
 		}
 		for _, t := range tools {
-			metadata := fmt.Sprintf(`{"binary":"%s"}`, t.Binary)
+			metadata := fmt.Sprintf(`{"binary":"%s","homepage":"%s"}`, t.Binary, t.Homepage)
 			insertResource(db, "tool", t.ID, "team", t.FilePath,
-				t.Category, "", "", t.Description, t.RawYAML)
+				t.Category, "", "", "", t.Description, t.RawYAML)
 			// Update metadata separately
 			db.Exec("UPDATE resources SET metadata=? WHERE type='tool' AND name=? AND source='team'", metadata, t.ID)
 		}
