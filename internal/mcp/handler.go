@@ -69,12 +69,6 @@ func registerLiteTools(server *gomcp.Server, svc *Service) {
 	}, wrapHandler(svc.GetFile))
 }
 
-// registerFullTools registers the full set of tools. Currently it falls back
-// to registerLiteTools — additional tools will be added in a follow-up task.
-func registerFullTools(server *gomcp.Server, svc *Service) {
-	registerLiteTools(server, svc)
-}
-
 // wrapHandler adapts a typed service method (func(ctx, In) (Out, error)) into
 // the MCP SDK's ToolHandlerFor signature. The Out is serialised as JSON text
 // content.
