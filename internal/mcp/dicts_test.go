@@ -14,35 +14,32 @@ func TestListDicts(t *testing.T) {
 	ctx := context.Background()
 	search.InsertResource(svc.DB, search.Resource{
 		Type: "dict", Name: "Auth/password/Top10.txt", Source: "builtin",
-		FilePath: "Dic/Auth/password/Top10.txt", Category: "Auth",
-		Description: "Top 10 passwords",
+		Category: "auth", Description: "common passwords",
 	})
-	results, err := svc.ListDicts(ctx, ListDictsInput{})
+	result, err := svc.ListDicts(ctx, ListDictsInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) == 0 {
-		t.Fatal("expected at least 1 dict")
+	if result.Total == 0 || len(result.Items) == 0 {
+		t.Fatal("expected results")
 	}
 }
 
-func TestListDicts_TypeFilter(t *testing.T) {
+func TestListDicts_CategoryFilter(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 	search.InsertResource(svc.DB, search.Resource{
-		Type: "dict", Name: "Auth/Top10.txt", Source: "builtin",
-		FilePath: "Dic/Auth/Top10.txt", Category: "Auth",
+		Type: "dict", Name: "Auth/user.txt", Source: "builtin", Category: "auth",
 	})
 	search.InsertResource(svc.DB, search.Resource{
-		Type: "dict", Name: "Network/ports.txt", Source: "builtin",
-		FilePath: "Dic/Network/ports.txt", Category: "Network",
+		Type: "dict", Name: "Web/dir.txt", Source: "builtin", Category: "web",
 	})
-	results, err := svc.ListDicts(ctx, ListDictsInput{Type: "Auth"})
+	result, err := svc.ListDicts(ctx, ListDictsInput{Category: "auth"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 {
-		t.Errorf("expected 1 Auth dict, got %d", len(results))
+	if result.Total != 1 {
+		t.Errorf("total = %d, want 1", result.Total)
 	}
 }
 

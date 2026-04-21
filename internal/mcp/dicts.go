@@ -11,49 +11,66 @@ import (
 )
 
 type SearchDictsInput struct {
-	Query string `json:"query"             jsonschema:"Search keyword e.g. password, SSH, admin"`
-	Type  string `json:"type,omitempty"    jsonschema:"Filter by type: auth|network|port|web|regular"`
-	Limit int    `json:"limit,omitempty"   jsonschema:"Max results (default 20)"`
-}
-
-func (s *Service) SearchDicts(ctx context.Context, in SearchDictsInput) ([]DictSummary, error) {
-	if in.Limit <= 0 {
-		in.Limit = 20
-	}
-	results, _, err := search.Search(s.DB, search.SearchQuery{
-		Query: in.Query, Type: "dict", Category: in.Type, Limit: in.Limit,
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]DictSummary, len(results))
-	for i, r := range results {
-		out[i] = DictSummary{Path: r.Name, Type: r.Category, Description: r.Description, Source: r.Source}
-	}
-	return out, nil
-}
-
-type ListDictsInput struct {
-	Type string `json:"type,omitempty" jsonschema:"Filter by type: auth|network|port|web|regular"`
+	Query    string `json:"query"              jsonschema:"Search keyword e.g. password, SSH, admin"`
+	Category string `json:"category,omitempty" jsonschema:"Filter by category: auth|network|port|web|regular"`
+	Offset   int    `json:"offset,omitempty"   jsonschema:"Pagination offset (default 0)"`
+	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 20)"`
 }
 
 type DictSummary struct {
 	Path        string `json:"path"`
-	Type        string `json:"type"`
+	Category    string `json:"category"`
 	Description string `json:"description,omitempty"`
 	Source      string `json:"source"`
 }
 
-func (s *Service) ListDicts(ctx context.Context, in ListDictsInput) ([]DictSummary, error) {
-	resources, err := search.ListByTypeCompat(s.DB, "dict", in.Type, 500)
+type DictListResult struct {
+	Total  int           `json:"total"`
+	Offset int           `json:"offset"`
+	Limit  int           `json:"limit"`
+	Items  []DictSummary `json:"items"`
+}
+
+func (s *Service) SearchDicts(ctx context.Context, in SearchDictsInput) (*DictListResult, error) {
+	if in.Limit <= 0 {
+		in.Limit = 20
+	}
+	results, total, err := search.Search(s.DB, search.SearchQuery{
+		Query: in.Query, Type: "dict", Category: in.Category,
+		Offset: in.Offset, Limit: in.Limit,
+	})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]DictSummary, len(resources))
-	for i, r := range resources {
-		out[i] = DictSummary{Path: r.Name, Type: r.Category, Description: r.Description, Source: r.Source}
+	items := make([]DictSummary, len(results))
+	for i, r := range results {
+		items[i] = DictSummary{Path: r.Name, Category: r.Category, Description: r.Description, Source: r.Source}
 	}
-	return out, nil
+	return &DictListResult{Total: total, Offset: in.Offset, Limit: in.Limit, Items: items}, nil
+}
+
+type ListDictsInput struct {
+	Category string `json:"category,omitempty" jsonschema:"Filter by category: auth|network|port|web|regular"`
+	Offset   int    `json:"offset,omitempty"   jsonschema:"Pagination offset (default 0)"`
+	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 50)"`
+}
+
+func (s *Service) ListDicts(ctx context.Context, in ListDictsInput) (*DictListResult, error) {
+	if in.Limit <= 0 {
+		in.Limit = 50
+	}
+	result, err := search.ListByType(s.DB, search.ListQuery{
+		Type: "dict", Category: in.Category,
+		Offset: in.Offset, Limit: in.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]DictSummary, len(result.Items))
+	for i, r := range result.Items {
+		items[i] = DictSummary{Path: r.Name, Category: r.Category, Description: r.Description, Source: r.Source}
+	}
+	return &DictListResult{Total: result.Total, Offset: in.Offset, Limit: in.Limit, Items: items}, nil
 }
 
 type GetDictInput struct {
