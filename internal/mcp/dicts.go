@@ -45,7 +45,7 @@ type DictSummary struct {
 }
 
 func (s *Service) ListDicts(ctx context.Context, in ListDictsInput) ([]DictSummary, error) {
-	resources, err := search.ListByType(s.DB, "dict", in.Type, 500)
+	resources, err := search.ListByTypeCompat(s.DB, "dict", in.Type, 500)
 	if err != nil {
 		return nil, err
 	}

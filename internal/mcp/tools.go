@@ -55,7 +55,7 @@ type ToolSummary struct {
 }
 
 func (s *Service) ListTools(ctx context.Context, in ListToolsInput) ([]ToolSummary, error) {
-	resources, err := search.ListByType(s.DB, "tool", in.Function, 100)
+	resources, err := search.ListByTypeCompat(s.DB, "tool", in.Function, 100)
 	if err != nil {
 		return nil, err
 	}

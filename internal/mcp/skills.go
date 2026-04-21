@@ -26,7 +26,7 @@ func (s *Service) ListSkills(ctx context.Context, in ListSkillsInput) ([]SkillSu
 	if in.Limit <= 0 {
 		in.Limit = 100
 	}
-	resources, err := search.ListByType(s.DB, "skill", in.Category, in.Limit)
+	resources, err := search.ListByTypeCompat(s.DB, "skill", in.Category, in.Limit)
 	if err != nil {
 		return nil, err
 	}

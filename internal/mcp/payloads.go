@@ -35,7 +35,7 @@ func (s *Service) SearchPayload(ctx context.Context, in SearchPayloadInput) ([]P
 		}
 		return out, nil
 	}
-	resources, err := search.ListByType(s.DB, "payload", in.Type, 100)
+	resources, err := search.ListByTypeCompat(s.DB, "payload", in.Type, 100)
 	if err != nil {
 		return nil, err
 	}

@@ -37,6 +37,21 @@ type SearchResult struct {
 	Score float64
 }
 
+// ListQuery defines list/filter parameters with pagination.
+type ListQuery struct {
+	Type       string
+	Category   string
+	Difficulty string
+	Offset     int
+	Limit      int
+}
+
+// ListResult wraps a page of resources with total count.
+type ListResult struct {
+	Total int
+	Items []Resource
+}
+
 // InsertResource inserts a resource into the resources table.
 func InsertResource(db *sql.DB, r Resource) error {
 	_, err := db.Exec(`
@@ -130,31 +145,43 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, error) {
 	return results, rows.Err()
 }
 
-// ListByType returns all resources of a given type, optionally filtered.
-func ListByType(db *sql.DB, typ, category string, limit int) ([]Resource, error) {
-	if limit <= 0 {
-		limit = 100
+// ListByType returns resources of a given type with pagination and total count.
+func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
+	if q.Limit <= 0 {
+		q.Limit = 100
 	}
 
 	var conditions []string
 	var args []interface{}
 
 	conditions = append(conditions, "type = ?")
-	args = append(args, typ)
+	args = append(args, q.Type)
 
-	if category != "" {
+	if q.Category != "" {
 		conditions = append(conditions, "LOWER(category) = LOWER(?)")
-		args = append(args, category)
+		args = append(args, q.Category)
+	}
+	if q.Difficulty != "" {
+		conditions = append(conditions, "LOWER(difficulty) = LOWER(?)")
+		args = append(args, q.Difficulty)
 	}
 
 	where := strings.Join(conditions, " AND ")
-	args = append(args, limit)
 
-	query := fmt.Sprintf("SELECT id, type, COALESCE(name,''), COALESCE(source,''), COALESCE(file_path,''), COALESCE(category,''), COALESCE(tags,''), COALESCE(mitre,''), COALESCE(difficulty,''), COALESCE(description,''), COALESCE(metadata,'') FROM resources WHERE %s ORDER BY name LIMIT ?", where)
+	// Count total matching rows.
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM resources WHERE %s", where)
+	var total int
+	if err := db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return ListResult{}, fmt.Errorf("count: %w", err)
+	}
 
-	rows, err := db.Query(query, args...)
+	// Fetch the page.
+	pageArgs := append(args, q.Limit, q.Offset)
+	query := fmt.Sprintf("SELECT id, type, COALESCE(name,''), COALESCE(source,''), COALESCE(file_path,''), COALESCE(category,''), COALESCE(tags,''), COALESCE(mitre,''), COALESCE(difficulty,''), COALESCE(description,''), COALESCE(metadata,'') FROM resources WHERE %s ORDER BY name LIMIT ? OFFSET ?", where)
+
+	rows, err := db.Query(query, pageArgs...)
 	if err != nil {
-		return nil, err
+		return ListResult{}, err
 	}
 	defer rows.Close()
 
@@ -164,11 +191,24 @@ func ListByType(db *sql.DB, typ, category string, limit int) ([]Resource, error)
 		err := rows.Scan(&r.ID, &r.Type, &r.Name, &r.Source, &r.FilePath,
 			&r.Category, &r.Tags, &r.Mitre, &r.Difficulty, &r.Description, &r.Metadata)
 		if err != nil {
-			return nil, err
+			return ListResult{}, err
 		}
 		res = append(res, r)
 	}
-	return res, rows.Err()
+	if err := rows.Err(); err != nil {
+		return ListResult{}, err
+	}
+	return ListResult{Total: total, Items: res}, nil
+}
+
+// ListByTypeCompat is a temporary compatibility wrapper for callers that
+// have not yet migrated to the new ListQuery/ListResult API.
+func ListByTypeCompat(db *sql.DB, typ, category string, limit int) ([]Resource, error) {
+	result, err := ListByType(db, ListQuery{Type: typ, Category: category, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	return result.Items, nil
 }
 
 // GetByName returns a single resource by type, name.
