@@ -5,9 +5,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/Esonhugh/context1337/internal/mcp/benchlog"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// BenchLogger is an optional benchmark logger. When non-nil every tool call
+// is recorded (tool name, input, response size, item count, latency).
+var BenchLogger *benchlog.Logger
 
 // NewService creates a new MCP service with all handlers.
 func NewService(db *sql.DB, dataDir string) *Service {
@@ -97,6 +103,8 @@ func NewMCPServer(db *sql.DB, dataDir string) http.Handler {
 // content.
 func wrapHandler[In any, Out any](fn func(context.Context, In) (Out, error)) gomcp.ToolHandlerFor[In, any] {
 	return func(ctx context.Context, req *gomcp.CallToolRequest, input In) (*gomcp.CallToolResult, any, error) {
+		start := time.Now()
+
 		out, err := fn(ctx, input)
 		if err != nil {
 			return nil, nil, err
@@ -105,10 +113,42 @@ func wrapHandler[In any, Out any](fn func(context.Context, In) (Out, error)) gom
 		if err != nil {
 			return nil, nil, err
 		}
+
+		if BenchLogger != nil {
+			inputJSON, _ := json.Marshal(input)
+			items := countItems(data)
+			BenchLogger.Log(benchlog.Entry{
+				Tool:          req.Params.Name,
+				Input:         inputJSON,
+				ResponseBytes: len(data),
+				ResponseItems: items,
+				DurationMs:    time.Since(start).Milliseconds(),
+			})
+		}
+
 		return &gomcp.CallToolResult{
 			Content: []gomcp.Content{
 				&gomcp.TextContent{Text: string(data)},
 			},
 		}, nil, nil
 	}
+}
+
+// countItems inspects JSON-encoded data for an "items" array and returns its
+// length. If the data is not an object or has no "items" key it returns 1
+// (single-resource get responses).
+func countItems(data []byte) int {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return 1
+	}
+	raw, ok := obj["items"]
+	if !ok {
+		return 1
+	}
+	var arr []json.RawMessage
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		return 1
+	}
+	return len(arr)
 }
