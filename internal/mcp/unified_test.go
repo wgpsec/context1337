@@ -1,0 +1,153 @@
+package mcp
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+
+	"github.com/Esonhugh/context1337/internal/search"
+	"github.com/Esonhugh/context1337/internal/storage"
+)
+
+func setupUnifiedTest(t *testing.T) *Service {
+	t.Helper()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	db, err := storage.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	search.InsertResource(db, search.Resource{
+		Type: "skill", Name: "sql-injection", Source: "builtin",
+		FilePath: "skills/sql-injection/SKILL.md", Category: "exploit",
+		Tags: "sqli,owasp,web", Difficulty: "medium",
+		Description: "SQL Injection attack techniques",
+		Body:        "SQL injection is a common web vulnerability",
+	})
+	search.InsertResource(db, search.Resource{
+		Type: "skill", Name: "xss-reflected", Source: "builtin",
+		FilePath: "skills/xss-reflected/SKILL.md", Category: "exploit",
+		Tags: "xss,owasp", Difficulty: "easy",
+		Description: "Reflected XSS attacks",
+		Body:        "Reflected cross-site scripting techniques",
+	})
+	search.InsertResource(db, search.Resource{
+		Type: "dict", Name: "Auth/password/Top100.txt", Source: "builtin",
+		Category: "auth", Description: "Common passwords top 100",
+	})
+	search.InsertResource(db, search.Resource{
+		Type: "payload", Name: "XSS/events.txt", Source: "builtin",
+		Category: "xss", Description: "XSS event handler payloads",
+	})
+	search.InsertResource(db, search.Resource{
+		Type: "tool", Name: "nmap", Source: "builtin",
+		Category: "scan", Description: "Port scanner",
+		Metadata: `{"binary":"nmap","homepage":"https://nmap.org"}`,
+	})
+
+	return &Service{DB: db, DataDir: dir}
+}
+
+func TestSearch_Keyword(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Query: "SQL injection", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) == 0 {
+		t.Fatal("expected results")
+	}
+	if result.Items[0].Name != "sql-injection" {
+		t.Errorf("top = %q, want sql-injection", result.Items[0].Name)
+	}
+	if result.Items[0].Type != "skill" {
+		t.Errorf("type = %q, want skill", result.Items[0].Type)
+	}
+}
+
+func TestSearch_TypeFilter(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Query: "port", Type: "tool", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range result.Items {
+		if item.Type != "tool" {
+			t.Errorf("item %q has type %q, want tool", item.Name, item.Type)
+		}
+	}
+}
+
+func TestSearch_EmptyQuery_ListAll(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total < 5 {
+		t.Errorf("total = %d, want >= 5 (all resource types)", result.Total)
+	}
+}
+
+func TestSearch_EmptyQuery_TypeFilter(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Type: "skill", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 2 {
+		t.Errorf("total = %d, want 2", result.Total)
+	}
+	for _, item := range result.Items {
+		if item.Type != "skill" {
+			t.Errorf("item %q has type %q, want skill", item.Name, item.Type)
+		}
+	}
+}
+
+func TestSearch_CategoryFilter(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Type: "skill", Category: "exploit", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range result.Items {
+		if item.Category != "exploit" {
+			t.Errorf("item %q has category %q, want exploit", item.Name, item.Category)
+		}
+	}
+}
+
+func TestSearch_ToolMetadata(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Query: "nmap", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) == 0 {
+		t.Fatal("expected nmap result")
+	}
+	found := false
+	for _, item := range result.Items {
+		if item.Name == "nmap" {
+			found = true
+			if item.Binary != "nmap" {
+				t.Errorf("binary = %q, want nmap", item.Binary)
+			}
+			if item.Homepage != "https://nmap.org" {
+				t.Errorf("homepage = %q", item.Homepage)
+			}
+		}
+	}
+	if !found {
+		t.Error("nmap not in results")
+	}
+}
