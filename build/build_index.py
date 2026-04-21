@@ -125,46 +125,94 @@ def index_skills(conn: sqlite3.Connection, base_dir: str):
     return count
 
 
-def index_dicts(conn: sqlite3.Connection, base_dir: str):
-    """Index dictionary files metadata."""
-    dic_dir = os.path.join(base_dir, "Dic")
-    if not os.path.isdir(dic_dir):
+def _load_meta_yaml(directory):
+    """Load _meta.yaml from a directory if it exists."""
+    meta_path = os.path.join(directory, "_meta.yaml")
+    if not os.path.exists(meta_path):
+        return None
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except Exception:
+        return None
+
+
+def _index_data_dir(conn, base_dir, subdir, resource_type):
+    """Index dict or payload files, using _meta.yaml when available."""
+    data_dir = os.path.join(base_dir, subdir)
+    if not os.path.isdir(data_dir):
         return 0
 
+    skip_files = {'_meta.yaml', '.gitkeep', '.DS_Store'}
     count = 0
-    for root, dirs, files in os.walk(dic_dir):
-        for f in files:
-            path = os.path.join(root, f)
-            rel = os.path.relpath(path, dic_dir)
-            parts = rel.split(os.sep)
-            cat = parts[0] if parts else ""
-            conn.execute(
-                "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,description,body) VALUES (?,?,?,?,?,?,?)",
-                ("dict", rel, "builtin", path, cat, f"{cat} dictionary: {f}", tokenize(f"{cat} {f}")),
-            )
-            count += 1
+
+    for root, dirs, files in os.walk(data_dir):
+        data_files = [f for f in files if f not in skip_files]
+        if not data_files:
+            continue
+
+        meta = _load_meta_yaml(root)
+
+        if meta and "files" in meta:
+            file_lookup = {entry["name"]: entry for entry in meta["files"]}
+            dir_tags = meta.get("tags", "")
+            dir_cat = meta.get("category", "")
+
+            for f in data_files:
+                path = os.path.join(root, f)
+                rel = os.path.relpath(path, data_dir)
+                entry = file_lookup.get(f)
+
+                if entry:
+                    file_tags = entry.get("tags", "")
+                    merged_tags = ",".join(filter(None, [dir_tags, file_tags]))
+                    desc = entry.get("description", "")
+                    usage = entry.get("usage", "")
+                    body_text = f"{desc} {usage} {merged_tags}"
+
+                    conn.execute(
+                        "INSERT OR REPLACE INTO resources "
+                        "(type,name,source,file_path,category,tags,description,body) "
+                        "VALUES (?,?,?,?,?,?,?,?)",
+                        (resource_type, rel, "builtin", path, dir_cat,
+                         tokenize(merged_tags), tokenize(desc),
+                         tokenize(body_text)),
+                    )
+                else:
+                    _index_file_fallback(conn, resource_type, data_dir, root, f)
+                count += 1
+        else:
+            for f in data_files:
+                _index_file_fallback(conn, resource_type, data_dir, root, f)
+                count += 1
+
     return count
 
 
-def index_payloads(conn: sqlite3.Connection, base_dir: str):
-    """Index payload files metadata."""
-    pay_dir = os.path.join(base_dir, "Payload")
-    if not os.path.isdir(pay_dir):
-        return 0
+def _index_file_fallback(conn, resource_type, data_dir, root, filename):
+    """Fallback: index a file using only its path for metadata."""
+    path = os.path.join(root, filename)
+    rel = os.path.relpath(path, data_dir)
+    parts = rel.split(os.sep)
+    cat = parts[0] if len(parts) > 1 else ""
+    label = "dictionary" if resource_type == "dict" else "payload"
+    conn.execute(
+        "INSERT OR REPLACE INTO resources "
+        "(type,name,source,file_path,category,description,body) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (resource_type, rel, "builtin", path, cat,
+         f"{cat} {label}: {filename}", tokenize(f"{cat} {filename}")),
+    )
 
-    count = 0
-    for root, dirs, files in os.walk(pay_dir):
-        for f in files:
-            path = os.path.join(root, f)
-            rel = os.path.relpath(path, pay_dir)
-            parts = rel.split(os.sep)
-            cat = parts[0] if parts else ""
-            conn.execute(
-                "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,description,body) VALUES (?,?,?,?,?,?,?)",
-                ("payload", rel, "builtin", path, cat, f"{cat} payload: {f}", tokenize(f"{cat} {f}")),
-            )
-            count += 1
-    return count
+
+def index_dicts(conn, base_dir):
+    """Index dictionary files, using _meta.yaml when available."""
+    return _index_data_dir(conn, base_dir, "Dic", "dict")
+
+
+def index_payloads(conn, base_dir):
+    """Index payload files, using _meta.yaml when available."""
+    return _index_data_dir(conn, base_dir, "Payload", "payload")
 
 
 def index_tools(conn: sqlite3.Connection, base_dir: str):
