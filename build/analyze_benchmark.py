@@ -10,21 +10,21 @@ import sys
 from datetime import datetime
 
 TOOL_MAP_5 = {
-    "search_skill": "search", "search_dicts": "search",
-    "search_payload": "search", "search_tools": "search",
+    "search_skill": "search_security", "search_dicts": "search_security",
+    "search_payload": "search_security", "search_tools": "search_security",
     "list_skills": "list", "list_dicts": "list",
     "list_payloads": "list", "list_tools": "list",
-    "get_skill": "get_skill", "get_dict": "get_file",
-    "get_payload": "get_file", "get_tool": "get_tool",
+    "get_skill": "get_security_detail", "get_dict": "read_security_file",
+    "get_payload": "read_security_file", "get_tool": "get_security_detail",
 }
 
 TOOL_MAP_3 = {
-    "search_skill": "search", "search_dicts": "search",
-    "search_payload": "search", "search_tools": "search",
-    "list_skills": "search", "list_dicts": "search",
-    "list_payloads": "search", "list_tools": "search",
-    "get_skill": "get", "get_dict": "get_file",
-    "get_payload": "get_file", "get_tool": "get",
+    "search_skill": "search_security", "search_dicts": "search_security",
+    "search_payload": "search_security", "search_tools": "search_security",
+    "list_skills": "search_security", "list_dicts": "search_security",
+    "list_payloads": "search_security", "list_tools": "search_security",
+    "get_skill": "get_security_detail", "get_dict": "read_security_file",
+    "get_payload": "read_security_file", "get_tool": "get_security_detail",
 }
 
 MERGE_WINDOW_SEC = 30
@@ -162,7 +162,7 @@ def print_summary(scenarios):
         print(f"\n  calls_saved (5-tool): {(1 - total_5/total_12)*100:.0f}%")
         print(f"  calls_saved (3-tool): {(1 - total_3/total_12)*100:.0f}%")
 
-    print(f"\n  tool_description_tokens (est): 12-tool ~1000 / 5-tool ~400 / 3-tool ~250")
+    print(f"\n  tool_description_tokens (est): 12-tool ~1200 / 5-tool ~500 / 3-tool ~300")
 
 
 def main():
