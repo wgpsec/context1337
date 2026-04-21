@@ -5,10 +5,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/Esonhugh/context1337/internal/api"
 	"github.com/Esonhugh/context1337/internal/config"
 	mcphandler "github.com/Esonhugh/context1337/internal/mcp"
+	"github.com/Esonhugh/context1337/internal/mcp/benchlog"
 	"github.com/Esonhugh/context1337/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -33,6 +35,8 @@ func main() {
 func serveCmd() *cobra.Command {
 	var port int
 	var dataDir string
+	var benchmark bool
+	var benchmarkScenario string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -48,6 +52,20 @@ func serveCmd() *cobra.Command {
 			cfg, err := config.Load()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
+			}
+
+			// Benchmark logging
+			if benchmark {
+				logDir := filepath.Join(cfg.DataDir, "benchmark")
+				os.MkdirAll(logDir, 0o755)
+				logPath := filepath.Join(logDir, "calls.jsonl")
+				logger, err := benchlog.New(logPath, benchmarkScenario)
+				if err != nil {
+					return fmt.Errorf("init benchmark log: %w", err)
+				}
+				defer logger.Close()
+				mcphandler.BenchLogger = logger
+				log.Printf("benchmark: logging to %s (scenario: %s)", logPath, benchmarkScenario)
 			}
 
 			db, err := storage.InitRuntime(storage.LoaderConfig{
@@ -71,5 +89,7 @@ func serveCmd() *cobra.Command {
 
 	cmd.Flags().IntVar(&port, "port", 8080, "HTTP listen port")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory")
+	cmd.Flags().BoolVar(&benchmark, "benchmark", false, "Enable MCP tool call logging")
+	cmd.Flags().StringVar(&benchmarkScenario, "benchmark-scenario", "default", "Scenario label for benchmark logs")
 	return cmd
 }
