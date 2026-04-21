@@ -265,6 +265,50 @@ def index_tools(conn: sqlite3.Connection, base_dir: str):
     return count
 
 
+def index_docs(conn: sqlite3.Connection, base_dir: str):
+    """Index Doc/ directory files (.md, .txt)."""
+    docs_dir = os.path.join(base_dir, "Doc")
+    if not os.path.isdir(docs_dir):
+        return 0
+
+    skip = {"_meta.yaml", ".gitkeep", ".DS_Store"}
+    count = 0
+    for f in sorted(os.listdir(docs_dir)):
+        if f in skip or f.lower() == "readme.md":
+            continue
+        ext = os.path.splitext(f)[1]
+        if ext not in (".md", ".txt"):
+            continue
+
+        path = os.path.join(docs_dir, f)
+        if not os.path.isfile(path):
+            continue
+
+        with open(path, "r", encoding="utf-8") as fh:
+            body = fh.read()
+
+        name = os.path.splitext(f)[0]
+        desc = _extract_first_line(body)
+
+        conn.execute(
+            "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,description,body) VALUES (?,?,?,?,?,?,?)",
+            ("doc", name, "builtin", path, "reference",
+             tokenize(desc), tokenize(body)),
+        )
+        count += 1
+    return count
+
+
+def _extract_first_line(body: str) -> str:
+    """Return the first non-empty, non-heading line."""
+    for line in body.split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("---"):
+            continue
+        return line[:200]
+    return ""
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build AboutSecurity FTS5 index")
     parser.add_argument("--input", required=True, help="AboutSecurity data directory")
@@ -284,9 +328,10 @@ def main():
     dicts = index_dicts(conn, args.input)
     payloads = index_payloads(conn, args.input)
     tools = index_tools(conn, args.input)
+    docs = index_docs(conn, args.input)
 
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('builtin_version', ?)",
-                 (f"v1-{skills}s-{dicts}d-{payloads}p-{tools}t",))
+                 (f"v1-{skills}s-{dicts}d-{payloads}p-{tools}t-{docs}doc",))
 
     conn.execute("INSERT INTO resources_fts(resources_fts) VALUES('optimize')")
     conn.execute("PRAGMA journal_mode=DELETE")
@@ -294,7 +339,7 @@ def main():
     conn.commit()
     conn.close()
 
-    print(f"Built {args.output}: {skills} skills, {dicts} dicts, {payloads} payloads, {tools} tools")
+    print(f"Built {args.output}: {skills} skills, {dicts} dicts, {payloads} payloads, {tools} tools, {docs} docs")
 
 
 if __name__ == "__main__":
