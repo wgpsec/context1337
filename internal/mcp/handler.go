@@ -52,7 +52,7 @@ func NewMCPServer(db *sql.DB, dataDir string) http.Handler {
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_dict",
-		Description: "Read dictionary file content. Params: path (relative path from list_dicts e.g. Auth/password/Top100.txt), offset (optional), limit (optional)",
+		Description: "Read dictionary file content with pagination. Params: path (relative path from list_dicts e.g. Auth/password/Top100.txt), limit (optional, default 200 lines), offset (optional, default 0). Response includes total_lines for pagination.",
 	}, wrapHandler(svc.GetDict))
 
 	// --- Payload tools ---
@@ -63,7 +63,7 @@ func NewMCPServer(db *sql.DB, dataDir string) http.Handler {
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_payload",
-		Description: "Read payload file content. Params: path (relative path from search_payload e.g. XSS/events.txt), offset (optional), limit (optional)",
+		Description: "Read payload file content with pagination. Params: path (relative path from search_payload e.g. XSS/events.txt), limit (optional, default 200 lines), offset (optional, default 0). Response includes total_lines for pagination.",
 	}, wrapHandler(svc.GetPayload))
 
 	// --- Tool config tools ---
