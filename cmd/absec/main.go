@@ -51,13 +51,16 @@ func serveCmd() *cobra.Command {
 			}
 
 			// Resolve tool-mode: flag > env var > default "lite"
-			if toolMode == "" || toolMode == "lite" {
-				if envMode := os.Getenv("ABOUTSECURITY_TOOL_MODE"); envMode != "" && !cmd.Flags().Changed("tool-mode") {
+			if !cmd.Flags().Changed("tool-mode") {
+				if envMode := os.Getenv("ABOUTSECURITY_TOOL_MODE"); envMode != "" {
 					toolMode = envMode
 				}
 			}
-			if toolMode == "" {
-				toolMode = "lite"
+			switch mcphandler.ToolMode(toolMode) {
+			case mcphandler.ToolModeLite, mcphandler.ToolModeFull:
+				// valid
+			default:
+				return fmt.Errorf("invalid --tool-mode %q: must be \"lite\" or \"full\"", toolMode)
 			}
 
 			cfg, err := config.Load()
