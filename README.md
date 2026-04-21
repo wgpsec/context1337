@@ -102,27 +102,58 @@ Edit your Claude Desktop config file (`~/Library/Application Support/Claude/clau
 
 Once connected, just ask your AI assistant naturally:
 
-- "Search for SQL injection techniques"
+**Skills (penetration testing techniques)**
+- "列出所有 exploit 类型的 skill"
+- "搜索 sql injection 相关的 skill"
+- "获取 sql-injection skill 的完整内容" → uses `get_skill` with `depth=full`, includes references
+- "有哪些 cloud 安全相关的技能？"
+
+**Dictionaries (wordlists for brute-force)**
+- "搜索弱口令字典"
+- "列出 auth 类型的字典"
+- "查看 Top100 密码字典内容" → uses `get_dict` with pagination
+
+**Payloads (attack payloads)**
 - "Show me XSS payloads"
-- "What password dictionaries are available?"
-- "How to use nmap for port scanning?"
-- "Tell me about k8spider tool"
-- "List all reconnaissance tools"
+- "搜索 SSRF 相关的 payload"
+- "查看 SQLi union 注入的 payload"
 
-The AI will automatically call the right MCP tools (`search_skill`, `get_tool`, `list_dicts`, etc.) to find relevant security knowledge.
+**Tools (security tool configs)**
+- "查看 nmap 工具配置"
+- "列出所有扫描类工具"
+- "Tell me about sqlmap tool"
 
-## Available MCP Tools
+The AI will automatically call the right MCP tools to find relevant security knowledge.
 
+## Available MCP Tools (12)
+
+### Skills
 | Tool | Description |
 |------|-------------|
-| `search_skill` | Search skills by keyword/category/difficulty |
-| `get_skill` | Get skill content (metadata/summary/full depth) |
-| `list_dicts` | List security dictionaries by type |
-| `get_dict` | Get dictionary file content with pagination |
-| `search_payload` | Search payloads by keyword or attack type |
-| `get_payload` | Get payload file content with pagination |
-| `list_tools` | List tool configurations by function |
-| `get_tool` | Get full tool YAML configuration |
+| `list_skills` | List skills by category/difficulty with pagination |
+| `search_skill` | Search skills by keyword with pagination |
+| `get_skill` | Get skill detail (depth: metadata/summary/full). `depth=full` includes references/ content |
+
+### Dictionaries
+| Tool | Description |
+|------|-------------|
+| `list_dicts` | List dictionaries by category with pagination |
+| `search_dicts` | Search dictionaries by keyword with pagination |
+| `get_dict` | Read dictionary file content with line-level pagination |
+
+### Payloads
+| Tool | Description |
+|------|-------------|
+| `list_payloads` | List payloads by category with pagination |
+| `search_payload` | Search payloads by keyword with pagination |
+| `get_payload` | Read payload file content with line-level pagination |
+
+### Tools
+| Tool | Description |
+|------|-------------|
+| `list_tools` | List tool configurations by category with pagination |
+| `search_tools` | Search tools by keyword with pagination |
+| `get_tool` | Get full YAML configuration for a tool |
 
 ## Makefile Targets
 
