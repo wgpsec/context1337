@@ -1,4 +1,4 @@
-.PHONY: build test test-integration run docker clean index link-data
+.PHONY: build test test-integration run docker clean index link-data clean-benchmark
 
 # Paths
 ABOUTSECURITY_DIR ?= ../AboutSecurity
@@ -62,3 +62,6 @@ clean:
 	rm -f data/builtin.db
 	rm -f data/Payload data/Dic data/Tools data/skills
 	rm -f data/runtime/runtime.db data/runtime/runtime.db-wal data/runtime/runtime.db-shm
+
+clean-benchmark:
+	rm -rf data/benchmark/
