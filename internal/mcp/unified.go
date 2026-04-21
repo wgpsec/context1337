@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +12,27 @@ import (
 	"github.com/Esonhugh/context1337/internal/search"
 	"github.com/Esonhugh/context1337/internal/storage"
 )
+
+// Service holds shared dependencies for all MCP handlers.
+type Service struct {
+	DB      *sql.DB
+	DataDir string
+}
+
+// SkillReference represents a named reference file bundled with a skill.
+type SkillReference struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+
+func extractToolMeta(metadata string) (binary, homepage string) {
+	if metadata == "" {
+		return
+	}
+	var meta map[string]string
+	json.Unmarshal([]byte(metadata), &meta)
+	return meta["binary"], meta["homepage"]
+}
 
 // --- search ---
 
