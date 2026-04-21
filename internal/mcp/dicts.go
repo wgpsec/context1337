@@ -58,8 +58,8 @@ func (s *Service) ListDicts(ctx context.Context, in ListDictsInput) ([]DictSumma
 
 type GetDictInput struct {
 	Path   string `json:"path"             jsonschema:"Relative path e.g. Auth/password/Top100.txt"`
-	Limit  int    `json:"limit,omitempty"  jsonschema:"Max lines (default 0=all)"`
-	Offset int    `json:"offset,omitempty" jsonschema:"Line offset for pagination"`
+	Limit  int    `json:"limit,omitempty"  jsonschema:"Max lines to return (default 200, use with offset for pagination)"`
+	Offset int    `json:"offset,omitempty" jsonschema:"Line offset for pagination (default 0)"`
 }
 
 type DictContent struct {
@@ -73,6 +73,9 @@ func (s *Service) GetDict(ctx context.Context, in GetDictInput) (*DictContent, e
 	clean := filepath.Clean(in.Path)
 	if strings.Contains(clean, "..") {
 		return nil, fmt.Errorf("invalid path")
+	}
+	if in.Limit <= 0 {
+		in.Limit = 200
 	}
 	absPath := filepath.Join(s.DataDir, "Dic", clean)
 	content, total, err := storage.ReadFileLines(absPath, in.Offset, in.Limit)

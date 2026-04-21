@@ -85,7 +85,7 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, error) {
 		args = append(args, q.Type)
 	}
 	if q.Category != "" {
-		conditions = append(conditions, "r.category = ?")
+		conditions = append(conditions, "LOWER(r.category) = LOWER(?)")
 		args = append(args, q.Category)
 	}
 	if q.Difficulty != "" {
@@ -143,7 +143,7 @@ func ListByType(db *sql.DB, typ, category string, limit int) ([]Resource, error)
 	args = append(args, typ)
 
 	if category != "" {
-		conditions = append(conditions, "category = ?")
+		conditions = append(conditions, "LOWER(category) = LOWER(?)")
 		args = append(args, category)
 	}
 

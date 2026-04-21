@@ -18,7 +18,7 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	port := 8080
+	port := 8088
 	if v := os.Getenv("ABOUTSECURITY_PORT"); v != "" {
 		p, err := strconv.Atoi(v)
 		if err != nil {
@@ -37,7 +37,7 @@ func Load() (*Config, error) {
 		TeamDir:   dataDir + "/team",
 		APIKey:    os.Getenv("ABOUTSECURITY_API_KEY"),
 		AdminKey:  os.Getenv("ABOUTSECURITY_ADMIN_KEY"),
-		ServerURL: envOrDefault("ABOUTSECURITY_URL", "http://localhost:8080"),
+		ServerURL: envOrDefault("ABOUTSECURITY_URL", "http://localhost:8088"),
 	}, nil
 }
 

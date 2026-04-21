@@ -39,7 +39,7 @@ link-data: | $(ABOUTSECURITY_DIR)
 index: data/builtin.db
 
 run: build data/builtin.db link-data
-	./absec serve --port 8080 --data-dir ./data
+	./absec serve --port 8088 --data-dir ./data
 
 # Docker — default: clones AboutSecurity from GitHub
 docker:
