@@ -105,24 +105,24 @@ Edit your Claude Desktop config file (`~/Library/Application Support/Claude/clau
 Once connected, just ask your AI assistant naturally:
 
 **Skills (penetration testing techniques)**
-- "列出所有 exploit 类型的 skill"
-- "搜索 sql injection 相关的 skill"
-- "获取 sql-injection skill 的完整内容" → uses `get_skill` with `depth=full`, includes references
-- "有哪些 cloud 安全相关的技能？"
+- "List all exploit skills"
+- "Search for SQL injection techniques"
+- "Get the full content of the sql-injection skill" → uses `get_skill` with `depth=full`, includes references
+- "What cloud security skills are available?"
 
 **Dictionaries (wordlists for brute-force)**
-- "搜索弱口令字典"
-- "列出 auth 类型的字典"
-- "查看 Top100 密码字典内容" → uses `get_dict` with pagination
+- "Search for weak password dictionaries"
+- "List auth-type dictionaries"
+- "Show me the Top100 password dictionary" → uses `get_dict` with pagination
 
 **Payloads (attack payloads)**
 - "Show me XSS payloads"
-- "搜索 SSRF 相关的 payload"
-- "查看 SQLi union 注入的 payload"
+- "Search for SSRF payloads"
+- "Get SQLi union injection payloads"
 
 **Tools (security tool configs)**
-- "查看 nmap 工具配置"
-- "列出所有扫描类工具"
+- "Show nmap tool configuration"
+- "List all scanning tools"
 - "Tell me about sqlmap tool"
 
 The AI will automatically call the right MCP tools to find relevant security knowledge.
