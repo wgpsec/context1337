@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -149,5 +150,97 @@ func TestSearch_ToolMetadata(t *testing.T) {
 	}
 	if !found {
 		t.Error("nmap not in results")
+	}
+}
+
+func TestGet_Skill_Summary(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Get(ctx, GetInput{Name: "sql-injection", Type: "skill"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Name != "sql-injection" {
+		t.Errorf("name = %q", result.Name)
+	}
+	if result.Type != "skill" {
+		t.Errorf("type = %q", result.Type)
+	}
+	if result.Body == "" {
+		t.Error("summary depth should include body")
+	}
+}
+
+func TestGet_Skill_Metadata(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Get(ctx, GetInput{Name: "sql-injection", Type: "skill", Depth: "metadata"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Body != "" {
+		t.Error("metadata depth should not include body")
+	}
+}
+
+func TestGet_Skill_Full_WithReferences(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+
+	skillDir := filepath.Join(svc.DataDir, "skills", "exploit", "sql-injection")
+	os.MkdirAll(filepath.Join(skillDir, "references"), 0o755)
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: sql-injection\n---\nbody"), 0o644)
+	os.WriteFile(filepath.Join(skillDir, "references", "advanced.md"), []byte("# Advanced\nSQL techniques"), 0o644)
+
+	svc.DB.Exec("UPDATE resources SET file_path=? WHERE name='sql-injection'",
+		filepath.Join(skillDir, "SKILL.md"))
+
+	result, err := svc.Get(ctx, GetInput{Name: "sql-injection", Type: "skill", Depth: "full"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.References) != 1 {
+		t.Fatalf("references = %d, want 1", len(result.References))
+	}
+}
+
+func TestGet_Tool(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+
+	toolDir := filepath.Join(svc.DataDir, "Tools")
+	os.MkdirAll(toolDir, 0o755)
+	toolPath := filepath.Join(toolDir, "nmap.yaml")
+	os.WriteFile(toolPath, []byte("id: nmap\nbinary: nmap\n"), 0o644)
+
+	svc.DB.Exec("UPDATE resources SET file_path=? WHERE name='nmap'", toolPath)
+
+	result, err := svc.Get(ctx, GetInput{Name: "nmap", Type: "tool"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Config == "" {
+		t.Error("expected config content")
+	}
+	if result.Homepage != "https://nmap.org" {
+		t.Errorf("homepage = %q", result.Homepage)
+	}
+}
+
+func TestGet_NotFound(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	_, err := svc.Get(ctx, GetInput{Name: "nonexistent", Type: "skill"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestGet_InvalidType(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	_, err := svc.Get(ctx, GetInput{Name: "test", Type: "dict"})
+	if err == nil {
+		t.Fatal("expected error for dict type")
 	}
 }
