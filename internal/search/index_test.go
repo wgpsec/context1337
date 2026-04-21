@@ -152,6 +152,33 @@ func TestListByType_DifficultyFilter(t *testing.T) {
 	}
 }
 
+func TestListByType_AllTypes(t *testing.T) {
+	db := setupTestDB(t)
+	InsertResource(db, Resource{
+		Type: "skill", Name: "test-skill", Source: "builtin",
+		Category: "exploit", Description: "a skill",
+	})
+	InsertResource(db, Resource{
+		Type: "tool", Name: "test-tool", Source: "builtin",
+		Category: "scan", Description: "a tool",
+	})
+	// Empty Type = list all types
+	result, err := ListByType(db, ListQuery{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total < 2 {
+		t.Errorf("total = %d, want >= 2", result.Total)
+	}
+	types := map[string]bool{}
+	for _, item := range result.Items {
+		types[item.Type] = true
+	}
+	if !types["skill"] || !types["tool"] {
+		t.Errorf("expected both skill and tool types, got %v", types)
+	}
+}
+
 func TestSearch_ReturnsTotal(t *testing.T) {
 	db := setupTestDB(t)
 	for _, name := range []string{"sql-injection-basic", "sql-injection-advanced", "sql-injection-blind"} {

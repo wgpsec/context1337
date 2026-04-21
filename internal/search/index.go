@@ -168,8 +168,10 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 	var conditions []string
 	var args []interface{}
 
-	conditions = append(conditions, "type = ?")
-	args = append(args, q.Type)
+	if q.Type != "" {
+		conditions = append(conditions, "type = ?")
+		args = append(args, q.Type)
+	}
 
 	if q.Category != "" {
 		conditions = append(conditions, "LOWER(category) = LOWER(?)")
@@ -180,7 +182,10 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 		args = append(args, q.Difficulty)
 	}
 
-	where := strings.Join(conditions, " AND ")
+	where := "1=1"
+	if len(conditions) > 0 {
+		where = strings.Join(conditions, " AND ")
+	}
 
 	// Count total matching rows.
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM resources WHERE %s", where)
