@@ -102,60 +102,31 @@ claude mcp add aboutsecurity --transport http --header "Authorization: Bearer yo
 
 ## 使用示例
 
-连接成功后，用自然语言向 AI 助手提问即可：
+连接后，直接用自然语言与 AI 助手对话：
 
-**技能（渗透测试技术）**
-- "列出所有 exploit 类型的 skill"
-- "搜索 sql injection 相关的 skill"
-- "获取 sql-injection skill 的完整内容" → 使用 `get_skill`，`depth=full` 会返回 references 引用内容
-- "有哪些 cloud 安全相关的技能？"
+**跨类型搜索**
+- "搜索 SQL 注入相关资源" → `search(query="SQL injection")` 同时找到 skill、payload、tool
+- "有哪些 XSS payload？" → `search(query="XSS", type="payload")`
+- "列出所有扫描类工具" → `search(type="tool", category="scan")`
+- "有哪些漏洞利用技能？" → `search(type="skill", category="exploit")`
 
-**字典（爆破用词表）**
-- "搜索弱口令字典"
-- "列出 auth 类型的字典"
-- "查看 Top100 密码字典内容" → 使用 `get_dict`，支持分页读取
+**获取详细知识**
+- "详细讲解 SQL 注入攻击技术" → `get(name="sql-injection", type="skill", depth="full")` 包含参考资料
+- "nmap 工具的配置是什么？" → `get(name="nmap", type="tool")` 返回 YAML 配置
 
-**Payload（攻击载荷）**
-- "搜索 XSS payload"
-- "搜索 SSRF 相关的 payload"
-- "查看 SQLi union 注入的 payload"
+**读取数据文件**
+- "给我常见弱口令字典前 100 行" → `get_file(path="Auth/password/Top100.txt", type="dict")`
+- "XSS 事件触发的 payload 有哪些？" → `get_file(path="XSS/events.txt", type="payload")`
 
-**工具（安全工具配置）**
-- "查看 nmap 工具配置"
-- "列出所有扫描类工具"
-- "sqlmap 怎么用？"
+AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 
-AI 会自动调用对应的 MCP 工具来查找相关安全知识。
+## 可用 MCP 工具（3 个）
 
-## 可用 MCP 工具（12 个）
-
-### 技能
 | 工具 | 说明 |
 |------|------|
-| `list_skills` | 按分类/难度列出技能，支持分页 |
-| `search_skill` | 按关键词搜索技能，支持分页 |
-| `get_skill` | 获取技能详情（depth: metadata/summary/full）。`depth=full` 包含 references/ 引用内容 |
-
-### 字典
-| 工具 | 说明 |
-|------|------|
-| `list_dicts` | 按分类列出字典，支持分页 |
-| `search_dicts` | 按关键词搜索字典，支持分页 |
-| `get_dict` | 读取字典文件内容，支持行级分页 |
-
-### Payload
-| 工具 | 说明 |
-|------|------|
-| `list_payloads` | 按分类列出 payload，支持分页 |
-| `search_payload` | 按关键词搜索 payload，支持分页 |
-| `get_payload` | 读取 payload 文件内容，支持行级分页 |
-
-### 工具
-| 工具 | 说明 |
-|------|------|
-| `list_tools` | 按分类列出工具配置，支持分页 |
-| `search_tools` | 按关键词搜索工具，支持分页 |
-| `get_tool` | 获取工具的完整 YAML 配置 |
+| `search` | 搜索或列出所有资源类型（skill、dict、payload、tool）。支持 type/category 过滤，空 query 列出全部 |
+| `get` | 获取 skill（支持 depth 和 references）或 tool（YAML 配置）的详细内容 |
+| `get_file` | 按行分页读取字典或 payload 文件内容 |
 
 ## Makefile 命令
 

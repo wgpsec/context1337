@@ -104,58 +104,29 @@ Edit your Claude Desktop config file (`~/Library/Application Support/Claude/clau
 
 Once connected, just ask your AI assistant naturally:
 
-**Skills (penetration testing techniques)**
-- "List all exploit skills"
-- "Search for SQL injection techniques"
-- "Get the full content of the sql-injection skill" → uses `get_skill` with `depth=full`, includes references
-- "What cloud security skills are available?"
+**Search across all types**
+- "Search for SQL injection resources" → `search(query="SQL injection")` finds skills, payloads, and tools
+- "What XSS payloads are available?" → `search(query="XSS", type="payload")`
+- "List all scanning tools" → `search(type="tool", category="scan")`
+- "Show me all exploit skills" → `search(type="skill", category="exploit")`
 
-**Dictionaries (wordlists for brute-force)**
-- "Search for weak password dictionaries"
-- "List auth-type dictionaries"
-- "Show me the Top100 password dictionary" → uses `get_dict` with pagination
+**Get detailed knowledge**
+- "Explain the SQL injection skill in detail" → `get(name="sql-injection", type="skill", depth="full")` includes references
+- "Show me the nmap tool configuration" → `get(name="nmap", type="tool")` returns YAML config
 
-**Payloads (attack payloads)**
-- "Show me XSS payloads"
-- "Search for SSRF payloads"
-- "Get SQLi union injection payloads"
-
-**Tools (security tool configs)**
-- "Show nmap tool configuration"
-- "List all scanning tools"
-- "Tell me about sqlmap tool"
+**Read data files**
+- "Show the top 100 passwords dictionary" → `get_file(path="Auth/password/Top100.txt", type="dict")`
+- "Get XSS event handler payloads" → `get_file(path="XSS/events.txt", type="payload")`
 
 The AI will automatically call the right MCP tools to find relevant security knowledge.
 
-## Available MCP Tools (12)
+## Available MCP Tools (3)
 
-### Skills
 | Tool | Description |
 |------|-------------|
-| `list_skills` | List skills by category/difficulty with pagination |
-| `search_skill` | Search skills by keyword with pagination |
-| `get_skill` | Get skill detail (depth: metadata/summary/full). `depth=full` includes references/ content |
-
-### Dictionaries
-| Tool | Description |
-|------|-------------|
-| `list_dicts` | List dictionaries by category with pagination |
-| `search_dicts` | Search dictionaries by keyword with pagination |
-| `get_dict` | Read dictionary file content with line-level pagination |
-
-### Payloads
-| Tool | Description |
-|------|-------------|
-| `list_payloads` | List payloads by category with pagination |
-| `search_payload` | Search payloads by keyword with pagination |
-| `get_payload` | Read payload file content with line-level pagination |
-
-### Tools
-| Tool | Description |
-|------|-------------|
-| `list_tools` | List tool configurations by category with pagination |
-| `search_tools` | Search tools by keyword with pagination |
-| `get_tool` | Get full YAML configuration for a tool |
+| `search` | Search or list all resource types (skill, dict, payload, tool). Optional type/category filter. Empty query lists all. |
+| `get` | Get full detail for a skill (with depth control + references) or tool (YAML config) |
+| `get_file` | Read dictionary or payload file content with line-level pagination |
 
 ## Makefile Targets
 
