@@ -52,7 +52,7 @@ func TestSearch_ByKeyword(t *testing.T) {
 		Body: "Reflected cross-site scripting attack",
 	})
 
-	results, err := Search(db, SearchQuery{
+	results, _, err := Search(db, SearchQuery{
 		Query: "SQL Injection",
 		Type:  "skill",
 		Limit: 10,
@@ -84,7 +84,7 @@ func TestSearch_WithCategoryFilter(t *testing.T) {
 		Body: "SQL Injection techniques",
 	})
 
-	results, err := Search(db, SearchQuery{
+	results, _, err := Search(db, SearchQuery{
 		Query:    "scan",
 		Type:     "skill",
 		Category: "recon",
@@ -149,5 +149,26 @@ func TestListByType_DifficultyFilter(t *testing.T) {
 	}
 	if len(result.Items) != 1 || result.Items[0].Name != "easy-one" {
 		t.Errorf("unexpected items: %v", result.Items)
+	}
+}
+
+func TestSearch_ReturnsTotal(t *testing.T) {
+	db := setupTestDB(t)
+	for _, name := range []string{"sql-injection-basic", "sql-injection-advanced", "sql-injection-blind"} {
+		InsertResource(db, Resource{
+			Type: "skill", Name: name, Source: "builtin",
+			Category: "exploit", Description: "SQL injection technique " + name,
+			Body: "SQL injection attack",
+		})
+	}
+	results, total, err := Search(db, SearchQuery{Query: "SQL injection", Type: "skill", Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 3 {
+		t.Errorf("total = %d, want 3", total)
+	}
+	if len(results) != 2 {
+		t.Errorf("results = %d, want 2", len(results))
 	}
 }

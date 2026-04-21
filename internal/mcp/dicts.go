@@ -20,7 +20,7 @@ func (s *Service) SearchDicts(ctx context.Context, in SearchDictsInput) ([]DictS
 	if in.Limit <= 0 {
 		in.Limit = 20
 	}
-	results, err := search.Search(s.DB, search.SearchQuery{
+	results, _, err := search.Search(s.DB, search.SearchQuery{
 		Query: in.Query, Type: "dict", Category: in.Type, Limit: in.Limit,
 	})
 	if err != nil {

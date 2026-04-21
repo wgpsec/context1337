@@ -65,7 +65,7 @@ func (s *Service) SearchSkill(ctx context.Context, in SearchSkillInput) ([]Skill
 	if in.Limit <= 0 {
 		in.Limit = 10
 	}
-	results, err := search.Search(s.DB, search.SearchQuery{
+	results, _, err := search.Search(s.DB, search.SearchQuery{
 		Query: in.Query, Type: "skill", Category: in.Category,
 		Difficulty: in.Difficulty, Limit: in.Limit,
 	})

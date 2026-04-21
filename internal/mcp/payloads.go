@@ -23,7 +23,7 @@ type PayloadSummary struct {
 
 func (s *Service) SearchPayload(ctx context.Context, in SearchPayloadInput) ([]PayloadSummary, error) {
 	if in.Query != "" {
-		results, err := search.Search(s.DB, search.SearchQuery{
+		results, _, err := search.Search(s.DB, search.SearchQuery{
 			Query: in.Query, Type: "payload", Category: in.Type, Limit: 50,
 		})
 		if err != nil {

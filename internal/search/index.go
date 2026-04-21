@@ -28,6 +28,7 @@ type SearchQuery struct {
 	Type       string
 	Category   string
 	Difficulty string
+	Offset     int
 	Limit      int
 }
 
@@ -71,14 +72,15 @@ func DeleteResource(db *sql.DB, typ, name, source string) error {
 }
 
 // Search performs a full-text search against the FTS5 index.
-func Search(db *sql.DB, q SearchQuery) ([]SearchResult, error) {
+// Returns matching results, total count (before LIMIT/OFFSET), and error.
+func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 	if q.Limit <= 0 {
 		q.Limit = 10
 	}
 
 	tokens := Tokenize(q.Query)
 	if len(tokens) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	// Build FTS5 match expression: each token joined with OR
@@ -104,12 +106,21 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, error) {
 		args = append(args, q.Category)
 	}
 	if q.Difficulty != "" {
-		conditions = append(conditions, "r.difficulty = ?")
+		conditions = append(conditions, "LOWER(r.difficulty) = LOWER(?)")
 		args = append(args, q.Difficulty)
 	}
 
 	where := strings.Join(conditions, " AND ")
-	args = append(args, q.Limit)
+
+	// Count total matching rows.
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM resources_fts JOIN resources r ON r.id = resources_fts.rowid WHERE %s`, where)
+	var total int
+	if err := db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count: %w", err)
+	}
+
+	// Fetch the page.
+	pageArgs := append(args, q.Limit, q.Offset)
 
 	query := fmt.Sprintf(`
 		SELECT r.id, r.type, COALESCE(r.name,''), COALESCE(r.source,''), COALESCE(r.file_path,''),
@@ -120,11 +131,11 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, error) {
 		JOIN resources r ON r.id = resources_fts.rowid
 		WHERE %s
 		ORDER BY score
-		LIMIT ?`, where)
+		LIMIT ? OFFSET ?`, where)
 
-	rows, err := db.Query(query, args...)
+	rows, err := db.Query(query, pageArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("search: %w", err)
+		return nil, 0, fmt.Errorf("search: %w", err)
 	}
 	defer rows.Close()
 
@@ -138,11 +149,14 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, error) {
 			&sr.Score,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("scan: %w", err)
+			return nil, 0, fmt.Errorf("scan: %w", err)
 		}
 		results = append(results, sr)
 	}
-	return results, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return results, total, nil
 }
 
 // ListByType returns resources of a given type with pagination and total count.

@@ -21,7 +21,7 @@ func (s *Service) SearchTools(ctx context.Context, in SearchToolsInput) ([]ToolS
 	if in.Limit <= 0 {
 		in.Limit = 10
 	}
-	results, err := search.Search(s.DB, search.SearchQuery{
+	results, _, err := search.Search(s.DB, search.SearchQuery{
 		Query: in.Query, Type: "tool", Category: in.Function, Limit: in.Limit,
 	})
 	if err != nil {
@@ -91,7 +91,7 @@ func (s *Service) GetTool(ctx context.Context, in GetToolInput) (*ToolDetail, er
 	}
 	// Fallback: search by keyword
 	if r == nil {
-		results, err := search.Search(s.DB, search.SearchQuery{
+		results, _, err := search.Search(s.DB, search.SearchQuery{
 			Query: in.Name, Type: "tool", Limit: 1,
 		})
 		if err == nil && len(results) > 0 {
