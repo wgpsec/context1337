@@ -14,19 +14,24 @@ func TestListTools(t *testing.T) {
 	ctx := context.Background()
 	search.InsertResource(svc.DB, search.Resource{
 		Type: "tool", Name: "nmap", Source: "builtin",
-		FilePath: "Tools/nmap.yaml", Category: "scan",
-		Description: "Network scanner",
-		Metadata:    `{"binary":"nmap"}`,
+		Category: "scan", Description: "Port scanner",
+		Metadata: `{"binary":"nmap","homepage":"https://nmap.org"}`,
 	})
-	results, err := svc.ListTools(ctx, ListToolsInput{})
+	result, err := svc.ListTools(ctx, ListToolsInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) == 0 {
+	if len(result.Items) == 0 {
 		t.Fatal("expected at least 1 tool")
 	}
-	if results[0].Name != "nmap" {
-		t.Errorf("name = %q, want nmap", results[0].Name)
+	if result.Items[0].Name != "nmap" {
+		t.Errorf("name = %q, want nmap", result.Items[0].Name)
+	}
+	if result.Items[0].Category != "scan" {
+		t.Errorf("category = %q, want scan", result.Items[0].Category)
+	}
+	if result.Items[0].Homepage != "https://nmap.org" {
+		t.Errorf("homepage = %q, want https://nmap.org", result.Items[0].Homepage)
 	}
 }
 
@@ -36,22 +41,23 @@ func TestGetTool(t *testing.T) {
 	toolDir := filepath.Join(svc.DataDir, "Tools")
 	os.MkdirAll(toolDir, 0o755)
 	toolPath := filepath.Join(toolDir, "nmap.yaml")
-	os.WriteFile(toolPath, []byte("id: nmap\nname: Nmap\ndescription: Network scanner\ncategory: scan\nbinary: nmap\ncommand_template: \"nmap {{.target}}\"\n"), 0o644)
+	os.WriteFile(toolPath, []byte("id: nmap\nbinary: nmap\n"), 0o644)
 
 	search.InsertResource(svc.DB, search.Resource{
 		Type: "tool", Name: "nmap", Source: "builtin",
-		FilePath: toolPath, Category: "scan",
-		Description: "Network scanner",
+		Category: "scan", Description: "Port scanner",
+		FilePath: toolPath,
+		Metadata: `{"binary":"nmap","homepage":"https://nmap.org"}`,
 	})
 	result, err := svc.GetTool(ctx, GetToolInput{Name: "nmap"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Name != "nmap" {
-		t.Errorf("name = %q", result.Name)
-	}
 	if result.Config == "" {
-		t.Error("config should not be empty")
+		t.Error("expected config content")
+	}
+	if result.Homepage != "https://nmap.org" {
+		t.Errorf("homepage = %q", result.Homepage)
 	}
 }
 
