@@ -20,78 +20,28 @@ func NewService(db *sql.DB, dataDir string) *Service {
 	return &Service{DB: db, DataDir: dataDir}
 }
 
-// NewMCPServer creates an MCP protocol server with all 12 tools registered
-// and returns an http.Handler that serves it via Streamable HTTP transport.
+// NewMCPServer creates an MCP server with 3 unified tools and returns an HTTP handler.
 func NewMCPServer(db *sql.DB, dataDir string) http.Handler {
 	svc := NewService(db, dataDir)
 	server := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
-		Version: "0.3.0",
+		Version: "0.4.0",
 	}, nil)
 
-	// --- Skill tools ---
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "list_skills",
-		Description: "List penetration testing skills. Params: category (optional: exploit|recon|tool|cloud|ctf|lateral|evasion|malware|dfir|threat-intel|ai-security|code-audit|postexploit|general), difficulty (optional: easy|medium|hard), offset (default 0), limit (default 50). Returns paginated result with total count.",
-	}, wrapHandler(svc.ListSkills))
+		Name:        "search",
+		Description: "Search or list security resources (skills, dictionaries, payloads, tools). Params: query (optional keyword — omit to list all), type (optional: skill|dict|payload|tool — omit to search all types), category (optional), difficulty (optional, skill only: easy|medium|hard), offset (default 0), limit (default 20). Returns paginated results with type, name, description, category.",
+	}, wrapHandler(svc.Search))
 
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "search_skill",
-		Description: "Search penetration testing skills by keyword. Params: query (keyword), category (optional), difficulty (optional), offset (default 0), limit (default 10). Returns paginated result with total count.",
-	}, wrapHandler(svc.SearchSkill))
+		Name:        "get",
+		Description: "Get detailed content for a skill or tool by name. Params: name (from search results), type (skill|tool), depth (optional, skill only: metadata|summary|full, default summary). depth=full includes references. Returns full content including body (skill) or config YAML (tool).",
+	}, wrapHandler(svc.Get))
 
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "get_skill",
-		Description: "Get skill detail by exact name. Params: name (skill name from search/list results), depth (optional: metadata|summary|full, default summary). depth=full includes references/ content.",
-	}, wrapHandler(svc.GetSkill))
-
-	// --- Dictionary tools ---
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "search_dicts",
-		Description: "Search security dictionaries by keyword. Params: query (keyword), category (optional: auth|network|port|web|regular), offset (default 0), limit (default 20). Returns paginated result with total count.",
-	}, wrapHandler(svc.SearchDicts))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "list_dicts",
-		Description: "List security dictionaries. Params: category (optional: auth|network|port|web|regular), offset (default 0), limit (default 50). Returns paginated result with total count.",
-	}, wrapHandler(svc.ListDicts))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "get_dict",
-		Description: "Read dictionary file content with pagination. Params: path (relative path from list/search e.g. Auth/password/Top100.txt), limit (default 200 lines), offset (default 0). Response includes total_lines.",
-	}, wrapHandler(svc.GetDict))
-
-	// --- Payload tools ---
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "search_payload",
-		Description: "Search security payloads by keyword. Params: query (keyword), category (optional: sqli|xss|ssrf|xxe|lfi|rce|cors), offset (default 0), limit (default 20). Returns paginated result with total count.",
-	}, wrapHandler(svc.SearchPayload))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "list_payloads",
-		Description: "List security payloads. Params: category (optional: sqli|xss|ssrf|xxe|lfi|rce|cors), offset (default 0), limit (default 50). Returns paginated result with total count.",
-	}, wrapHandler(svc.ListPayloads))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "get_payload",
-		Description: "Read payload file content with pagination. Params: path (relative path from list/search e.g. XSS/events.txt), limit (default 200 lines), offset (default 0). Response includes total_lines.",
-	}, wrapHandler(svc.GetPayload))
-
-	// --- Tool config tools ---
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "search_tools",
-		Description: "Search security tools by keyword. Params: query (keyword), category (optional: scan|fuzz|osint|poc|brute|postexploit), offset (default 0), limit (default 10). Returns paginated result with total count.",
-	}, wrapHandler(svc.SearchTools))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "list_tools",
-		Description: "List security tool configurations. Params: category (optional: scan|fuzz|osint|poc|brute|postexploit), offset (default 0), limit (default 50). Returns paginated result with total count.",
-	}, wrapHandler(svc.ListTools))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "get_tool",
-		Description: "Get full YAML configuration for a tool. Params: name (tool name from list/search e.g. nmap, sqlmap, dnsx). Returns config YAML plus metadata (category, binary, homepage).",
-	}, wrapHandler(svc.GetTool))
+		Name:        "get_file",
+		Description: "Read dictionary or payload file content with line-level pagination. Params: path (from search results, e.g. Auth/password/Top100.txt), type (dict|payload), offset (default 0 lines), limit (default 200 lines). Returns file content with total_lines count.",
+	}, wrapHandler(svc.GetFile))
 
 	return gomcp.NewStreamableHTTPHandler(func(_ *http.Request) *gomcp.Server {
 		return server
