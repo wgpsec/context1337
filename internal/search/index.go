@@ -215,16 +215,6 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 	return ListResult{Total: total, Items: res}, nil
 }
 
-// ListByTypeCompat is a temporary compatibility wrapper for callers that
-// have not yet migrated to the new ListQuery/ListResult API.
-func ListByTypeCompat(db *sql.DB, typ, category string, limit int) ([]Resource, error) {
-	result, err := ListByType(db, ListQuery{Type: typ, Category: category, Limit: limit})
-	if err != nil {
-		return nil, err
-	}
-	return result.Items, nil
-}
-
 // GetByName returns a single resource by type, name.
 func GetByName(db *sql.DB, typ, name string) (*Resource, error) {
 	var r Resource
