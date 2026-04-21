@@ -1,0 +1,10 @@
+category: auth
+subcategory: password
+description: Common password dictionaries
+tags: "password,brute-force,credential"
+files:
+  - name: Top10.txt
+    lines: 10
+    description: "Top 10 most common passwords"
+    usage: "Quick password brute-force testing"
+    tags: "top,common,password"

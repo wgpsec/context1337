@@ -21,19 +21,25 @@ type SkillData struct {
 }
 
 type DictEntry struct {
-	Path      string
-	Type      string
-	LineCount int
-	SizeBytes int64
-	FilePath  string
+	Path        string
+	Type        string
+	Category    string
+	Description string
+	Tags        string
+	LineCount   int
+	SizeBytes   int64
+	FilePath    string
 }
 
 type PayloadEntry struct {
-	Path      string
-	Type      string
-	LineCount int
-	SizeBytes int64
-	FilePath  string
+	Path        string
+	Type        string
+	Category    string
+	Description string
+	Tags        string
+	LineCount   int
+	SizeBytes   int64
+	FilePath    string
 }
 
 type ToolData struct {
@@ -55,6 +61,49 @@ type skillFrontmatter struct {
 		Category   string `yaml:"category"`
 		Difficulty string `yaml:"difficulty"`
 	} `yaml:"metadata"`
+}
+
+type DirMeta struct {
+	Category    string     `yaml:"category"`
+	Subcategory string     `yaml:"subcategory"`
+	Description string     `yaml:"description"`
+	Tags        string     `yaml:"tags"`
+	Files       []FileMeta `yaml:"files"`
+}
+
+type FileMeta struct {
+	Name        string `yaml:"name"`
+	Lines       int    `yaml:"lines"`
+	Description string `yaml:"description"`
+	Usage       string `yaml:"usage"`
+	Tags        string `yaml:"tags"`
+}
+
+func ParseDirMeta(dir string) (*DirMeta, error) {
+	path := filepath.Join(dir, "_meta.yaml")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var meta DirMeta
+	if err := yaml.Unmarshal(data, &meta); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return &meta, nil
+}
+
+var skipFiles = map[string]bool{
+	"_meta.yaml": true, ".gitkeep": true, ".DS_Store": true,
+}
+
+func isSkipFile(name string) bool {
+	if skipFiles[name] {
+		return true
+	}
+	return strings.EqualFold(name, "readme.md")
 }
 
 func ParseSkillMD(path string) (*SkillData, error) {
@@ -117,9 +166,13 @@ func ScanSkills(dir string) ([]SkillData, error) {
 
 func ScanDicts(dir string) ([]DictEntry, error) {
 	var dicts []DictEntry
+	metaCache := map[string]*DirMeta{}
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return err
+		}
+		if isSkipFile(info.Name()) {
+			return nil
 		}
 		relPath, _ := filepath.Rel(dir, path)
 		parts := strings.SplitN(relPath, string(filepath.Separator), 2)
@@ -127,14 +180,49 @@ func ScanDicts(dir string) ([]DictEntry, error) {
 		if len(parts) > 0 {
 			dictType = parts[0]
 		}
+
+		parentDir := filepath.Dir(path)
+		meta, cached := metaCache[parentDir]
+		if !cached {
+			meta, _ = ParseDirMeta(parentDir)
+			metaCache[parentDir] = meta
+		}
+
 		lc, _ := countLines(path)
-		dicts = append(dicts, DictEntry{
+		entry := DictEntry{
 			Path:      relPath,
 			Type:      dictType,
+			Category:  dictType,
 			LineCount: lc,
 			SizeBytes: info.Size(),
 			FilePath:  path,
-		})
+		}
+
+		if meta != nil {
+			if meta.Category != "" {
+				entry.Category = meta.Category
+			}
+			entry.Description = meta.Description
+			entry.Tags = meta.Tags
+
+			for _, fm := range meta.Files {
+				if fm.Name == info.Name() {
+					if fm.Description != "" {
+						entry.Description = fm.Description
+					}
+					if fm.Tags != "" {
+						if entry.Tags != "" {
+							entry.Tags = entry.Tags + "," + fm.Tags
+						} else {
+							entry.Tags = fm.Tags
+						}
+					}
+					break
+				}
+			}
+		}
+
+		dicts = append(dicts, entry)
 		return nil
 	})
 	return dicts, err
@@ -142,9 +230,13 @@ func ScanDicts(dir string) ([]DictEntry, error) {
 
 func ScanPayloads(dir string) ([]PayloadEntry, error) {
 	var payloads []PayloadEntry
+	metaCache := map[string]*DirMeta{}
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return err
+		}
+		if isSkipFile(info.Name()) {
+			return nil
 		}
 		relPath, _ := filepath.Rel(dir, path)
 		parts := strings.SplitN(relPath, string(filepath.Separator), 2)
@@ -152,14 +244,49 @@ func ScanPayloads(dir string) ([]PayloadEntry, error) {
 		if len(parts) > 0 {
 			pType = parts[0]
 		}
+
+		parentDir := filepath.Dir(path)
+		meta, cached := metaCache[parentDir]
+		if !cached {
+			meta, _ = ParseDirMeta(parentDir)
+			metaCache[parentDir] = meta
+		}
+
 		lc, _ := countLines(path)
-		payloads = append(payloads, PayloadEntry{
+		entry := PayloadEntry{
 			Path:      relPath,
 			Type:      pType,
+			Category:  pType,
 			LineCount: lc,
 			SizeBytes: info.Size(),
 			FilePath:  path,
-		})
+		}
+
+		if meta != nil {
+			if meta.Category != "" {
+				entry.Category = meta.Category
+			}
+			entry.Description = meta.Description
+			entry.Tags = meta.Tags
+
+			for _, fm := range meta.Files {
+				if fm.Name == info.Name() {
+					if fm.Description != "" {
+						entry.Description = fm.Description
+					}
+					if fm.Tags != "" {
+						if entry.Tags != "" {
+							entry.Tags = entry.Tags + "," + fm.Tags
+						} else {
+							entry.Tags = fm.Tags
+						}
+					}
+					break
+				}
+			}
+		}
+
+		payloads = append(payloads, entry)
 		return nil
 	})
 	return payloads, err

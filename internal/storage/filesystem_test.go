@@ -3,6 +3,7 @@ package storage
 import (
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -93,5 +94,76 @@ func TestReadFileLines(t *testing.T) {
 	lines := len(splitLines(content))
 	if lines != 5 {
 		t.Errorf("returned lines = %d, want 5", lines)
+	}
+}
+
+func TestParseDirMeta(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "Dic", "Auth", "password")
+	meta, err := ParseDirMeta(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta == nil {
+		t.Fatal("expected meta")
+	}
+	if meta.Category != "auth" {
+		t.Errorf("category = %q", meta.Category)
+	}
+	if len(meta.Files) == 0 {
+		t.Fatal("expected files")
+	}
+	if meta.Files[0].Name != "Top10.txt" {
+		t.Errorf("file = %q", meta.Files[0].Name)
+	}
+}
+
+func TestParseDirMeta_NoFile(t *testing.T) {
+	meta, err := ParseDirMeta(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta != nil {
+		t.Error("expected nil")
+	}
+}
+
+func TestScanDicts_MetaYaml(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "Dic")
+	dicts, err := ScanDicts(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var top10 *DictEntry
+	for i := range dicts {
+		if strings.HasSuffix(dicts[i].Path, "Top10.txt") {
+			top10 = &dicts[i]
+			break
+		}
+	}
+	if top10 == nil {
+		t.Fatal("Top10.txt not found")
+	}
+	if top10.Description == "" {
+		t.Error("expected description")
+	}
+	if top10.Tags == "" {
+		t.Error("expected tags")
+	}
+	if top10.Category != "auth" {
+		t.Errorf("category = %q", top10.Category)
+	}
+}
+
+func TestScanDicts_SkipsMetaFiles(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "Dic")
+	dicts, err := ScanDicts(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range dicts {
+		base := filepath.Base(d.Path)
+		if base == "_meta.yaml" || base == ".gitkeep" || base == ".DS_Store" || strings.EqualFold(base, "readme.md") {
+			t.Errorf("should skip %s", d.Path)
+		}
 	}
 }
