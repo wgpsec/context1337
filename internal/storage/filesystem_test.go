@@ -281,3 +281,158 @@ Test body
 		t.Error("test-mitre skill not found")
 	}
 }
+
+func TestParseVulnMD(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "CVE-2021-44228.md")
+	os.WriteFile(path, []byte(`---
+id: CVE-2021-44228
+title: Log4Shell RCE
+description: Remote code execution via JNDI lookup in Log4j
+product: Log4j
+vendor: Apache
+version_affected: "< 2.15.0"
+severity: critical
+tags: [rce, jndi]
+fingerprint: log4j-jndi-lookup
+---
+## Overview
+
+Apache Log4j2 JNDI features do not protect against attacker-controlled LDAP.
+`), 0o644)
+
+	vuln, err := ParseVulnMD(path)
+	if err != nil {
+		t.Fatalf("ParseVulnMD: %v", err)
+	}
+	if vuln == nil {
+		t.Fatal("expected non-nil vuln")
+	}
+	if vuln.ID != "CVE-2021-44228" {
+		t.Errorf("ID = %q, want CVE-2021-44228", vuln.ID)
+	}
+	if vuln.Title != "Log4Shell RCE" {
+		t.Errorf("Title = %q, want Log4Shell RCE", vuln.Title)
+	}
+	if vuln.Severity != "CRITICAL" {
+		t.Errorf("Severity = %q, want CRITICAL", vuln.Severity)
+	}
+	if vuln.Product != "Log4j" {
+		t.Errorf("Product = %q, want Log4j", vuln.Product)
+	}
+	if vuln.Vendor != "Apache" {
+		t.Errorf("Vendor = %q, want Apache", vuln.Vendor)
+	}
+	if vuln.Fingerprint != "log4j-jndi-lookup" {
+		t.Errorf("Fingerprint = %q, want log4j-jndi-lookup", vuln.Fingerprint)
+	}
+	if vuln.Tags != "rce,jndi" {
+		t.Errorf("Tags = %q, want rce,jndi", vuln.Tags)
+	}
+	if !strings.Contains(vuln.Body, "JNDI features") {
+		t.Error("body should contain vulnerability details")
+	}
+}
+
+func TestParseVulnMD_NoFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plain.md")
+	os.WriteFile(path, []byte("Just some plain text without frontmatter.\n"), 0o644)
+
+	vuln, err := ParseVulnMD(path)
+	if err != nil {
+		t.Fatalf("ParseVulnMD: %v", err)
+	}
+	if vuln != nil {
+		t.Error("expected nil for file without frontmatter")
+	}
+}
+
+func TestScanVulns(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create two vulns in different categories
+	cat1 := filepath.Join(dir, "web", "apache")
+	os.MkdirAll(cat1, 0o755)
+	os.WriteFile(filepath.Join(cat1, "CVE-2021-44228.md"), []byte(`---
+id: CVE-2021-44228
+title: Log4Shell
+description: RCE via JNDI
+product: Log4j
+vendor: Apache
+severity: critical
+tags: [rce]
+fingerprint: log4j
+---
+Body1
+`), 0o644)
+
+	cat2 := filepath.Join(dir, "network", "cisco")
+	os.MkdirAll(cat2, 0o755)
+	os.WriteFile(filepath.Join(cat2, "CVE-2023-20198.md"), []byte(`---
+id: CVE-2023-20198
+title: Cisco IOS XE Web UI
+description: Privilege escalation
+product: IOS XE
+vendor: Cisco
+severity: high
+tags: [privesc]
+fingerprint: cisco-iosxe
+---
+Body2
+`), 0o644)
+
+	vulns, err := ScanVulns(dir)
+	if err != nil {
+		t.Fatalf("ScanVulns: %v", err)
+	}
+	if len(vulns) != 2 {
+		t.Fatalf("vulns = %d, want 2", len(vulns))
+	}
+
+	cats := map[string]bool{}
+	for _, v := range vulns {
+		cats[v.Category] = true
+	}
+	if !cats["web"] {
+		t.Error("expected category 'web'")
+	}
+	if !cats["network"] {
+		t.Error("expected category 'network'")
+	}
+}
+
+func TestScanVulns_SkipsNonMD(t *testing.T) {
+	dir := t.TempDir()
+	cat := filepath.Join(dir, "web", "apache")
+	os.MkdirAll(cat, 0o755)
+
+	// Write a valid vuln .md
+	os.WriteFile(filepath.Join(cat, "CVE-2021-44228.md"), []byte(`---
+id: CVE-2021-44228
+title: Log4Shell
+description: RCE
+product: Log4j
+vendor: Apache
+severity: critical
+tags: [rce]
+fingerprint: log4j
+---
+Body
+`), 0o644)
+
+	// Write non-.md files that should be skipped
+	os.WriteFile(filepath.Join(cat, "notes.txt"), []byte("some notes"), 0o644)
+	os.WriteFile(filepath.Join(cat, "data.json"), []byte(`{"key":"val"}`), 0o644)
+
+	vulns, err := ScanVulns(dir)
+	if err != nil {
+		t.Fatalf("ScanVulns: %v", err)
+	}
+	if len(vulns) != 1 {
+		t.Fatalf("vulns = %d, want 1 (non-.md files should be skipped)", len(vulns))
+	}
+	if vulns[0].ID != "CVE-2021-44228" {
+		t.Errorf("ID = %q, want CVE-2021-44228", vulns[0].ID)
+	}
+}

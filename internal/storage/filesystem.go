@@ -54,6 +54,33 @@ type ToolData struct {
 	RawYAML     string `yaml:"-"`
 }
 
+type VulnData struct {
+	ID              string
+	Title           string
+	Description     string
+	Product         string
+	Vendor          string
+	VersionAffected string
+	Severity        string
+	Tags            string
+	Fingerprint     string
+	Category        string
+	Body            string
+	FilePath        string
+}
+
+type vulnFrontmatter struct {
+	ID              string   `yaml:"id"`
+	Title           string   `yaml:"title"`
+	Description     string   `yaml:"description"`
+	Product         string   `yaml:"product"`
+	Vendor          string   `yaml:"vendor"`
+	VersionAffected string   `yaml:"version_affected"`
+	Severity        string   `yaml:"severity"`
+	Tags            []string `yaml:"tags"`
+	Fingerprint     string   `yaml:"fingerprint"`
+}
+
 type skillFrontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
@@ -163,6 +190,41 @@ func ParseSkillMD(path string) (*SkillData, error) {
 		Mitre:       meta.Metadata.MitreAttack,
 		Body:        strings.TrimSpace(body),
 		FilePath:    path,
+	}, nil
+}
+
+func ParseVulnMD(path string) (*VulnData, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	content := string(data)
+	fm, body, err := splitFrontmatter(content)
+	if err != nil {
+		return nil, nil // skip unparseable
+	}
+	if fm == "" {
+		return nil, nil
+	}
+	var meta vulnFrontmatter
+	if err := yaml.Unmarshal([]byte(fm), &meta); err != nil {
+		return nil, nil // skip unparseable
+	}
+	if meta.ID == "" {
+		return nil, nil
+	}
+	return &VulnData{
+		ID:              meta.ID,
+		Title:           meta.Title,
+		Description:     meta.Description,
+		Product:         meta.Product,
+		Vendor:          meta.Vendor,
+		VersionAffected: meta.VersionAffected,
+		Severity:        strings.ToUpper(meta.Severity),
+		Tags:            strings.Join(meta.Tags, ","),
+		Fingerprint:     meta.Fingerprint,
+		Body:            strings.TrimSpace(body),
+		FilePath:        path,
 	}, nil
 }
 
@@ -376,6 +438,30 @@ func ScanTools(dir string) ([]ToolData, error) {
 		return nil
 	})
 	return tools, err
+}
+
+func ScanVulns(dir string) ([]VulnData, error) {
+	var vulns []VulnData
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if !strings.HasSuffix(d.Name(), ".md") || isSkipFile(d.Name()) {
+			return nil
+		}
+		vuln, err := ParseVulnMD(path)
+		if err != nil || vuln == nil {
+			return nil // skip unparseable or nil
+		}
+		rel, _ := filepath.Rel(dir, path)
+		parts := strings.SplitN(rel, string(filepath.Separator), 2)
+		if len(parts) > 1 {
+			vuln.Category = parts[0]
+		}
+		vulns = append(vulns, *vuln)
+		return nil
+	})
+	return vulns, err
 }
 
 func ReadFileLines(path string, offset, limit int) (string, int, error) {
