@@ -477,7 +477,7 @@ class TestIndexVulns(unittest.TestCase):
         self.assertIn("Path", description)
 
         meta = json.loads(metadata)
-        self.assertEqual(meta["severity"], "critical")
+        self.assertEqual(meta["severity"], "CRITICAL")
         self.assertEqual(meta["product"], "Apache HTTP Server")
         self.assertEqual(meta["vendor"], "Apache")
         self.assertEqual(meta["fingerprint"], "apache-2.4.49")

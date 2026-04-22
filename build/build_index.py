@@ -259,7 +259,7 @@ def parse_vuln_md(path: str) -> dict:
         "product": fm.get("product", ""),
         "vendor": fm.get("vendor", ""),
         "version_affected": fm.get("version_affected", ""),
-        "severity": fm.get("severity", ""),
+        "severity": fm.get("severity", "").upper(),
         "tags": tags,
         "fingerprint": fm.get("fingerprint", ""),
         "body": body,
