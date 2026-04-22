@@ -37,6 +37,15 @@ type SearchToolsInput struct {
 	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 20)"`
 }
 
+type SearchVulnInput struct {
+	Query    string `json:"query,omitempty"    jsonschema:"Search keywords for vulnerability lookup"`
+	Category string `json:"category,omitempty" jsonschema:"Filter by category: ai|cloud|middleware|network|web"`
+	Severity string `json:"severity,omitempty" jsonschema:"Filter by severity: CRITICAL|HIGH|MEDIUM|LOW"`
+	Product  string `json:"product,omitempty"  jsonschema:"Filter by product name"`
+	Offset   int    `json:"offset,omitempty"   jsonschema:"Pagination offset (default 0)"`
+	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 50)"`
+}
+
 // --- List adapter inputs (no Type or Query field) ---
 
 type ListSkillsInput struct {
@@ -64,6 +73,14 @@ type ListToolsInput struct {
 	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 20)"`
 }
 
+type ListVulnsInput struct {
+	Category string `json:"category,omitempty" jsonschema:"Filter by category: ai|cloud|middleware|network|web"`
+	Severity string `json:"severity,omitempty" jsonschema:"Filter by severity: CRITICAL|HIGH|MEDIUM|LOW"`
+	Product  string `json:"product,omitempty"  jsonschema:"Filter by product name"`
+	Offset   int    `json:"offset,omitempty"   jsonschema:"Pagination offset (default 0)"`
+	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 50)"`
+}
+
 // --- Get adapter inputs ---
 
 type GetSkillInput struct {
@@ -85,6 +102,11 @@ type GetPayloadInput struct {
 	Path   string `json:"path"             jsonschema:"Relative file path from search results (e.g. XSS/xss-payload-list.txt)"`
 	Offset int    `json:"offset,omitempty" jsonschema:"Line offset for pagination (default 0)"`
 	Limit  int    `json:"limit,omitempty"  jsonschema:"Max lines to return (default 200)"`
+}
+
+type GetVulnInput struct {
+	Name  string `json:"name"            jsonschema:"Vulnerability ID (CVE/CNVD from search results)"`
+	Depth string `json:"depth,omitempty" jsonschema:"Loading depth: brief|full (default brief). full includes PoC and remediation."`
 }
 
 // --- Search adapters ---
@@ -113,6 +135,14 @@ func (s *Service) searchPayloadAdapter(ctx context.Context, in SearchPayloadInpu
 func (s *Service) searchToolsAdapter(ctx context.Context, in SearchToolsInput) (*SearchResult, error) {
 	return s.Search(ctx, SearchInput{
 		Query: in.Query, Type: "tool", Category: in.Category,
+		Offset: in.Offset, Limit: in.Limit,
+	})
+}
+
+func (s *Service) searchVulnAdapter(ctx context.Context, in SearchVulnInput) (*SearchResult, error) {
+	return s.Search(ctx, SearchInput{
+		Query: in.Query, Type: "vuln", Category: in.Category,
+		Severity: in.Severity, Product: in.Product,
 		Offset: in.Offset, Limit: in.Limit,
 	})
 }
@@ -147,6 +177,14 @@ func (s *Service) listToolsAdapter(ctx context.Context, in ListToolsInput) (*Sea
 	})
 }
 
+func (s *Service) listVulnsAdapter(ctx context.Context, in ListVulnsInput) (*SearchResult, error) {
+	return s.Search(ctx, SearchInput{
+		Type: "vuln", Category: in.Category,
+		Severity: in.Severity, Product: in.Product,
+		Offset: in.Offset, Limit: in.Limit,
+	})
+}
+
 // --- Get adapters ---
 
 func (s *Service) getSkillAdapter(ctx context.Context, in GetSkillInput) (*GetResult, error) {
@@ -165,9 +203,13 @@ func (s *Service) getPayloadAdapter(ctx context.Context, in GetPayloadInput) (*G
 	return s.GetFile(ctx, GetFileInput{Path: in.Path, Type: "payload", Offset: in.Offset, Limit: in.Limit})
 }
 
+func (s *Service) getVulnAdapter(ctx context.Context, in GetVulnInput) (*GetResult, error) {
+	return s.Get(ctx, GetInput{Name: in.Name, Type: "vuln", Depth: in.Depth})
+}
+
 // --- Registration ---
 
-// registerFullTools registers all 12 per-type tools with security-keyword-enriched descriptions.
+// registerFullTools registers all 15 per-type tools with security-keyword-enriched descriptions.
 func registerFullTools(server *gomcp.Server, svc *Service) {
 	// Search tools
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -231,4 +273,20 @@ func registerFullTools(server *gomcp.Server, svc *Service) {
 		Name:        "get_payload",
 		Description: "Read attack payload file content with line-level pagination. Returns payload strings with total line count. Use after search_payload or list_payloads to read actual payload content. Supports offset and limit for large files.",
 	}, wrapHandler(svc.getPayloadAdapter))
+
+	// Vuln tools
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "search_vuln",
+		Description: "Search vulnerability database by keyword. Supports severity (CRITICAL/HIGH/MEDIUM/LOW) and product filters. Use this for specific CVE/CNVD lookups or product-targeted vulnerability discovery. Returns paginated results with severity, product, vendor, and category.",
+	}, wrapHandler(svc.searchVulnAdapter))
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "list_vulns",
+		Description: "List vulnerabilities with pagination (default 50). Supports category (ai/cloud/middleware/network/web), severity, and product filters. Returns summary only — use get_vuln for full details and PoC.",
+	}, wrapHandler(svc.listVulnsAdapter))
+
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "get_vuln",
+		Description: "Get vulnerability detail by name (CVE/CNVD ID). depth=\"brief\" (default) returns structured fields and description. depth=\"full\" returns complete content including PoC and remediation.",
+	}, wrapHandler(svc.getVulnAdapter))
 }

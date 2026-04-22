@@ -276,3 +276,87 @@ func TestGetPayloadAdapter(t *testing.T) {
 		t.Errorf("total_lines = %d, want 2", result.TotalLines)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Vuln adapter tests
+// ---------------------------------------------------------------------------
+
+func TestSearchVulnAdapter(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.searchVulnAdapter(context.Background(), SearchVulnInput{
+		Query: "JNDI",
+	})
+	if err != nil {
+		t.Fatalf("searchVulnAdapter: %v", err)
+	}
+	if res.Total == 0 {
+		t.Fatal("expected vuln results")
+	}
+	for _, item := range res.Items {
+		if item.Type != "vuln" {
+			t.Errorf("type = %q, want vuln", item.Type)
+		}
+	}
+}
+
+func TestSearchVulnAdapter_SeverityFilter(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.searchVulnAdapter(context.Background(), SearchVulnInput{
+		Severity: "CRITICAL",
+	})
+	if err != nil {
+		t.Fatalf("searchVulnAdapter: %v", err)
+	}
+	if res.Total != 1 {
+		t.Errorf("total = %d, want 1", res.Total)
+	}
+}
+
+func TestListVulnsAdapter(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.listVulnsAdapter(context.Background(), ListVulnsInput{})
+	if err != nil {
+		t.Fatalf("listVulnsAdapter: %v", err)
+	}
+	if res.Total != 1 {
+		t.Errorf("total = %d, want 1", res.Total)
+	}
+	for _, item := range res.Items {
+		if item.Type != "vuln" {
+			t.Errorf("type = %q, want vuln", item.Type)
+		}
+	}
+}
+
+func TestGetVulnAdapter_Brief(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.getVulnAdapter(context.Background(), GetVulnInput{
+		Name: "CVE-2021-44228",
+	})
+	if err != nil {
+		t.Fatalf("getVulnAdapter: %v", err)
+	}
+	if res.Severity != "CRITICAL" {
+		t.Errorf("Severity = %q", res.Severity)
+	}
+	if res.Body != "" {
+		t.Error("brief mode should not include body")
+	}
+}
+
+func TestGetVulnAdapter_Full(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.getVulnAdapter(context.Background(), GetVulnInput{
+		Name:  "CVE-2021-44228",
+		Depth: "full",
+	})
+	if err != nil {
+		t.Fatalf("getVulnAdapter full: %v", err)
+	}
+	if res.Body == "" {
+		t.Error("full mode should include body")
+	}
+	if res.Fingerprint != "header=X-Log4j" {
+		t.Errorf("Fingerprint = %q", res.Fingerprint)
+	}
+}
