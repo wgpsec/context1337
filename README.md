@@ -122,7 +122,7 @@ The AI will automatically call the right MCP tools to find relevant security kno
 
 ## Available MCP Tools
 
-Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools.
+Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools. If the AI model fails to invoke tools proactively, switch to full mode — the 12 fine-grained, domain-specific tools improve trigger rates.
 
 ### Lite mode (default, 3 tools)
 
