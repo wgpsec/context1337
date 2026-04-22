@@ -118,21 +118,26 @@ Once connected, just ask your AI assistant naturally:
 - "Show the top 100 passwords dictionary" → `read_security_file(path="Auth/password/Top100.txt", type="dict")`
 - "Get XSS event handler payloads" → `read_security_file(path="XSS/events.txt", type="payload")`
 
+**Search vulnerabilities**
+- "Find critical Apache vulnerabilities" → `search_security(query="Apache", type="vuln", severity="CRITICAL")`
+- "List all middleware vulnerabilities" → `search_security(type="vuln", category="middleware")`
+- "Get the Log4j RCE vulnerability details" → `get_security_detail(name="CVE-2021-44228", type="vuln", depth="full")`
+
 The AI will automatically call the right MCP tools to find relevant security knowledge.
 
 ## Available MCP Tools
 
-Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools. If the AI model fails to invoke tools proactively, switch to full mode — the 12 fine-grained, domain-specific tools improve trigger rates.
+Default mode is **lite** (3 tools). Use `--tool-mode full` for 15 per-type tools. If the AI model fails to invoke tools proactively, switch to full mode — the 15 fine-grained, domain-specific tools improve trigger rates.
 
 ### Lite mode (default, 3 tools)
 
 | Tool | Description |
 |------|-------------|
-| `search_security` | Search or list all resource types (skill, dict, payload, tool). Optional type/category filter. Empty query lists all. |
-| `get_security_detail` | Get full detail for a skill (with depth control + references) or tool (YAML config) |
+| `search_security` | Search or list all resource types (skill, dict, payload, tool). To search vulnerabilities, specify type="vuln" explicitly (excluded from default search). Vuln supports severity and product filters. |
+| `get_security_detail` | Get full detail for a skill (with depth control + references), tool (YAML config), or vulnerability (brief/full with PoC) |
 | `read_security_file` | Read dictionary or payload file content with line-level pagination |
 
-### Full mode (12 tools)
+### Full mode (15 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -140,14 +145,17 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools
 | `search_dicts` | Search password dictionaries by keyword |
 | `search_payload` | Search attack payloads by keyword |
 | `search_tools` | Search security tool configs by keyword |
+| `search_vuln` | Search vulnerability database by keyword with severity and product filters |
 | `list_skills` | Browse all skills |
 | `list_dicts` | Browse all dictionaries |
 | `list_payloads` | Browse all payloads |
 | `list_tools` | Browse all tools |
+| `list_vulns` | List vulnerabilities with pagination (default 50), category/severity/product filters |
 | `get_skill` | Get skill detail (with depth + references) |
 | `get_tool` | Get tool YAML config |
 | `get_dict` | Read dictionary file with line pagination |
 | `get_payload` | Read payload file with line pagination |
+| `get_vuln` | Get vulnerability detail by name (CVE/CNVD ID), brief or full depth with PoC |
 
 ## Makefile Targets
 
@@ -178,7 +186,7 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools
 | `ABOUTSECURITY_PORT` | `8088` | HTTP listen port |
 | `ABOUTSECURITY_DATA_DIR` | `./data` | Data directory root |
 | `ABOUTSECURITY_API_KEY` | (empty=no auth) | API key for Bearer auth |
-| `ABOUTSECURITY_TOOL_MODE` | `lite` | Tool registration mode: `lite` (3 tools) or `full` (12 tools) |
+| `ABOUTSECURITY_TOOL_MODE` | `lite` | Tool registration mode: `lite` (3 tools) or `full` (15 tools) |
 
 ## Architecture
 
