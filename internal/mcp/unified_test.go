@@ -48,6 +48,12 @@ func setupUnifiedTest(t *testing.T) *Service {
 		Metadata: `{"binary":"nmap","homepage":"https://nmap.org"}`,
 	})
 
+	// Insert a vuln resource
+	db.Exec(`INSERT INTO resources (type,name,source,file_path,category,tags,description,body,metadata)
+		VALUES ('vuln','CVE-2021-44228','builtin','test/vuln.md','middleware','rce,jndi',
+		'JNDI injection leads to RCE','## PoC\ntest payload',
+		'{"severity":"CRITICAL","product":"Apache Log4j","vendor":"Apache","version_affected":"<2.17.0","fingerprint":"header=X-Log4j"}')`)
+
 	return &Service{DB: db, DataDir: dir}
 }
 
@@ -242,5 +248,79 @@ func TestGet_InvalidType(t *testing.T) {
 	_, err := svc.Get(ctx, GetInput{Name: "test", Type: "dict"})
 	if err == nil {
 		t.Fatal("expected error for dict type")
+	}
+}
+
+func TestSearch_VulnExcludedByDefault(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.Search(context.Background(), SearchInput{Query: "injection", Limit: 20})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	for _, item := range res.Items {
+		if item.Type == "vuln" {
+			t.Errorf("vuln should not appear in default search, got %q", item.Name)
+		}
+	}
+}
+
+func TestSearch_VulnWithExplicitType(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.Search(context.Background(), SearchInput{Query: "JNDI injection", Type: "vuln", Limit: 20})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if res.Total == 0 {
+		t.Fatal("expected vuln results with type=vuln")
+	}
+	if res.Items[0].Severity != "CRITICAL" {
+		t.Errorf("Severity = %q, want CRITICAL", res.Items[0].Severity)
+	}
+	if res.Items[0].Product != "Apache Log4j" {
+		t.Errorf("Product = %q", res.Items[0].Product)
+	}
+}
+
+func TestSearch_VulnSeverityFilter(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.Search(context.Background(), SearchInput{
+		Type: "vuln", Severity: "CRITICAL", Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if res.Total != 1 {
+		t.Errorf("total = %d, want 1", res.Total)
+	}
+}
+
+func TestGet_Vuln_Brief(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.Get(context.Background(), GetInput{Name: "CVE-2021-44228", Type: "vuln"})
+	if err != nil {
+		t.Fatalf("Get vuln: %v", err)
+	}
+	if res.Severity != "CRITICAL" {
+		t.Errorf("Severity = %q", res.Severity)
+	}
+	if res.Product != "Apache Log4j" {
+		t.Errorf("Product = %q", res.Product)
+	}
+	if res.Body != "" {
+		t.Error("brief mode should not include body")
+	}
+}
+
+func TestGet_Vuln_Full(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.Get(context.Background(), GetInput{Name: "CVE-2021-44228", Type: "vuln", Depth: "full"})
+	if err != nil {
+		t.Fatalf("Get vuln full: %v", err)
+	}
+	if res.Body == "" {
+		t.Error("full mode should include body")
+	}
+	if res.Fingerprint != "header=X-Log4j" {
+		t.Errorf("Fingerprint = %q", res.Fingerprint)
 	}
 }

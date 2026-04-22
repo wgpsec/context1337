@@ -34,15 +34,26 @@ func extractToolMeta(metadata string) (binary, homepage string) {
 	return meta["binary"], meta["homepage"]
 }
 
+func extractVulnMeta(metadata string) (severity, product, vendor, versionAffected, fingerprint string) {
+	if metadata == "" {
+		return
+	}
+	var meta map[string]string
+	json.Unmarshal([]byte(metadata), &meta)
+	return meta["severity"], meta["product"], meta["vendor"], meta["version_affected"], meta["fingerprint"]
+}
+
 // --- search ---
 
 type SearchInput struct {
 	Query      string `json:"query,omitempty"      jsonschema:"Search keywords (omit to list all)"`
-	Type       string `json:"type,omitempty"       jsonschema:"Filter by type: skill|dict|payload|tool (omit to search all)"`
+	Type       string `json:"type,omitempty"       jsonschema:"Filter by type: skill|dict|payload|tool|vuln (omit to search all non-vuln types)"`
 	Category   string `json:"category,omitempty"   jsonschema:"Filter by category"`
 	Difficulty string `json:"difficulty,omitempty" jsonschema:"Filter by difficulty (skill only): easy|medium|hard"`
+	Severity   string `json:"severity,omitempty"   jsonschema:"Filter by severity (vuln only): CRITICAL|HIGH|MEDIUM|LOW"`
+	Product    string `json:"product,omitempty"    jsonschema:"Filter by product name (vuln only)"`
 	Offset     int    `json:"offset,omitempty"     jsonschema:"Pagination offset (default 0)"`
-	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 20)"`
+	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 20, vuln default 50)"`
 }
 
 type ResourceSummary struct {
@@ -55,6 +66,9 @@ type ResourceSummary struct {
 	Difficulty  string `json:"difficulty,omitempty"`
 	Binary      string `json:"binary,omitempty"`
 	Homepage    string `json:"homepage,omitempty"`
+	Severity    string `json:"severity,omitempty"`
+	Product     string `json:"product,omitempty"`
+	Vendor      string `json:"vendor,omitempty"`
 }
 
 type SearchResult struct {
@@ -73,19 +87,27 @@ func resourceToSummary(r search.Resource) ResourceSummary {
 	if r.Type == "tool" {
 		s.Binary, s.Homepage = extractToolMeta(r.Metadata)
 	}
+	if r.Type == "vuln" {
+		s.Severity, s.Product, s.Vendor, _, _ = extractVulnMeta(r.Metadata)
+	}
 	return s
 }
 
 func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, error) {
 	if in.Limit <= 0 {
-		in.Limit = 20
+		if in.Type == "vuln" {
+			in.Limit = 50
+		} else {
+			in.Limit = 20
+		}
 	}
 
 	// Non-empty query -> FTS5 search
 	if in.Query != "" {
 		results, total, err := search.Search(s.DB, search.SearchQuery{
 			Query: in.Query, Type: in.Type, Category: in.Category,
-			Difficulty: in.Difficulty, Offset: in.Offset, Limit: in.Limit,
+			Difficulty: in.Difficulty, Severity: in.Severity, Product: in.Product,
+			Offset: in.Offset, Limit: in.Limit,
 		})
 		if err != nil {
 			return nil, err
@@ -100,7 +122,8 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 	// Empty query -> list
 	result, err := search.ListByType(s.DB, search.ListQuery{
 		Type: in.Type, Category: in.Category,
-		Difficulty: in.Difficulty, Offset: in.Offset, Limit: in.Limit,
+		Difficulty: in.Difficulty, Severity: in.Severity, Product: in.Product,
+		Offset: in.Offset, Limit: in.Limit,
 	})
 	if err != nil {
 		return nil, err
@@ -116,28 +139,33 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 
 type GetInput struct {
 	Name  string `json:"name"            jsonschema:"Resource name (from search results)"`
-	Type  string `json:"type"            jsonschema:"Resource type: skill|tool"`
-	Depth string `json:"depth,omitempty" jsonschema:"Loading depth (skill only): metadata|summary|full (default summary). full includes references."`
+	Type  string `json:"type"            jsonschema:"Resource type: skill|tool|vuln"`
+	Depth string `json:"depth,omitempty" jsonschema:"Loading depth. Skill: metadata|summary|full (default summary). Vuln: brief|full (default brief). full includes references (skill) or PoC (vuln)."`
 }
 
 type GetResult struct {
-	Name        string           `json:"name"`
-	Type        string           `json:"type"`
-	Description string           `json:"description"`
-	Category    string           `json:"category"`
-	Source      string           `json:"source"`
-	Tags        string           `json:"tags,omitempty"`
-	Difficulty  string           `json:"difficulty,omitempty"`
-	Body        string           `json:"body,omitempty"`
-	References  []SkillReference `json:"references,omitempty"`
-	Binary      string           `json:"binary,omitempty"`
-	Homepage    string           `json:"homepage,omitempty"`
-	Config      string           `json:"config,omitempty"`
+	Name            string           `json:"name"`
+	Type            string           `json:"type"`
+	Description     string           `json:"description"`
+	Category        string           `json:"category"`
+	Source          string           `json:"source"`
+	Tags            string           `json:"tags,omitempty"`
+	Difficulty      string           `json:"difficulty,omitempty"`
+	Body            string           `json:"body,omitempty"`
+	References      []SkillReference `json:"references,omitempty"`
+	Binary          string           `json:"binary,omitempty"`
+	Homepage        string           `json:"homepage,omitempty"`
+	Config          string           `json:"config,omitempty"`
+	Severity        string           `json:"severity,omitempty"`
+	Product         string           `json:"product,omitempty"`
+	Vendor          string           `json:"vendor,omitempty"`
+	VersionAffected string           `json:"version_affected,omitempty"`
+	Fingerprint     string           `json:"fingerprint,omitempty"`
 }
 
 func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
-	if in.Type != "skill" && in.Type != "tool" {
-		return nil, fmt.Errorf("type must be skill or tool (use get_file for dict/payload)")
+	if in.Type != "skill" && in.Type != "tool" && in.Type != "vuln" {
+		return nil, fmt.Errorf("type must be skill, tool, or vuln (use read_security_file for dict/payload)")
 	}
 
 	r, err := search.GetByName(s.DB, in.Type, in.Name)
@@ -201,6 +229,22 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 			return nil, fmt.Errorf("read tool config: %w", readErr)
 		}
 		result.Config = string(config)
+	case "vuln":
+		if in.Depth == "" {
+			in.Depth = "brief"
+		}
+		severity, product, vendor, versionAffected, fingerprint := extractVulnMeta(r.Metadata)
+		result.Severity = severity
+		result.Product = product
+		result.Vendor = vendor
+		result.VersionAffected = versionAffected
+		switch in.Depth {
+		case "brief":
+			// No body — structured fields + description only
+		case "full":
+			result.Body = r.Body
+			result.Fingerprint = fingerprint
+		}
 	}
 
 	return result, nil
