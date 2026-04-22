@@ -27,7 +27,7 @@ docker run -p 8088:8088 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
 
 ### Local Development (recommended for first-time users)
 
-Only requires Go 1.25+ and Python 3 installed on your machine.
+Only requires Go 1.25+ (gotip) and Python 3 installed on your machine.
 
 ```bash
 git clone https://github.com/wgpsec/context1337.git
@@ -158,8 +158,11 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools
 | `make index` | Build FTS5 search index only |
 | `make test` | Run unit tests |
 | `make test-integration` | Run integration tests |
-| `make docker` | Build Docker image |
+| `make docker` | Build Docker image (clones AboutSecurity from GitHub) |
+| `make docker-local` | Build Docker image using local AboutSecurity repo |
+| `make docker-ref` | Build Docker image pinned to a specific branch/tag |
 | `make clean` | Remove binary, databases, and symlinks |
+| `make clean-benchmark` | Remove benchmark logs |
 
 ## REST API
 

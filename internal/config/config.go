@@ -12,9 +12,7 @@ type Config struct {
 	BuiltinDB string
 	RuntimeDB string
 	TeamDir   string
-	APIKey    string
-	AdminKey  string
-	ServerURL string
+	APIKey string
 }
 
 func Load() (*Config, error) {
@@ -35,9 +33,7 @@ func Load() (*Config, error) {
 		BuiltinDB: dataDir + "/builtin.db",
 		RuntimeDB: dataDir + "/runtime/runtime.db",
 		TeamDir:   dataDir + "/team",
-		APIKey:    os.Getenv("ABOUTSECURITY_API_KEY"),
-		AdminKey:  os.Getenv("ABOUTSECURITY_ADMIN_KEY"),
-		ServerURL: envOrDefault("ABOUTSECURITY_URL", "http://localhost:8088"),
+		APIKey: os.Getenv("ABOUTSECURITY_API_KEY"),
 	}, nil
 }
 

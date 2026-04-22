@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Esonhugh/context1337/internal/storage"
+	"github.com/wgpsec/context1337/internal/storage"
 )
 
 func setupTestDB(t *testing.T) *sql.DB {

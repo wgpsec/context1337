@@ -1,4 +1,4 @@
-module github.com/Esonhugh/context1337
+module github.com/wgpsec/context1337
 
 go 1.25.1
 

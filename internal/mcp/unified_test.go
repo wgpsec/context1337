@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Esonhugh/context1337/internal/search"
-	"github.com/Esonhugh/context1337/internal/storage"
+	"github.com/wgpsec/context1337/internal/search"
+	"github.com/wgpsec/context1337/internal/storage"
 )
 
 func setupUnifiedTest(t *testing.T) *Service {

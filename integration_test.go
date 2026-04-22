@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Esonhugh/context1337/internal/api"
-	"github.com/Esonhugh/context1337/internal/search"
-	"github.com/Esonhugh/context1337/internal/storage"
+	"github.com/wgpsec/context1337/internal/api"
+	"github.com/wgpsec/context1337/internal/search"
+	"github.com/wgpsec/context1337/internal/storage"
 )
 
 func TestIntegration_FullStack(t *testing.T) {

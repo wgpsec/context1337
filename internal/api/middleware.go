@@ -18,7 +18,7 @@ func AuthMiddleware(apiKey string) func(http.Handler) http.Handler {
 			}
 
 			// MCP endpoints: support both Bearer header and query param
-			if strings.HasPrefix(r.URL.Path, "/mcp/") {
+			if r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/") {
 				qk := r.URL.Query().Get("api_key")
 				auth := r.Header.Get("Authorization")
 				token := strings.TrimPrefix(auth, "Bearer ")

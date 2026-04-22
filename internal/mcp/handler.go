@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Esonhugh/context1337/internal/mcp/benchlog"
+	"github.com/wgpsec/context1337/internal/mcp/benchlog"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

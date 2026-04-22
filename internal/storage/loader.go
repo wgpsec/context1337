@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Esonhugh/context1337/internal/tokenize"
+	"github.com/wgpsec/context1337/internal/tokenize"
 )
 
 // LoaderConfig defines paths for the startup loader.

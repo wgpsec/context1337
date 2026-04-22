@@ -28,13 +28,16 @@ func handleHealth(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var count int
 		err := db.QueryRow("SELECT count(*) FROM resources").Scan(&count)
-		status := "ok"
-		if err != nil {
-			status = "error"
-		}
 		w.Header().Set("Content-Type", "application/json")
+		if err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": "error",
+			})
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":          status,
+			"status":          "ok",
 			"total_resources": count,
 		})
 	}
@@ -44,7 +47,7 @@ func handleStats(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query("SELECT type, source, count(*) FROM resources GROUP BY type, source")
 		if err != nil {
-			http.Error(w, err.Error(), 500)
+			http.Error(w, `{"error":"internal server error"}`, 500)
 			return
 		}
 		defer rows.Close()
@@ -57,7 +60,9 @@ func handleStats(db *sql.DB) http.HandlerFunc {
 		var stats []stat
 		for rows.Next() {
 			var s stat
-			rows.Scan(&s.Type, &s.Source, &s.Count)
+			if err := rows.Scan(&s.Type, &s.Source, &s.Count); err != nil {
+				continue
+			}
 			stats = append(stats, s)
 		}
 		w.Header().Set("Content-Type", "application/json")

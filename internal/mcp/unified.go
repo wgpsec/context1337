@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Esonhugh/context1337/internal/search"
-	"github.com/Esonhugh/context1337/internal/storage"
+	"github.com/wgpsec/context1337/internal/search"
+	"github.com/wgpsec/context1337/internal/storage"
 )
 
 // Service holds shared dependencies for all MCP handlers.

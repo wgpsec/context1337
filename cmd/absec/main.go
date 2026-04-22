@@ -7,11 +7,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Esonhugh/context1337/internal/api"
-	"github.com/Esonhugh/context1337/internal/config"
-	mcphandler "github.com/Esonhugh/context1337/internal/mcp"
-	"github.com/Esonhugh/context1337/internal/mcp/benchlog"
-	"github.com/Esonhugh/context1337/internal/storage"
+	"github.com/wgpsec/context1337/internal/api"
+	"github.com/wgpsec/context1337/internal/config"
+	mcphandler "github.com/wgpsec/context1337/internal/mcp"
+	"github.com/wgpsec/context1337/internal/mcp/benchlog"
+	"github.com/wgpsec/context1337/internal/storage"
 	"github.com/spf13/cobra"
 )
 
@@ -101,7 +101,7 @@ func serveCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().IntVar(&port, "port", 8080, "HTTP listen port")
+	cmd.Flags().IntVar(&port, "port", 8088, "HTTP listen port")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory")
 	cmd.Flags().BoolVar(&benchmark, "benchmark", false, "Enable MCP tool call logging")
 	cmd.Flags().StringVar(&benchmarkScenario, "benchmark-scenario", "default", "Scenario label for benchmark logs")

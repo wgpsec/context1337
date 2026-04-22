@@ -27,7 +27,7 @@ docker run -p 8088:8088 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
 
 ### 本地开发（推荐首次使用者）
 
-仅需安装 Go 1.25+ 和 Python 3。
+仅需安装 Go 1.25+（gotip）和 Python 3。
 
 ```bash
 git clone https://github.com/wgpsec/context1337.git
@@ -160,8 +160,11 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 | `make index` | 仅构建 FTS5 搜索索引 |
 | `make test` | 运行单元测试 |
 | `make test-integration` | 运行集成测试 |
-| `make docker` | 构建 Docker 镜像 |
+| `make docker` | 构建 Docker 镜像（从 GitHub 克隆 AboutSecurity） |
+| `make docker-local` | 使用本地 AboutSecurity 仓库构建镜像 |
+| `make docker-ref` | 指定分支/标签构建镜像 |
 | `make clean` | 清理二进制文件、数据库和软链接 |
+| `make clean-benchmark` | 清理 benchmark 日志 |
 
 ## REST API
 

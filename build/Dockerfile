@@ -37,6 +37,6 @@ COPY --from=aboutsecurity /Tools/ /app/data/Tools/
 COPY --from=builder /artifacts/absec /app/absec
 VOLUME /app/data/runtime
 VOLUME /app/data/team
-EXPOSE 8080
+EXPOSE 8088
 ENTRYPOINT ["/app/absec"]
-CMD ["serve", "--port", "8080", "--data-dir", "/app/data"]
+CMD ["serve", "--port", "8088", "--data-dir", "/app/data"]
