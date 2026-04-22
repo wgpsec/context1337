@@ -3,6 +3,7 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -153,5 +154,55 @@ func TestLoader_TeamDictMetadata(t *testing.T) {
 	}
 	if tags == "" {
 		t.Error("expected tags from _meta.yaml")
+	}
+}
+
+func TestScanAndIndex_Vulns(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "runtime.db")
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	defer db.Close()
+
+	// Create team vuln directory
+	teamDir := filepath.Join(dir, "team")
+	vulnDir := filepath.Join(teamDir, "Vuln", "middleware", "apache-log4j")
+	os.MkdirAll(vulnDir, 0o755)
+	os.WriteFile(filepath.Join(vulnDir, "CVE-2021-44228.md"), []byte(`---
+id: CVE-2021-44228
+title: Log4j RCE
+description: JNDI injection leads to RCE
+product: Apache Log4j
+vendor: Apache
+version_affected: "<2.17.0"
+severity: CRITICAL
+tags: [rce, jndi]
+fingerprint: "header=X-Log4j"
+---
+
+## PoC
+test payload
+`), 0o644)
+
+	err = scanAndIndex(db, LoaderConfig{TeamDir: teamDir})
+	if err != nil {
+		t.Fatalf("scanAndIndex: %v", err)
+	}
+
+	var count int
+	db.QueryRow("SELECT count(*) FROM resources WHERE type='vuln'").Scan(&count)
+	if count != 1 {
+		t.Fatalf("vuln count = %d, want 1", count)
+	}
+
+	var name, metadata string
+	db.QueryRow("SELECT name, metadata FROM resources WHERE type='vuln'").Scan(&name, &metadata)
+	if name != "CVE-2021-44228" {
+		t.Errorf("name = %q", name)
+	}
+	if !strings.Contains(metadata, "CRITICAL") {
+		t.Errorf("metadata missing severity: %s", metadata)
 	}
 }

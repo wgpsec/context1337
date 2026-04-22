@@ -90,6 +90,19 @@ func insertResource(db *sql.DB, typ, name, source, filePath, category, tags, mit
 	return err
 }
 
+// insertResourceWithMeta inserts a resource with a metadata JSON blob.
+func insertResourceWithMeta(db *sql.DB, typ, name, source, filePath, category, tags, mitre, difficulty, description, body, metadata string) error {
+	tokDesc := tokenize.TokenizeToString(description)
+	tokBody := tokenize.TokenizeToString(body)
+	_, err := db.Exec(`
+		INSERT OR REPLACE INTO resources
+			(type, name, source, file_path, category, tags, mitre, difficulty, description, body, metadata, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+		typ, name, source, filePath, category, tags, mitre, difficulty, tokDesc, tokBody, metadata,
+	)
+	return err
+}
+
 func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 	if cfg.TeamDir == "" {
 		return nil
@@ -100,6 +113,7 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		"dicts":    filepath.Join(cfg.TeamDir, "Dic"),
 		"payloads": filepath.Join(cfg.TeamDir, "Payload"),
 		"tools":    filepath.Join(cfg.TeamDir, "Tools"),
+		"vulns":    filepath.Join(cfg.TeamDir, "Vuln"),
 	}
 	// Resolve symlinks so filepath.Walk descends into linked directories
 	for k, v := range dirs {
@@ -148,10 +162,21 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		}
 		for _, t := range tools {
 			metadata := fmt.Sprintf(`{"binary":"%s","homepage":"%s"}`, t.Binary, t.Homepage)
-			insertResource(db, "tool", t.ID, "team", t.FilePath,
-				t.Category, "", "", "", t.Description, t.RawYAML)
-			// Update metadata separately
-			db.Exec("UPDATE resources SET metadata=? WHERE type='tool' AND name=? AND source='team'", metadata, t.ID)
+			insertResourceWithMeta(db, "tool", t.ID, "team", t.FilePath,
+				t.Category, "", "", "", t.Description, t.RawYAML, metadata)
+		}
+	}
+
+	if info, err := os.Stat(dirs["vulns"]); err == nil && info.IsDir() {
+		vulns, err := ScanVulns(dirs["vulns"])
+		if err != nil {
+			log.Printf("loader: scan team vulns: %v", err)
+		}
+		for _, v := range vulns {
+			metadata := fmt.Sprintf(`{"severity":"%s","product":"%s","vendor":"%s","version_affected":"%s","fingerprint":"%s"}`,
+				v.Severity, v.Product, v.Vendor, v.VersionAffected, v.Fingerprint)
+			insertResourceWithMeta(db, "vuln", v.ID, "team", v.FilePath,
+				v.Category, v.Tags, "", "", v.Description, v.Body, metadata)
 		}
 	}
 
