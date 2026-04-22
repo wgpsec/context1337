@@ -115,6 +115,7 @@ claude mcp add aboutsecurity --transport http --header "Authorization: Bearer yo
 **获取详细知识**
 - "详细讲解 SQL 注入攻击技术" → `get_security_detail(name="sql-injection", type="skill", depth="full")` 包含参考资料
 - "nmap 工具的配置是什么？" → `get_security_detail(name="nmap", type="tool")` 返回 YAML 配置
+- "jenkins 的后渗透手段有哪些"
 
 **读取数据文件**
 - "给我常见弱口令字典前 100 行" → `read_security_file(path="Auth/password/Top100.txt", type="dict")`
