@@ -63,6 +63,8 @@ claude mcp add aboutsecurity --transport http --scope user http://localhost:8088
 claude mcp add aboutsecurity --transport http http://localhost:8088/mcp
 ```
 
+删除用 `claude mcp remove aboutsecurity -s user`
+
 如果服务端设置了 `ABOUTSECURITY_API_KEY`，需要添加认证头：
 
 ```bash
