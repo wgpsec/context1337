@@ -1,4 +1,4 @@
-id: ext_nmap
+id: nmap
 name: Nmap
 description: Network exploration tool and security scanner
 homepage: https://nmap.org
