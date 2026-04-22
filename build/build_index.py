@@ -83,10 +83,13 @@ def parse_skill_md(path: str) -> dict:
     body = content[end + 4:].strip()
 
     meta = fm.get("metadata", {})
+    tags = meta.get("tags", "")
+    if isinstance(tags, list):
+        tags = ",".join(str(t) for t in tags)
     return {
         "name": fm.get("name", ""),
         "description": fm.get("description", ""),
-        "tags": meta.get("tags", ""),
+        "tags": tags,
         "category": meta.get("category", ""),
         "difficulty": meta.get("difficulty", ""),
         "mitre": meta.get("mitre_attack", ""),
