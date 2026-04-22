@@ -2,6 +2,7 @@ package search
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -197,5 +198,155 @@ func TestSearch_ReturnsTotal(t *testing.T) {
 	}
 	if len(results) != 2 {
 		t.Errorf("results = %d, want 2", len(results))
+	}
+}
+
+func insertVuln(t *testing.T, db *sql.DB, name, category, severity, product string) {
+	t.Helper()
+	metadata := fmt.Sprintf(`{"severity":"%s","product":"%s","vendor":"TestVendor"}`, severity, product)
+	_, err := db.Exec(`INSERT OR REPLACE INTO resources
+		(type,name,source,file_path,category,tags,description,body,metadata)
+		VALUES ('vuln',?,'builtin','test.md',?,'rce',?,?,?)`,
+		name, category,
+		fmt.Sprintf("vuln %s %s", name, product),
+		fmt.Sprintf("vuln body %s", name),
+		metadata)
+	if err != nil {
+		t.Fatalf("insertVuln %s: %v", name, err)
+	}
+}
+
+func TestSearch_ExcludesVulnByDefault(t *testing.T) {
+	db := setupTestDB(t)
+	// Insert a skill and a vuln that both match "injection"
+	InsertResource(db, Resource{
+		Type: "skill", Name: "sql-injection", Source: "builtin",
+		Category: "exploit", Description: "SQL Injection techniques",
+		Body: "SQL injection attack details",
+	})
+	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "Apache Log4j")
+
+	// Search without specifying type — vuln should be excluded
+	results, _, err := Search(db, SearchQuery{Query: "vuln", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	for _, r := range results {
+		if r.Type == "vuln" {
+			t.Errorf("expected no vuln results in default search, got %q", r.Name)
+		}
+	}
+}
+
+func TestSearch_IncludesVulnWithExplicitType(t *testing.T) {
+	db := setupTestDB(t)
+	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "Apache Log4j")
+
+	results, total, err := Search(db, SearchQuery{Query: "vuln", Type: "vuln", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if total == 0 {
+		t.Fatal("expected vuln results with explicit type, got 0")
+	}
+	if results[0].Type != "vuln" {
+		t.Errorf("expected type vuln, got %q", results[0].Type)
+	}
+}
+
+func TestSearch_SeverityFilter(t *testing.T) {
+	db := setupTestDB(t)
+	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "Apache Log4j")
+	insertVuln(t, db, "CVE-2023-0001", "rce", "LOW", "SomeProduct")
+
+	results, total, err := Search(db, SearchQuery{
+		Query:    "vuln",
+		Type:     "vuln",
+		Severity: "CRITICAL",
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("total = %d, want 1", total)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	if results[0].Name != "CVE-2021-44228" {
+		t.Errorf("expected CVE-2021-44228, got %q", results[0].Name)
+	}
+}
+
+func TestSearch_ProductFilter(t *testing.T) {
+	db := setupTestDB(t)
+	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "Apache Log4j")
+	insertVuln(t, db, "CVE-2023-0002", "rce", "HIGH", "OpenSSL")
+
+	results, total, err := Search(db, SearchQuery{
+		Query:   "vuln",
+		Type:    "vuln",
+		Product: "OpenSSL",
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("total = %d, want 1", total)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	if results[0].Name != "CVE-2023-0002" {
+		t.Errorf("expected CVE-2023-0002, got %q", results[0].Name)
+	}
+}
+
+func TestListByType_ExcludesVulnByDefault(t *testing.T) {
+	db := setupTestDB(t)
+	InsertResource(db, Resource{
+		Type: "skill", Name: "test-skill", Source: "builtin",
+		Category: "exploit", Description: "a skill",
+	})
+	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "Apache Log4j")
+
+	// List without type — vuln should be excluded
+	result, err := ListByType(db, ListQuery{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range result.Items {
+		if item.Type == "vuln" {
+			t.Errorf("expected no vuln in default list, got %q", item.Name)
+		}
+	}
+	if result.Total != 1 {
+		t.Errorf("total = %d, want 1 (only skill)", result.Total)
+	}
+}
+
+func TestListByType_VulnWithSeverityFilter(t *testing.T) {
+	db := setupTestDB(t)
+	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "Apache Log4j")
+	insertVuln(t, db, "CVE-2023-0001", "rce", "LOW", "SomeProduct")
+
+	result, err := ListByType(db, ListQuery{
+		Type:     "vuln",
+		Severity: "CRITICAL",
+		Limit:    50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Errorf("total = %d, want 1", result.Total)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(result.Items))
+	}
+	if result.Items[0].Name != "CVE-2021-44228" {
+		t.Errorf("expected CVE-2021-44228, got %q", result.Items[0].Name)
 	}
 }

@@ -28,6 +28,8 @@ type SearchQuery struct {
 	Type       string
 	Category   string
 	Difficulty string
+	Severity   string // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
+	Product    string // vuln metadata filter: product name
 	Offset     int
 	Limit      int
 }
@@ -43,6 +45,8 @@ type ListQuery struct {
 	Type       string
 	Category   string
 	Difficulty string
+	Severity   string // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
+	Product    string // vuln metadata filter: product name
 	Offset     int
 	Limit      int
 }
@@ -108,6 +112,19 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 	if q.Difficulty != "" {
 		conditions = append(conditions, "LOWER(r.difficulty) = LOWER(?)")
 		args = append(args, q.Difficulty)
+	}
+	// Exclude vuln from default search (no type specified)
+	if q.Type == "" {
+		conditions = append(conditions, "r.type != 'vuln'")
+	}
+	// Metadata filters (vuln-specific)
+	if q.Severity != "" {
+		conditions = append(conditions, "json_extract(r.metadata, '$.severity') = ?")
+		args = append(args, q.Severity)
+	}
+	if q.Product != "" {
+		conditions = append(conditions, "json_extract(r.metadata, '$.product') = ?")
+		args = append(args, q.Product)
 	}
 
 	where := strings.Join(conditions, " AND ")
@@ -180,6 +197,19 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 	if q.Difficulty != "" {
 		conditions = append(conditions, "LOWER(difficulty) = LOWER(?)")
 		args = append(args, q.Difficulty)
+	}
+	// Exclude vuln from default list (no type specified)
+	if q.Type == "" {
+		conditions = append(conditions, "type != 'vuln'")
+	}
+	// Metadata filters (vuln-specific)
+	if q.Severity != "" {
+		conditions = append(conditions, "json_extract(metadata, '$.severity') = ?")
+		args = append(args, q.Severity)
+	}
+	if q.Product != "" {
+		conditions = append(conditions, "json_extract(metadata, '$.product') = ?")
+		args = append(args, q.Product)
 	}
 
 	where := "1=1"
