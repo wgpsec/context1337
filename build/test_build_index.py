@@ -1,4 +1,5 @@
 """Tests for build_index.py -- _meta.yaml support for dict/payload indexing."""
+import json
 import os
 import shutil
 import sqlite3
@@ -428,6 +429,108 @@ Main body
         self.assertIn("Advanced", body)
         self.assertIn("Bypass", body)
         self.assertIn("Main", body)
+
+
+class TestIndexVulns(unittest.TestCase):
+    """Tests for parse_vuln_md and index_vulns."""
+
+    def setUp(self):
+        self.conn = _create_db()
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        self.conn.close()
+        shutil.rmtree(self.tmpdir)
+
+    def test_index_vuln_basic(self):
+        """Full frontmatter: verify type, name, category, description, metadata."""
+        vuln_dir = os.path.join(self.tmpdir, "Vuln", "web", "apache")
+        os.makedirs(vuln_dir)
+        with open(os.path.join(vuln_dir, "CVE-2021-41773.md"), "w") as f:
+            f.write(textwrap.dedent("""\
+                ---
+                id: CVE-2021-41773
+                title: Apache HTTP Server Path Traversal
+                description: Path traversal vulnerability in Apache 2.4.49
+                product: Apache HTTP Server
+                vendor: Apache
+                version_affected: "2.4.49"
+                severity: critical
+                tags: path-traversal,rce
+                fingerprint: apache-2.4.49
+                ---
+                ## Details
+                This vulnerability allows path traversal attacks.
+            """))
+
+        count = build_index.index_vulns(self.conn, self.tmpdir)
+        self.assertEqual(count, 1)
+
+        row = self.conn.execute(
+            "SELECT type, name, category, description, metadata FROM resources WHERE type='vuln'"
+        ).fetchone()
+        self.assertIsNotNone(row)
+        rtype, name, category, description, metadata = row
+        self.assertEqual(rtype, "vuln")
+        self.assertEqual(name, "CVE-2021-41773")
+        self.assertEqual(category, "web")
+        self.assertIn("Path", description)
+
+        meta = json.loads(metadata)
+        self.assertEqual(meta["severity"], "critical")
+        self.assertEqual(meta["product"], "Apache HTTP Server")
+        self.assertEqual(meta["vendor"], "Apache")
+        self.assertEqual(meta["fingerprint"], "apache-2.4.49")
+
+    def test_index_vuln_no_dir(self):
+        """Returns 0 when Vuln/ directory doesn't exist."""
+        count = build_index.index_vulns(self.conn, self.tmpdir)
+        self.assertEqual(count, 0)
+
+    def test_index_vuln_no_frontmatter(self):
+        """Skips files without frontmatter."""
+        vuln_dir = os.path.join(self.tmpdir, "Vuln", "web", "nginx")
+        os.makedirs(vuln_dir)
+        with open(os.path.join(vuln_dir, "no-frontmatter.md"), "w") as f:
+            f.write("# Just a title\nNo frontmatter here.\n")
+
+        count = build_index.index_vulns(self.conn, self.tmpdir)
+        self.assertEqual(count, 0)
+
+    def test_index_vuln_tags_as_list(self):
+        """Tags list is joined into comma-separated tokenized string."""
+        vuln_dir = os.path.join(self.tmpdir, "Vuln", "network", "cisco")
+        os.makedirs(vuln_dir)
+        with open(os.path.join(vuln_dir, "CVE-2022-1234.md"), "w") as f:
+            f.write(textwrap.dedent("""\
+                ---
+                id: CVE-2022-1234
+                title: Cisco Router RCE
+                description: Remote code execution in Cisco router
+                product: Cisco Router
+                vendor: Cisco
+                severity: high
+                tags:
+                  - rce
+                  - network
+                  - cisco
+                fingerprint: cisco-router
+                ---
+                Exploit details here.
+            """))
+
+        count = build_index.index_vulns(self.conn, self.tmpdir)
+        self.assertEqual(count, 1)
+
+        row = self.conn.execute(
+            "SELECT tags FROM resources WHERE type='vuln'"
+        ).fetchone()
+        self.assertIsNotNone(row)
+        tags = row[0]
+        # fake jieba splits on whitespace; tokenize("rce,network,cisco") -> "rce,network,cisco"
+        self.assertIn("rce", tags)
+        self.assertIn("network", tags)
+        self.assertIn("cisco", tags)
 
 
 if __name__ == "__main__":

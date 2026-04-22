@@ -230,6 +230,88 @@ def index_payloads(conn, base_dir):
     return _index_data_dir(conn, base_dir, "Payload", "payload")
 
 
+def parse_vuln_md(path: str) -> dict:
+    """Parse a vulnerability Markdown file with YAML frontmatter."""
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    if not content.startswith("---"):
+        return None
+
+    end = content.find("\n---", 3)
+    if end < 0:
+        return None
+
+    fm = yaml.safe_load(content[3:end])
+    if not fm or not fm.get("id"):
+        return None
+
+    body = content[end + 4:].strip()
+
+    tags = fm.get("tags", "")
+    if isinstance(tags, list):
+        tags = ",".join(tags)
+
+    return {
+        "id": fm.get("id", ""),
+        "title": fm.get("title", ""),
+        "description": fm.get("description", ""),
+        "product": fm.get("product", ""),
+        "vendor": fm.get("vendor", ""),
+        "version_affected": fm.get("version_affected", ""),
+        "severity": fm.get("severity", ""),
+        "tags": tags,
+        "fingerprint": fm.get("fingerprint", ""),
+        "body": body,
+        "file_path": path,
+    }
+
+
+def index_vulns(conn: sqlite3.Connection, base_dir: str):
+    """Index vulnerability Markdown files."""
+    vulns_dir = os.path.join(base_dir, "Vuln")
+    if not os.path.isdir(vulns_dir):
+        return 0
+
+    count = 0
+    for root, dirs, files in os.walk(vulns_dir):
+        for f in files:
+            if not f.endswith(".md"):
+                continue
+            path = os.path.join(root, f)
+            vuln = parse_vuln_md(path)
+            if not vuln:
+                continue
+
+            # Extract category from directory path: Vuln/{category}/...
+            rel = os.path.relpath(root, vulns_dir)
+            parts = rel.split(os.sep)
+            cat = parts[0] if parts[0] != "." else ""
+
+            meta = json.dumps({
+                "severity": vuln["severity"],
+                "product": vuln["product"],
+                "vendor": vuln["vendor"],
+                "version_affected": vuln["version_affected"],
+                "fingerprint": vuln["fingerprint"],
+            })
+
+            tok_tags = tokenize(vuln["tags"])
+            tok_desc = tokenize(vuln["description"])
+            tok_body = tokenize(f"{vuln['description']} {vuln['title']} {vuln['body']}")
+
+            conn.execute(
+                "INSERT OR REPLACE INTO resources "
+                "(type,name,source,file_path,category,tags,description,body,metadata) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                ("vuln", vuln["id"], "builtin", vuln["file_path"],
+                 cat, tok_tags, tok_desc, tok_body, meta),
+            )
+            count += 1
+
+    return count
+
+
 def index_tools(conn: sqlite3.Connection, base_dir: str):
     """Index tool YAML files."""
     tools_dir = os.path.join(base_dir, "Tools")
@@ -284,9 +366,10 @@ def main():
     dicts = index_dicts(conn, args.input)
     payloads = index_payloads(conn, args.input)
     tools = index_tools(conn, args.input)
+    vulns = index_vulns(conn, args.input)
 
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('builtin_version', ?)",
-                 (f"v1-{skills}s-{dicts}d-{payloads}p-{tools}t",))
+                 (f"v1-{skills}s-{dicts}d-{payloads}p-{tools}t-{vulns}v",))
 
     conn.execute("INSERT INTO resources_fts(resources_fts) VALUES('optimize')")
     conn.execute("PRAGMA journal_mode=DELETE")
@@ -294,7 +377,7 @@ def main():
     conn.commit()
     conn.close()
 
-    print(f"Built {args.output}: {skills} skills, {dicts} dicts, {payloads} payloads, {tools} tools")
+    print(f"Built {args.output}: {skills} skills, {dicts} dicts, {payloads} payloads, {tools} tools, {vulns} vulns")
 
 
 if __name__ == "__main__":
