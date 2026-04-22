@@ -28,7 +28,7 @@ data/builtin.db: build/build_index.py build/security_dict.txt | $(ABOUTSECURITY_
 
 # Symlink AboutSecurity content directories into data/ for local development
 link-data: | $(ABOUTSECURITY_DIR)
-	@for dir in Payload Dic Tools skills; do \
+	@for dir in Payload Dic Tools skills Vuln; do \
 		if [ -d "$(ABOUTSECURITY_DIR)/$$dir" ] && [ ! -e "data/$$dir" ]; then \
 			ln -s "$$(cd $(ABOUTSECURITY_DIR) && pwd)/$$dir" data/$$dir; \
 			echo "Linked data/$$dir -> $(ABOUTSECURITY_DIR)/$$dir"; \
@@ -60,7 +60,7 @@ docker-local:
 clean:
 	rm -f absec
 	rm -f data/builtin.db
-	rm -f data/Payload data/Dic data/Tools data/skills
+	rm -f data/Payload data/Dic data/Tools data/skills data/Vuln
 	rm -f data/runtime/runtime.db data/runtime/runtime.db-wal data/runtime/runtime.db-shm
 
 clean-benchmark:

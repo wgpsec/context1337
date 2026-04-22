@@ -21,7 +21,7 @@ type ToolMode string
 const (
 	// ToolModeLite registers the 3 core tools (search, detail, file).
 	ToolModeLite ToolMode = "lite"
-	// ToolModeFull registers the 12 per-type tools (search/list/get per resource type).
+	// ToolModeFull registers the 15 per-type tools (search/list/get per resource type).
 	ToolModeFull ToolMode = "full"
 )
 
@@ -55,12 +55,12 @@ func NewMCPServer(db *sql.DB, dataDir string, mode ToolMode) http.Handler {
 func registerLiteTools(server *gomcp.Server, svc *Service) {
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_security",
-		Description: "Search the AboutSecurity penetration testing knowledge base. Covers: exploit techniques (SQL injection, XSS, SSRF, RCE...), password/bruteforce wordlists, attack payloads, and security tool configs (nmap, sqlmap, dirsearch...). ALWAYS use this tool when the user asks about hacking, penetration testing, security vulnerabilities, dictionaries, payloads, or security tools. Params: query (optional keyword — omit to list all), type (optional: skill|dict|payload|tool — omit to search all types), category (optional), difficulty (optional, skill only: easy|medium|hard), offset (default 0), limit (default 20). Returns paginated results with type, name, description, category.",
+		Description: "Search the AboutSecurity penetration testing knowledge base. Covers: exploit techniques (SQL injection, XSS, SSRF, RCE...), password/bruteforce wordlists, attack payloads, and security tool configs (nmap, sqlmap, dirsearch...). To search vulnerabilities, you MUST specify type=\"vuln\" explicitly — vulnerabilities are excluded from default search to avoid polluting technique-oriented results. Vuln search supports additional filters: severity (CRITICAL/HIGH/MEDIUM/LOW) and product. Params: query (optional keyword — omit to list all), type (optional: skill|dict|payload|tool|vuln — omit to search all non-vuln types), category (optional), difficulty (optional, skill only), severity (optional, vuln only), product (optional, vuln only), offset (default 0), limit (default 20, vuln default 50). Returns paginated results with type, name, description, category.",
 	}, wrapHandler(svc.Search))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_security_detail",
-		Description: "Get detailed penetration testing knowledge for a skill or tool by name. Use after search_security to retrieve full content. Params: name (from search results), type (skill|tool), depth (optional, skill only: metadata|summary|full, default summary). depth=full includes references. Returns full content including body (skill) or config YAML (tool).",
+		Description: "Get detailed penetration testing knowledge for a skill, tool, or vulnerability by name. Use after search_security to retrieve full content. Params: name (from search results), type (skill|tool|vuln), depth (optional — skill: metadata|summary|full, default summary; vuln: brief|full, default brief). depth=full includes references (skill) or PoC and remediation (vuln). Returns full content including body (skill), config YAML (tool), or vulnerability details with severity/product/PoC (vuln).",
 	}, wrapHandler(svc.Get))
 
 	gomcp.AddTool(server, &gomcp.Tool{
