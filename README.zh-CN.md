@@ -63,6 +63,8 @@ claude mcp add aboutsecurity --transport http --scope user http://localhost:8088
 claude mcp add aboutsecurity --transport http http://localhost:8088/mcp
 ```
 
+删除用 `claude mcp remove aboutsecurity -s user`
+
 如果服务端设置了 `ABOUTSECURITY_API_KEY`，需要添加认证头：
 
 ```bash
@@ -124,6 +126,19 @@ claude mcp add aboutsecurity --transport http --header "Authorization: Bearer yo
 - "获取 Log4j RCE 漏洞详情" → `get_security_detail(name="CVE-2021-44228", type="vuln", depth="full")`
 
 AI 会自动调用正确的 MCP 工具来查找相关安全知识。
+
+## Skill 与 Vuln 的区别
+
+知识库中同时存在 **skill（渗透技能）** 和 **vuln（漏洞库）**，两者定位不同、互为补充：
+
+| | Skill（技能） | Vuln（漏洞） |
+|--|--------------|-------------|
+| **粒度** | 按产品/场景聚合，一个 skill 覆盖整个产品的攻击面 | 按 CVE/CNVD 拆分，每条一个漏洞 |
+| **侧重** | 方法论：攻击决策树、版本判断、后利用（提权/持久化/横向移动） | 数据：影响版本、PoC 代码、具体利用步骤 |
+| **典型内容** | "面对 Jenkins，先打哪个端口、拿到权限后怎么提取凭据" | "CVE-2024-23897 的完整 Python PoC 和 payload" |
+| **使用场景** | AI 先读 skill 了解整体攻击面和利用顺序 | 再调 vuln 拿具体 CVE 的 PoC 去执行 |
+
+简单来说：**skill 告诉你"怎么打"，vuln 告诉你"用什么打"**。
 
 ## 可用 MCP 工具
 

@@ -125,6 +125,19 @@ Once connected, just ask your AI assistant naturally:
 
 The AI will automatically call the right MCP tools to find relevant security knowledge.
 
+## Skills vs Vulnerabilities
+
+The knowledge base contains both **skills** and **vulns** — they serve different purposes and complement each other:
+
+| | Skill | Vuln |
+|--|-------|------|
+| **Granularity** | Per-product/scenario — one skill covers an entire product's attack surface | Per-CVE/CNVD — one entry per vulnerability |
+| **Focus** | Methodology: attack decision trees, version detection, post-exploitation (privesc, persistence, lateral movement) | Data: affected versions, PoC code, step-by-step exploitation |
+| **Typical content** | "When facing Jenkins, which port to hit first, how to extract credentials after gaining access" | "Full Python PoC and payload for CVE-2024-23897" |
+| **Usage flow** | AI reads the skill first to understand the overall attack surface and exploitation order | Then calls vuln to get the specific CVE's PoC for execution |
+
+In short: **skills tell you "how to attack", vulns tell you "what to attack with"**.
+
 ## Available MCP Tools
 
 Default mode is **lite** (3 tools). Use `--tool-mode full` for 15 per-type tools. If the AI model fails to invoke tools proactively, switch to full mode — the 15 fine-grained, domain-specific tools improve trigger rates.
