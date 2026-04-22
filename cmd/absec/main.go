@@ -96,7 +96,10 @@ func serveCmd() *cobra.Command {
 			handler := api.NewRouter(db, cfg.DataDir, cfg.APIKey, mcpHandler)
 
 			addr := fmt.Sprintf(":%d", cfg.Port)
+			counts := storage.CountByType(db)
 			log.Printf("absec server starting on %s (data: %s, tool-mode: %s)", addr, cfg.DataDir, toolMode)
+			log.Printf("resources loaded: %d skills, %d dicts, %d payloads, %d tools, %d vulns",
+				counts["skill"], counts["dict"], counts["payload"], counts["tool"], counts["vuln"])
 			return http.ListenAndServe(addr, handler)
 		},
 	}

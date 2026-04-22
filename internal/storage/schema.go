@@ -105,3 +105,21 @@ func GetMeta(db *sql.DB, key string) (string, error) {
 	}
 	return val, err
 }
+
+// CountByType returns resource counts grouped by type.
+func CountByType(db *sql.DB) map[string]int {
+	counts := make(map[string]int)
+	rows, err := db.Query("SELECT type, COUNT(*) FROM resources GROUP BY type")
+	if err != nil {
+		return counts
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var typ string
+		var cnt int
+		if rows.Scan(&typ, &cnt) == nil {
+			counts[typ] = cnt
+		}
+	}
+	return counts
+}
