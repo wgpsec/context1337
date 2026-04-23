@@ -186,6 +186,13 @@ func TestGetSkillAdapter_DepthFull(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	ctx := context.Background()
 
+	// Create on-disk SKILL.md so depth=full can read from filesystem
+	skillDir := filepath.Join(svc.DataDir, "skills", "exploit", "sql-injection")
+	os.MkdirAll(skillDir, 0o755)
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: sql-injection\n---\nbody content"), 0o644)
+	svc.DB.Exec("UPDATE resources SET file_path=? WHERE name='sql-injection'",
+		filepath.Join(skillDir, "SKILL.md"))
+
 	result, err := svc.getSkillAdapter(ctx, GetSkillInput{Name: "sql-injection", Depth: "full"})
 	if err != nil {
 		t.Fatal(err)

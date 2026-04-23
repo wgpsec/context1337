@@ -87,13 +87,12 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 		return nil, 0, nil
 	}
 
-	// Build FTS5 match expression: each token joined with OR
-	// Escape double quotes in tokens
+	// Build FTS5 match expression: each token joined with AND for precision
 	var escaped []string
 	for _, tok := range tokens {
 		escaped = append(escaped, `"`+strings.ReplaceAll(tok, `"`, `""`)+`"`)
 	}
-	ftsQuery := strings.Join(escaped, " OR ")
+	ftsQuery := strings.Join(escaped, " AND ")
 
 	var conditions []string
 	var args []interface{}
@@ -143,7 +142,7 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 		SELECT r.id, r.type, COALESCE(r.name,''), COALESCE(r.source,''), COALESCE(r.file_path,''),
 		       COALESCE(r.category,''), COALESCE(r.tags,''), COALESCE(r.mitre,''), COALESCE(r.difficulty,''),
 		       COALESCE(r.description,''), COALESCE(r.body,''), COALESCE(r.metadata,''),
-		       bm25(resources_fts) AS score
+		       bm25(resources_fts, 10.0, 5.0, 5.0, 2.0, 1.0, 1.0) AS score
 		FROM resources_fts
 		JOIN resources r ON r.id = resources_fts.rowid
 		WHERE %s

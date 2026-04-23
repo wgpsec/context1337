@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -60,7 +61,7 @@ func registerLiteTools(server *gomcp.Server, svc *Service) {
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_security_detail",
-		Description: "Get detailed penetration testing knowledge for a skill, tool, or vulnerability by name. Use after search_security to retrieve full content. Params: name (from search results), type (skill|tool|vuln), depth (optional — skill: metadata|summary|full, default summary; vuln: brief|full, default brief). depth=full includes references (skill) or PoC and remediation (vuln). Returns full content including body (skill), config YAML (tool), or vulnerability details with severity/product/PoC (vuln).",
+		Description: "Get detailed penetration testing knowledge for a skill, tool, or vulnerability by name. ALWAYS use this tool instead of reading files directly — it handles pagination automatically. Params: name (from search results), type (skill|tool|vuln), depth (optional — skill: metadata|summary|full, default summary; vuln: brief|full, default brief). For skills with many references, depth=full returns paginated references: use ref_offset (default 0) and ref_limit (default 3) to page through them. The response includes ref_total showing the total number of references available. Start with depth=summary to get the skill body, then use depth=full with ref_offset/ref_limit to fetch specific references as needed. Returns full content including body (skill), config YAML (tool), or vulnerability details with severity/product/PoC (vuln).",
 	}, wrapHandler(svc.Get))
 
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -68,6 +69,10 @@ func registerLiteTools(server *gomcp.Server, svc *Service) {
 		Description: "Read security dictionary (wordlists/passwords) or attack payload file content with line-level pagination. Use after search_security to read file data. Params: path (from search results, e.g. Auth/password/Top100.txt), type (dict|payload), offset (default 0 lines), limit (default 200 lines). Returns file content with total_lines count.",
 	}, wrapHandler(svc.GetFile))
 }
+
+// maxResponseBytes is the safety limit for MCP tool responses.
+// Responses exceeding this size would overflow LLM context windows.
+const maxResponseBytes = 150_000
 
 // wrapHandler adapts a typed service method (func(ctx, In) (Out, error)) into
 // the MCP SDK's ToolHandlerFor signature. The Out is serialised as JSON text
@@ -83,6 +88,13 @@ func wrapHandler[In any, Out any](fn func(context.Context, In) (Out, error)) gom
 		data, err := json.Marshal(out)
 		if err != nil {
 			return nil, nil, err
+		}
+
+		if len(data) > maxResponseBytes {
+			return nil, nil, fmt.Errorf(
+				"response too large (%dKB > %dKB limit); use depth=summary, reduce ref_limit, or paginate",
+				len(data)/1024, maxResponseBytes/1024,
+			)
 		}
 
 		if BenchLogger != nil {

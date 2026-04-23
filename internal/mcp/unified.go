@@ -43,6 +43,19 @@ func extractVulnMeta(metadata string) (severity, product, vendor, versionAffecte
 	return meta["severity"], meta["product"], meta["vendor"], meta["version_affected"], meta["fingerprint"]
 }
 
+// splitSkillBody extracts frontmatter and body from a SKILL.md file content.
+func splitSkillBody(content string) (string, string, error) {
+	if !strings.HasPrefix(content, "---") {
+		return "", content, nil
+	}
+	rest := content[3:]
+	idx := strings.Index(rest, "\n---")
+	if idx < 0 {
+		return "", content, fmt.Errorf("unclosed frontmatter")
+	}
+	return strings.TrimSpace(rest[:idx]), rest[idx+4:], nil
+}
+
 // --- search ---
 
 type SearchInput struct {
@@ -138,9 +151,11 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 // --- get ---
 
 type GetInput struct {
-	Name  string `json:"name"            jsonschema:"Resource name (from search results)"`
-	Type  string `json:"type"            jsonschema:"Resource type: skill|tool|vuln"`
-	Depth string `json:"depth,omitempty" jsonschema:"Loading depth. Skill: metadata|summary|full (default summary). Vuln: brief|full (default brief). full includes references (skill) or PoC (vuln)."`
+	Name      string `json:"name"               jsonschema:"Resource name (from search results)"`
+	Type      string `json:"type"               jsonschema:"Resource type: skill|tool|vuln"`
+	Depth     string `json:"depth,omitempty"     jsonschema:"Loading depth. Skill: metadata|summary|full (default summary). Vuln: brief|full (default brief). full includes references (skill) or PoC (vuln)."`
+	RefOffset int    `json:"ref_offset,omitempty" jsonschema:"Reference pagination offset (default 0, skill depth=full only)"`
+	RefLimit  int    `json:"ref_limit,omitempty"  jsonschema:"Max references to include (default 3, skill depth=full only)"`
 }
 
 type GetResult struct {
@@ -153,6 +168,7 @@ type GetResult struct {
 	Difficulty      string           `json:"difficulty,omitempty"`
 	Body            string           `json:"body,omitempty"`
 	References      []SkillReference `json:"references,omitempty"`
+	RefTotal        int              `json:"ref_total,omitempty"`
 	Binary          string           `json:"binary,omitempty"`
 	Homepage        string           `json:"homepage,omitempty"`
 	Config          string           `json:"config,omitempty"`
@@ -199,14 +215,50 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 		case "metadata":
 			// No body
 		case "summary":
-			result.Body = r.Body
-		case "full":
-			result.Body = r.Body
+			// Read original SKILL.md body from disk (without tokenized refs)
+			if data, err := os.ReadFile(r.FilePath); err == nil {
+				if _, rawBody, fmErr := splitSkillBody(string(data)); fmErr == nil {
+					result.Body = strings.TrimSpace(rawBody)
+				}
+			} else {
+				// Fallback: try stripping refs from DB body
+				body := r.Body
+				if idx := strings.Index(body, "\n\n---\n## [ref] "); idx >= 0 {
+					body = body[:idx]
+				}
+				result.Body = body
+			}
+			// Include ref_total so caller knows references exist
 			skillDir := filepath.Dir(r.FilePath)
+			if refs, err := storage.ReadReferences(skillDir); err == nil && len(refs) > 0 {
+				result.RefTotal = len(refs)
+			}
+		case "full":
+			// Read original SKILL.md body from disk (without concatenated refs)
+			skillDir := filepath.Dir(r.FilePath)
+			if data, err := os.ReadFile(r.FilePath); err == nil {
+				if _, rawBody, fmErr := splitSkillBody(string(data)); fmErr == nil {
+					result.Body = strings.TrimSpace(rawBody)
+				}
+			}
+			// Load references with pagination
 			refs, err := storage.ReadReferences(skillDir)
 			if err == nil && len(refs) > 0 {
-				result.References = make([]SkillReference, len(refs))
-				for i, ref := range refs {
+				result.RefTotal = len(refs)
+				start := in.RefOffset
+				if start > len(refs) {
+					start = len(refs)
+				}
+				limit := in.RefLimit
+				if limit <= 0 {
+					limit = 3
+				}
+				end := start + limit
+				if end > len(refs) {
+					end = len(refs)
+				}
+				result.References = make([]SkillReference, end-start)
+				for i, ref := range refs[start:end] {
 					result.References[i] = SkillReference{Name: ref.Name, Content: ref.Content}
 				}
 			}

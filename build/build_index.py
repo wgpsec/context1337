@@ -233,6 +233,22 @@ def index_payloads(conn, base_dir):
     return _index_data_dir(conn, base_dir, "Payload", "payload")
 
 
+def _extract_vuln_desc(body: str, title: str) -> str:
+    """Extract description from vuln body. Looks for ## 漏洞描述 section, fallback to title."""
+    import re
+    for marker in ["## 漏洞描述", "## 漏洞概述", "## 简介", "## 概述"]:
+        idx = body.find(marker)
+        if idx < 0:
+            continue
+        after = body[idx + len(marker):].lstrip()
+        # Take first paragraph (up to double newline or next heading)
+        m = re.search(r'\n\n|\n#', after)
+        para = after[:m.start()].strip() if m else after.strip()
+        if para:
+            return para[:200] + "..." if len(para) > 200 else para
+    return title
+
+
 def parse_vuln_md(path: str) -> dict:
     """Parse a vulnerability Markdown file with YAML frontmatter."""
     with open(path, "r", encoding="utf-8") as f:
@@ -255,10 +271,14 @@ def parse_vuln_md(path: str) -> dict:
     if isinstance(tags, list):
         tags = ",".join(tags)
 
+    desc = fm.get("description", "")
+    if not desc:
+        desc = _extract_vuln_desc(body, fm.get("title", ""))
+
     return {
         "id": fm.get("id", ""),
         "title": fm.get("title", ""),
-        "description": fm.get("description", ""),
+        "description": desc,
         "product": fm.get("product", ""),
         "vendor": fm.get("vendor", ""),
         "version_affected": fm.get("version_affected", ""),

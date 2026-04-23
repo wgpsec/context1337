@@ -213,19 +213,57 @@ func ParseVulnMD(path string) (*VulnData, error) {
 	if meta.ID == "" {
 		return nil, nil
 	}
+
+	desc := meta.Description
+	trimmedBody := strings.TrimSpace(body)
+	// Fallback: extract first paragraph after "## 漏洞描述" heading if description is empty
+	if desc == "" {
+		desc = extractVulnDesc(trimmedBody, meta.Title)
+	}
+
 	return &VulnData{
 		ID:              meta.ID,
 		Title:           meta.Title,
-		Description:     meta.Description,
+		Description:     desc,
 		Product:         meta.Product,
 		Vendor:          meta.Vendor,
 		VersionAffected: meta.VersionAffected,
 		Severity:        strings.ToUpper(meta.Severity),
 		Tags:            strings.Join(meta.Tags, ","),
 		Fingerprint:     meta.Fingerprint,
-		Body:            strings.TrimSpace(body),
+		Body:            trimmedBody,
 		FilePath:        path,
 	}, nil
+}
+
+// extractVulnDesc extracts a description from vuln body content.
+// Looks for "## 漏洞描述" section first, then falls back to title.
+func extractVulnDesc(body, title string) string {
+	// Try to find "## 漏洞描述" section
+	markers := []string{"## 漏洞描述", "## 漏洞概述", "## 简介", "## 概述"}
+	for _, marker := range markers {
+		if idx := strings.Index(body, marker); idx >= 0 {
+			after := body[idx+len(marker):]
+			after = strings.TrimLeft(after, " \t\r\n")
+			// Take first paragraph (up to double newline or next heading)
+			end := len(after)
+			if i := strings.Index(after, "\n\n"); i >= 0 {
+				end = i
+			}
+			if i := strings.Index(after, "\n#"); i >= 0 && i < end {
+				end = i
+			}
+			para := strings.TrimSpace(after[:end])
+			if para != "" {
+				if len([]rune(para)) > 200 {
+					para = string([]rune(para)[:200]) + "..."
+				}
+				return para
+			}
+		}
+	}
+	// Fallback to title
+	return title
 }
 
 func splitFrontmatter(content string) (string, string, error) {
