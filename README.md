@@ -4,6 +4,17 @@
 
 Standalone MCP resource service that turns [AboutSecurity](https://github.com/wgpsec/AboutSecurity) from a file repo into a consumable API. Like context7, but for security.
 
+## Demo
+
+**Search security resources**
+![search](docs/images/demo-search-en.png)
+
+**Vulnerability intelligence**
+![vuln](docs/images/demo-vuln-en.png)
+
+**AD domain attack skill detail**
+![skill](docs/images/demo-skill-en.png)
+
 ## Quick Start
 
 ### Docker (recommended)

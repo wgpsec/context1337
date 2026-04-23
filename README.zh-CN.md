@@ -4,6 +4,17 @@
 
 独立的 MCP 资源服务，将 [AboutSecurity](https://github.com/wgpsec/AboutSecurity) 从文件仓库转变为可消费的 API。类似 context7，但专为安全领域打造。
 
+## 效果展示
+
+**搜索安全资源**
+![search](docs/images/demo-search-zh.png)
+
+**漏洞情报查询**
+![vuln](docs/images/demo-vuln-zh.png)
+
+**AD 域攻击技能详情**
+![skill](docs/images/demo-skill-zh.png)
+
 ## 快速开始
 
 ### Docker（推荐）
