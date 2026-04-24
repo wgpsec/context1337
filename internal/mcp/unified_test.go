@@ -446,3 +446,59 @@ func TestSearch_RelevanceCutoff_AdjustsTotal(t *testing.T) {
 		t.Errorf("Total=%d but len(Items)=%d; cutoff should align total with trimmed results", res.Total, len(res.Items))
 	}
 }
+
+func TestDiversifyByType(t *testing.T) {
+	mk := func(typ string, score float64) search.SearchResult {
+		return search.SearchResult{
+			Resource: search.Resource{Type: typ},
+			Score:    score,
+		}
+	}
+
+	tests := []struct {
+		name      string
+		input     []search.SearchResult
+		wantOrder []string // expected type sequence
+	}{
+		{"empty", nil, nil},
+		{"single type", []search.SearchResult{mk("skill", -10), mk("skill", -8)}, []string{"skill", "skill"}},
+		{
+			"two types interleaved",
+			[]search.SearchResult{
+				mk("payload", -10), mk("payload", -9), mk("payload", -8),
+				mk("skill", -7), mk("skill", -6),
+			},
+			[]string{"payload", "skill", "payload", "skill", "payload"},
+		},
+		{
+			"three types",
+			[]search.SearchResult{
+				mk("payload", -10), mk("payload", -9),
+				mk("skill", -8),
+				mk("dict", -7),
+			},
+			[]string{"payload", "skill", "dict", "payload"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := diversifyByType(tt.input)
+			if len(got) != len(tt.input) {
+				t.Fatalf("diversify changed count: %d -> %d", len(tt.input), len(got))
+			}
+			gotTypes := make([]string, len(got))
+			for i, r := range got {
+				gotTypes[i] = r.Type
+			}
+			if tt.wantOrder != nil {
+				for i, want := range tt.wantOrder {
+					if i >= len(gotTypes) || gotTypes[i] != want {
+						t.Errorf("position %d: got %v, want %v\nfull: %v", i, gotTypes, tt.wantOrder, gotTypes)
+						break
+					}
+				}
+			}
+		})
+	}
+}

@@ -96,6 +96,52 @@ func trimByRelevance(results []search.SearchResult) []search.SearchResult {
 	return results
 }
 
+// diversifyByType re-orders results so that no single type dominates the top
+// positions. It uses round-robin across types, preserving BM25 rank within
+// each type bucket. This ensures that a cross-type search for "SQL injection"
+// surfaces skills alongside payloads, even when payloads score slightly higher
+// due to shorter document length and tag density.
+//
+// Only applied when the caller did NOT specify a type filter.
+func diversifyByType(results []search.SearchResult) []search.SearchResult {
+	if len(results) <= 1 {
+		return results
+	}
+
+	// Split results into per-type buckets, preserving order.
+	bucketOrder := []string{}       // insertion-ordered type keys
+	buckets := map[string][]search.SearchResult{}
+	for _, r := range results {
+		if _, exists := buckets[r.Type]; !exists {
+			bucketOrder = append(bucketOrder, r.Type)
+		}
+		buckets[r.Type] = append(buckets[r.Type], r)
+	}
+
+	if len(bucketOrder) <= 1 {
+		return results // single type, nothing to diversify
+	}
+
+	// Round-robin merge: pick one from each type in turn.
+	out := make([]search.SearchResult, 0, len(results))
+	idx := make(map[string]int, len(bucketOrder))
+	for len(out) < len(results) {
+		progress := false
+		for _, typ := range bucketOrder {
+			i := idx[typ]
+			if i < len(buckets[typ]) {
+				out = append(out, buckets[typ][i])
+				idx[typ] = i + 1
+				progress = true
+			}
+		}
+		if !progress {
+			break
+		}
+	}
+	return out
+}
+
 // --- search ---
 
 type SearchInput struct {
@@ -169,15 +215,27 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 
 	// Non-empty query -> FTS5 search
 	if in.Query != "" {
+		// When searching across types, fetch extra results so diversify
+		// has enough material from each type to fill the final page.
+		fetchLimit := in.Limit
+		if in.Type == "" {
+			fetchLimit = in.Limit * 3
+		}
 		results, total, err := search.Search(s.DB, search.SearchQuery{
 			Query: in.Query, Type: in.Type, Category: in.Category,
 			Difficulty: in.Difficulty, Severity: in.Severity, Product: in.Product,
-			Offset: in.Offset, Limit: in.Limit,
+			Offset: in.Offset, Limit: fetchLimit,
 		})
 		if err != nil {
 			return nil, err
 		}
 		results = trimByRelevance(results)
+		if in.Type == "" {
+			results = diversifyByType(results)
+		}
+		if len(results) > in.Limit {
+			results = results[:in.Limit]
+		}
 		items := make([]ResourceSummary, len(results))
 		for i, r := range results {
 			items[i] = resourceToSummary(r.Resource)
