@@ -43,17 +43,6 @@ type PayloadEntry struct {
 	FilePath    string
 }
 
-type ToolData struct {
-	ID          string `yaml:"id"`
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	Homepage    string `yaml:"homepage"`
-	Category    string `yaml:"category"`
-	Binary      string `yaml:"binary"`
-	FilePath    string `yaml:"-"`
-	RawYAML     string `yaml:"-"`
-}
-
 type VulnData struct {
 	ID              string
 	Title           string
@@ -436,46 +425,6 @@ func ScanPayloads(dir string) ([]PayloadEntry, error) {
 		return nil
 	})
 	return payloads, err
-}
-
-func ParseToolYAML(path string) (*ToolData, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var tool ToolData
-	if err := yaml.Unmarshal(data, &tool); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
-	}
-	tool.FilePath = path
-	tool.RawYAML = string(data)
-	return &tool, nil
-}
-
-func ScanTools(dir string) ([]ToolData, error) {
-	var tools []ToolData
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		if !strings.HasSuffix(d.Name(), ".yaml") || d.Name() == "_meta.yaml" {
-			return nil
-		}
-		tool, err := ParseToolYAML(path)
-		if err != nil {
-			return nil // skip unparseable
-		}
-		if tool.Category == "" {
-			rel, _ := filepath.Rel(dir, path)
-			parts := strings.SplitN(rel, string(filepath.Separator), 2)
-			if len(parts) > 1 {
-				tool.Category = parts[0]
-			}
-		}
-		tools = append(tools, *tool)
-		return nil
-	})
-	return tools, err
 }
 
 func ScanVulns(dir string) ([]VulnData, error) {

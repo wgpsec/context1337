@@ -112,7 +112,6 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		"skills":   filepath.Join(cfg.TeamDir, "skills"),
 		"dicts":    filepath.Join(cfg.TeamDir, "Dic"),
 		"payloads": filepath.Join(cfg.TeamDir, "Payload"),
-		"tools":    filepath.Join(cfg.TeamDir, "Tools"),
 		"vulns":    filepath.Join(cfg.TeamDir, "Vuln"),
 	}
 	// Resolve symlinks so filepath.Walk descends into linked directories
@@ -152,18 +151,6 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		for _, p := range payloads {
 			insertResource(db, "payload", p.Path, "team", p.FilePath,
 				p.Category, p.Tags, "", "", p.Description, "")
-		}
-	}
-
-	if info, err := os.Stat(dirs["tools"]); err == nil && info.IsDir() {
-		tools, err := ScanTools(dirs["tools"])
-		if err != nil {
-			log.Printf("loader: scan team tools: %v", err)
-		}
-		for _, t := range tools {
-			metadata := fmt.Sprintf(`{"binary":"%s","homepage":"%s"}`, t.Binary, t.Homepage)
-			insertResourceWithMeta(db, "tool", t.ID, "team", t.FilePath,
-				t.Category, "", "", "", t.Description, t.RawYAML, metadata)
 		}
 	}
 

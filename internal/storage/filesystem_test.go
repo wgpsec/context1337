@@ -69,20 +69,6 @@ func TestScanPayloads(t *testing.T) {
 	}
 }
 
-func TestParseToolYAML(t *testing.T) {
-	path := filepath.Join(testdataDir(), "Tools", "nmap.yaml")
-	tool, err := ParseToolYAML(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tool.ID != "nmap" {
-		t.Errorf("id = %q, want nmap", tool.ID)
-	}
-	if tool.Category != "scan" {
-		t.Errorf("category = %q, want scan", tool.Category)
-	}
-}
-
 func TestReadFileLines(t *testing.T) {
 	path := filepath.Join(testdataDir(), "Dic", "Auth", "password", "Top10.txt")
 	content, total, err := ReadFileLines(path, 0, 5)
@@ -115,24 +101,6 @@ func TestParseDirMeta(t *testing.T) {
 	}
 	if meta.Files[0].Name != "Top10.txt" {
 		t.Errorf("file = %q", meta.Files[0].Name)
-	}
-}
-
-func TestScanTools_Recursive(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "Tools")
-	tools, err := ScanTools(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := map[string]bool{}
-	for _, tool := range tools {
-		found[tool.ID] = true
-	}
-	if !found["nmap"] {
-		t.Error("expected nmap from top-level")
-	}
-	if !found["masscan"] {
-		t.Error("expected masscan from scan/ subdirectory")
 	}
 }
 
