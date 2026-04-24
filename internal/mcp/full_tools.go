@@ -30,13 +30,6 @@ type SearchPayloadInput struct {
 	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 20)"`
 }
 
-type SearchToolsInput struct {
-	Query    string `json:"query,omitempty"    jsonschema:"Search keywords for tool lookup"`
-	Category string `json:"category,omitempty" jsonschema:"Filter by category"`
-	Offset   int    `json:"offset,omitempty"   jsonschema:"Pagination offset (default 0)"`
-	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 20)"`
-}
-
 type SearchVulnInput struct {
 	Query    string `json:"query,omitempty"    jsonschema:"Search keywords for vulnerability lookup"`
 	Category string `json:"category,omitempty" jsonschema:"Filter by category: ai|cloud|middleware|network|web"`
@@ -67,12 +60,6 @@ type ListPayloadsInput struct {
 	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 20)"`
 }
 
-type ListToolsInput struct {
-	Category string `json:"category,omitempty" jsonschema:"Filter by category"`
-	Offset   int    `json:"offset,omitempty"   jsonschema:"Pagination offset (default 0)"`
-	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 20)"`
-}
-
 type ListVulnsInput struct {
 	Category string `json:"category,omitempty" jsonschema:"Filter by category: ai|cloud|middleware|network|web"`
 	Severity string `json:"severity,omitempty" jsonschema:"Filter by severity: CRITICAL|HIGH|MEDIUM|LOW"`
@@ -86,10 +73,6 @@ type ListVulnsInput struct {
 type GetSkillInput struct {
 	Name  string `json:"name"            jsonschema:"Skill name (from search results)"`
 	Depth string `json:"depth,omitempty" jsonschema:"Loading depth: metadata|summary|full (default summary). full includes references."`
-}
-
-type GetToolInput struct {
-	Name string `json:"name" jsonschema:"Tool name (from search results)"`
 }
 
 type GetDictInput struct {
@@ -132,13 +115,6 @@ func (s *Service) searchPayloadAdapter(ctx context.Context, in SearchPayloadInpu
 	})
 }
 
-func (s *Service) searchToolsAdapter(ctx context.Context, in SearchToolsInput) (*SearchResult, error) {
-	return s.Search(ctx, SearchInput{
-		Query: in.Query, Type: "tool", Category: in.Category,
-		Offset: in.Offset, Limit: in.Limit,
-	})
-}
-
 func (s *Service) searchVulnAdapter(ctx context.Context, in SearchVulnInput) (*SearchResult, error) {
 	return s.Search(ctx, SearchInput{
 		Query: in.Query, Type: "vuln", Category: in.Category,
@@ -170,13 +146,6 @@ func (s *Service) listPayloadsAdapter(ctx context.Context, in ListPayloadsInput)
 	})
 }
 
-func (s *Service) listToolsAdapter(ctx context.Context, in ListToolsInput) (*SearchResult, error) {
-	return s.Search(ctx, SearchInput{
-		Type: "tool", Category: in.Category,
-		Offset: in.Offset, Limit: in.Limit,
-	})
-}
-
 func (s *Service) listVulnsAdapter(ctx context.Context, in ListVulnsInput) (*SearchResult, error) {
 	return s.Search(ctx, SearchInput{
 		Type: "vuln", Category: in.Category,
@@ -189,10 +158,6 @@ func (s *Service) listVulnsAdapter(ctx context.Context, in ListVulnsInput) (*Sea
 
 func (s *Service) getSkillAdapter(ctx context.Context, in GetSkillInput) (*GetResult, error) {
 	return s.Get(ctx, GetInput{Name: in.Name, Type: "skill", Depth: in.Depth})
-}
-
-func (s *Service) getToolAdapter(ctx context.Context, in GetToolInput) (*GetResult, error) {
-	return s.Get(ctx, GetInput{Name: in.Name, Type: "tool"})
 }
 
 func (s *Service) getDictAdapter(ctx context.Context, in GetDictInput) (*GetFileResult, error) {
@@ -209,7 +174,7 @@ func (s *Service) getVulnAdapter(ctx context.Context, in GetVulnInput) (*GetResu
 
 // --- Registration ---
 
-// registerFullTools registers all 15 per-type tools with security-keyword-enriched descriptions.
+// registerFullTools registers all 12 per-type tools with security-keyword-enriched descriptions.
 func registerFullTools(server *gomcp.Server, svc *Service) {
 	// Search tools
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -230,12 +195,6 @@ func registerFullTools(server *gomcp.Server, svc *Service) {
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.searchPayloadAdapter))
 
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "search_tools",
-		Description: "Search security tool configurations and references (nmap, sqlmap, dirsearch, burp suite, metasploit, nuclei, ffuf, gobuster, hydra, john). Use when the user asks about security tools, their options, or usage. Returns paginated results with tool metadata.",
-		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
-	}, wrapHandler(svc.searchToolsAdapter))
-
 	// List tools
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_skills",
@@ -255,24 +214,12 @@ func registerFullTools(server *gomcp.Server, svc *Service) {
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.listPayloadsAdapter))
 
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "list_tools",
-		Description: "List all available security tool configurations and references. Browse tool categories without a search query. Supports pagination. Use to discover available security tools like nmap, sqlmap, burp suite, and metasploit.",
-		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
-	}, wrapHandler(svc.listToolsAdapter))
-
 	// Get tools
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_skill",
 		Description: "Get detailed penetration testing skill content by name. Returns full exploit technique documentation including description, body, and optional references. Use after search_skill or list_skills to retrieve complete skill details. Set depth=full to include reference files.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.getSkillAdapter))
-
-	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "get_tool",
-		Description: "Get detailed security tool configuration and documentation by name. Returns tool description, binary name, homepage, and full YAML config. Use after search_tools or list_tools to retrieve complete tool details including usage examples.",
-		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
-	}, wrapHandler(svc.getToolAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_dict",
