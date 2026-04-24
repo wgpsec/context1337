@@ -118,14 +118,13 @@ claude mcp add aboutsecurity --transport http --header "Authorization: Bearer yo
 连接后，直接用自然语言与 AI 助手对话：
 
 **跨类型搜索**
-- "搜索 SQL 注入相关资源" → `search_security(query="SQL injection")` 同时找到 skill、payload、tool
+- "搜索 SQL 注入相关资源" → `search_security(query="SQL injection")` 同时找到 skill、payload
 - "有哪些 XSS payload？" → `search_security(query="XSS", type="payload")`
-- "列出所有扫描类工具" → `search_security(type="tool", category="scan")`
 - "有哪些漏洞利用技能？" → `search_security(type="skill", category="exploit")`
 
 **获取详细知识**
 - "详细讲解 SQL 注入攻击技术" → `get_security_detail(name="sql-injection", type="skill", depth="full")` 包含参考资料
-- "nmap 工具的配置是什么？" → `get_security_detail(name="nmap", type="tool")` 返回 YAML 配置
+- "nmap 扫描怎么做？" → `get_security_detail(name="nmap-scan", type="skill")` 返回方法论
 - "jenkins 的后渗透手段有哪些"
 
 **读取数据文件**
@@ -141,17 +140,17 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 
 ## 可用 MCP 工具
 
-默认为 **精简模式**（3 个工具）。使用 `--tool-mode full` 启用 15 个分类工具。如果 AI 模型未能主动调用工具，可切换到 full 模式，提供更细粒度的 15 个专用工具以提升触发率。
+默认为 **精简模式**（3 个工具）。使用 `--tool-mode full` 启用 12 个分类工具。如果 AI 模型未能主动调用工具，可切换到 full 模式，提供更细粒度的 12 个专用工具以提升触发率。
 
 ### 精简模式（默认，3 个工具）
 
 | 工具 | 说明 |
 |------|------|
-| `search_security` | 搜索或列出所有资源类型（skill、dict、payload、tool）。搜索漏洞须显式指定 type="vuln"（默认搜索排除漏洞）。漏洞支持 severity 和 product 过滤 |
-| `get_security_detail` | 获取 skill（支持 depth 和 references）、tool（YAML 配置）或 vuln（brief/full 含 PoC）的详细内容 |
+| `search_security` | 搜索或列出所有资源类型（skill、dict、payload）。搜索漏洞须显式指定 type="vuln"（默认搜索排除漏洞）。漏洞支持 severity 和 product 过滤 |
+| `get_security_detail` | 获取 skill（支持 depth 和 references）或 vuln（brief/full 含 PoC）的详细内容 |
 | `read_security_file` | 按行分页读取字典或 payload 文件内容 |
 
-### 完整模式（15 个工具）
+### 完整模式（12 个工具）
 
 > 如果模型能力弱，或者触发不足，就用 full 模式，提供完整 mcp tool
 
@@ -160,15 +159,12 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 | `search_skill` | 按关键词搜索渗透测试技能 |
 | `search_dicts` | 按关键词搜索密码字典 |
 | `search_payload` | 按关键词搜索攻击载荷 |
-| `search_tools` | 按关键词搜索安全工具配置 |
 | `search_vuln` | 按关键词搜索漏洞库，支持 severity 和 product 过滤 |
 | `list_skills` | 浏览所有技能 |
 | `list_dicts` | 浏览所有字典 |
 | `list_payloads` | 浏览所有载荷 |
-| `list_tools` | 浏览所有工具 |
 | `list_vulns` | 列出漏洞（默认 50 条），支持 category/severity/product 过滤 |
 | `get_skill` | 获取技能详情（支持 depth 和 references） |
-| `get_tool` | 获取工具 YAML 配置 |
 | `get_dict` | 按行分页读取字典文件 |
 | `get_payload` | 按行分页读取载荷文件 |
 | `get_vuln` | 获取漏洞详情（CVE/CNVD ID），支持 brief/full 深度（含 PoC） |
@@ -202,7 +198,7 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 | `ABOUTSECURITY_PORT` | `8088` | HTTP 监听端口 |
 | `ABOUTSECURITY_DATA_DIR` | `./data` | 数据目录根路径 |
 | `ABOUTSECURITY_API_KEY` | （空=无认证） | Bearer 认证密钥 |
-| `ABOUTSECURITY_TOOL_MODE` | `lite` | 工具注册模式：`lite`（3 个工具）或 `full`（15 个工具） |
+| `ABOUTSECURITY_TOOL_MODE` | `lite` | 工具注册模式：`lite`（3 个工具）或 `full`（12 个工具） |
 
 ## 架构
 

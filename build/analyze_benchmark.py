@@ -11,20 +11,20 @@ from datetime import datetime
 
 TOOL_MAP_5 = {
     "search_skill": "search_security", "search_dicts": "search_security",
-    "search_payload": "search_security", "search_tools": "search_security",
+    "search_payload": "search_security",
     "list_skills": "list", "list_dicts": "list",
-    "list_payloads": "list", "list_tools": "list",
+    "list_payloads": "list",
     "get_skill": "get_security_detail", "get_dict": "read_security_file",
-    "get_payload": "read_security_file", "get_tool": "get_security_detail",
+    "get_payload": "read_security_file",
 }
 
 TOOL_MAP_3 = {
     "search_skill": "search_security", "search_dicts": "search_security",
-    "search_payload": "search_security", "search_tools": "search_security",
+    "search_payload": "search_security",
     "list_skills": "search_security", "list_dicts": "search_security",
-    "list_payloads": "search_security", "list_tools": "search_security",
+    "list_payloads": "search_security",
     "get_skill": "get_security_detail", "get_dict": "read_security_file",
-    "get_payload": "read_security_file", "get_tool": "get_security_detail",
+    "get_payload": "read_security_file",
 }
 
 MERGE_WINDOW_SEC = 30

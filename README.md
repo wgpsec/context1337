@@ -116,14 +116,13 @@ Edit your Claude Desktop config file (`~/Library/Application Support/Claude/clau
 Once connected, just ask your AI assistant naturally:
 
 **Search across all types**
-- "Search for SQL injection resources" → `search_security(query="SQL injection")` finds skills, payloads, and tools
+- "Search for SQL injection resources" → `search_security(query="SQL injection")` finds skills and payloads
 - "What XSS payloads are available?" → `search_security(query="XSS", type="payload")`
-- "List all scanning tools" → `search_security(type="tool", category="scan")`
 - "Show me all exploit skills" → `search_security(type="skill", category="exploit")`
 
 **Get detailed knowledge**
 - "Explain the SQL injection skill in detail" → `get_security_detail(name="sql-injection", type="skill", depth="full")` includes references
-- "Show me the nmap tool configuration" → `get_security_detail(name="nmap", type="tool")` returns YAML config
+- "How does nmap scanning work?" → `get_security_detail(name="nmap-scan", type="skill")` returns methodology
 
 **Read data files**
 - "Show the top 100 passwords dictionary" → `read_security_file(path="Auth/password/Top100.txt", type="dict")`
@@ -138,32 +137,29 @@ The AI will automatically call the right MCP tools to find relevant security kno
 
 ## Available MCP Tools
 
-Default mode is **lite** (3 tools). Use `--tool-mode full` for 15 per-type tools. If the AI model fails to invoke tools proactively, switch to full mode — the 15 fine-grained, domain-specific tools improve trigger rates.
+Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools. If the AI model fails to invoke tools proactively, switch to full mode — the 12 fine-grained, domain-specific tools improve trigger rates.
 
 ### Lite mode (default, 3 tools)
 
 | Tool | Description |
 |------|-------------|
-| `search_security` | Search or list all resource types (skill, dict, payload, tool). To search vulnerabilities, specify type="vuln" explicitly (excluded from default search). Vuln supports severity and product filters. |
-| `get_security_detail` | Get full detail for a skill (with depth control + references), tool (YAML config), or vulnerability (brief/full with PoC) |
+| `search_security` | Search or list all resource types (skill, dict, payload). To search vulnerabilities, specify type="vuln" explicitly (excluded from default search). Vuln supports severity and product filters. |
+| `get_security_detail` | Get full detail for a skill (with depth control + references) or vulnerability (brief/full with PoC) |
 | `read_security_file` | Read dictionary or payload file content with line-level pagination |
 
-### Full mode (15 tools)
+### Full mode (12 tools)
 
 | Tool | Description |
 |------|-------------|
 | `search_skill` | Search penetration testing skills by keyword |
 | `search_dicts` | Search password dictionaries by keyword |
 | `search_payload` | Search attack payloads by keyword |
-| `search_tools` | Search security tool configs by keyword |
 | `search_vuln` | Search vulnerability database by keyword with severity and product filters |
 | `list_skills` | Browse all skills |
 | `list_dicts` | Browse all dictionaries |
 | `list_payloads` | Browse all payloads |
-| `list_tools` | Browse all tools |
 | `list_vulns` | List vulnerabilities with pagination (default 50), category/severity/product filters |
 | `get_skill` | Get skill detail (with depth + references) |
-| `get_tool` | Get tool YAML config |
 | `get_dict` | Read dictionary file with line pagination |
 | `get_payload` | Read payload file with line pagination |
 | `get_vuln` | Get vulnerability detail by name (CVE/CNVD ID), brief or full depth with PoC |
@@ -197,7 +193,7 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 15 per-type tools
 | `ABOUTSECURITY_PORT` | `8088` | HTTP listen port |
 | `ABOUTSECURITY_DATA_DIR` | `./data` | Data directory root |
 | `ABOUTSECURITY_API_KEY` | (empty=no auth) | API key for Bearer auth |
-| `ABOUTSECURITY_TOOL_MODE` | `lite` | Tool registration mode: `lite` (3 tools) or `full` (15 tools) |
+| `ABOUTSECURITY_TOOL_MODE` | `lite` | Tool registration mode: `lite` (3 tools) or `full` (12 tools) |
 
 ## Architecture
 

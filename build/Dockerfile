@@ -33,7 +33,6 @@ COPY --from=indexer /artifacts/builtin.db /app/data/builtin.db
 COPY --from=aboutsecurity /skills/ /app/data/skills/
 COPY --from=aboutsecurity /Dic/ /app/data/Dic/
 COPY --from=aboutsecurity /Payload/ /app/data/Payload/
-COPY --from=aboutsecurity /Tools/ /app/data/Tools/
 COPY --from=builder /artifacts/absec /app/absec
 VOLUME /app/data/runtime
 VOLUME /app/data/team

@@ -160,8 +160,8 @@ func TestListByType_AllTypes(t *testing.T) {
 		Category: "exploit", Description: "a skill",
 	})
 	InsertResource(db, Resource{
-		Type: "tool", Name: "test-tool", Source: "builtin",
-		Category: "scan", Description: "a tool",
+		Type: "dict", Name: "test-dict", Source: "builtin",
+		Category: "password", Description: "a dict",
 	})
 	// Empty Type = list all types
 	result, err := ListByType(db, ListQuery{Limit: 50})
@@ -175,8 +175,8 @@ func TestListByType_AllTypes(t *testing.T) {
 	for _, item := range result.Items {
 		types[item.Type] = true
 	}
-	if !types["skill"] || !types["tool"] {
-		t.Errorf("expected both skill and tool types, got %v", types)
+	if !types["skill"] || !types["dict"] {
+		t.Errorf("expected both skill and dict types, got %v", types)
 	}
 }
 
