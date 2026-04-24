@@ -117,6 +117,7 @@ def index_skills(conn: sqlite3.Connection, base_dir: str):
 
             # Append references content to body for FTS5
             body = skill["body"]
+            ref_files = []
             ref_dir = os.path.join(root, "references")
             if os.path.isdir(ref_dir):
                 for ref_name in sorted(os.listdir(ref_dir)):
@@ -126,17 +127,22 @@ def index_skills(conn: sqlite3.Connection, base_dir: str):
                     try:
                         with open(ref_path, "r", encoding="utf-8") as rf:
                             body += f"\n\n---\n## [ref] {ref_name}\n" + rf.read()
+                        ref_files.append(ref_name)
                     except Exception:
                         pass
 
             tok_body = tokenize(f"{skill['description']} {body}")
             tok_tags = tokenize(skill["tags"])
 
+            body_lines = len(skill["body"].strip().splitlines()) if skill["body"].strip() else 0
+            ref_count = len(ref_files)
+            metadata = json.dumps({"body_lines": body_lines, "ref_count": ref_count})
+
             conn.execute(
-                "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,tags,mitre,difficulty,description,body) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,tags,mitre,difficulty,description,body,metadata) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 ("skill", skill["name"], "builtin", skill["file_path"],
                  skill["category"], tok_tags, skill["mitre"], skill["difficulty"],
-                 tokenize(skill["description"]), tok_body),
+                 tokenize(skill["description"]), tok_body, metadata),
             )
             count += 1
 
@@ -188,13 +194,16 @@ def _index_data_dir(conn, base_dir, subdir, resource_type):
                     usage = entry.get("usage", "")
                     body_text = f"{desc} {usage} {merged_tags}"
 
+                    lines = entry.get("lines", 0)
+                    metadata = json.dumps({"lines": lines}) if lines else ""
+
                     conn.execute(
                         "INSERT OR REPLACE INTO resources "
-                        "(type,name,source,file_path,category,tags,description,body) "
-                        "VALUES (?,?,?,?,?,?,?,?)",
+                        "(type,name,source,file_path,category,tags,description,body,metadata) "
+                        "VALUES (?,?,?,?,?,?,?,?,?)",
                         (resource_type, rel, "builtin", path, dir_cat,
                          tokenize(merged_tags), tokenize(desc),
-                         tokenize(body_text)),
+                         tokenize(body_text), metadata),
                     )
                 else:
                     _index_file_fallback(conn, resource_type, data_dir, root, f)

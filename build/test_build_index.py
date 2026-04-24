@@ -533,5 +533,102 @@ class TestIndexVulns(unittest.TestCase):
         self.assertIn("cisco", tags)
 
 
+class TestSkillMetadata(unittest.TestCase):
+    """Test that skill indexing stores body_lines and ref_count in metadata."""
+
+    def setUp(self):
+        self.conn = _create_db()
+        self.tmpdir = tempfile.mkdtemp()
+        skill_dir = os.path.join(self.tmpdir, "skills", "exploit", "test-meta")
+        os.makedirs(skill_dir)
+        with open(os.path.join(skill_dir, "SKILL.md"), "w") as f:
+            f.write(textwrap.dedent("""\
+                ---
+                name: test-meta
+                description: Skill with metadata
+                metadata:
+                  tags: "test"
+                  category: "exploit"
+                ---
+                Line one
+                Line two
+                Line three
+            """))
+        ref_dir = os.path.join(skill_dir, "references")
+        os.makedirs(ref_dir)
+        with open(os.path.join(ref_dir, "techniques.md"), "w") as f:
+            f.write("# Techniques\nSome content")
+        with open(os.path.join(ref_dir, "bypass.md"), "w") as f:
+            f.write("# Bypass\nMore content")
+
+    def tearDown(self):
+        self.conn.close()
+        shutil.rmtree(self.tmpdir)
+
+    def test_skill_metadata_body_lines_and_ref_count(self):
+        build_index.index_skills(self.conn, self.tmpdir)
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT metadata FROM resources WHERE name='test-meta'"
+        ).fetchone()
+        self.assertIsNotNone(row)
+        meta = json.loads(row[0])
+        self.assertEqual(meta["body_lines"], 3)
+        self.assertEqual(meta["ref_count"], 2)
+
+
+class TestDictMetadataLines(unittest.TestCase):
+    """Test that dict indexing stores lines in metadata JSON."""
+
+    def setUp(self):
+        self.conn = _create_db()
+        self.tmpdir = tempfile.mkdtemp()
+        pw_dir = os.path.join(self.tmpdir, "Dic", "auth", "password")
+        os.makedirs(pw_dir)
+
+        with open(os.path.join(pw_dir, "_meta.yaml"), "w") as f:
+            f.write(textwrap.dedent("""\
+                category: auth
+                tags: "password"
+                files:
+                  - name: top100.txt
+                    lines: 100
+                    description: "Top 100 passwords"
+                    usage: "Login bruteforce"
+                    tags: "top"
+                  - name: nolines.txt
+                    description: "File without lines field"
+                    tags: "other"
+            """))
+        with open(os.path.join(pw_dir, "top100.txt"), "w") as f:
+            f.write("admin\npassword\n")
+        with open(os.path.join(pw_dir, "nolines.txt"), "w") as f:
+            f.write("data\n")
+
+    def tearDown(self):
+        self.conn.close()
+        shutil.rmtree(self.tmpdir)
+
+    def test_dict_metadata_has_lines(self):
+        build_index.index_dicts(self.conn, self.tmpdir)
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT metadata FROM resources WHERE type='dict' AND name LIKE '%top100%'"
+        ).fetchone()
+        self.assertIsNotNone(row)
+        meta = json.loads(row[0])
+        self.assertEqual(meta["lines"], 100)
+
+    def test_dict_without_lines_has_no_metadata(self):
+        build_index.index_dicts(self.conn, self.tmpdir)
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT metadata FROM resources WHERE type='dict' AND name LIKE '%nolines%'"
+        ).fetchone()
+        self.assertIsNotNone(row)
+        # metadata should be empty string or NULL when no lines field
+        self.assertTrue(row[0] is None or row[0] == "")
+
+
 if __name__ == "__main__":
     unittest.main()
