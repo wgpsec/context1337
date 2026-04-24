@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wgpsec/context1337/internal/search"
@@ -239,6 +240,22 @@ func TestGet_NotFound(t *testing.T) {
 	_, err := svc.Get(ctx, GetInput{Name: "nonexistent", Type: "skill"})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestGet_NotFound_ActionableError(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	_, err := svc.Get(ctx, GetInput{Name: "nonexistent", Type: "skill"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "try search_security") {
+		t.Errorf("error should contain recovery hint, got: %s", msg)
+	}
+	if !strings.Contains(msg, "not found") {
+		t.Errorf("error should contain 'not found', got: %s", msg)
 	}
 }
 

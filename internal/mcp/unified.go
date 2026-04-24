@@ -226,7 +226,10 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 		}
 	}
 	if r == nil {
-		return nil, fmt.Errorf("%s %q not found", in.Type, in.Name)
+		return nil, fmt.Errorf(
+			"%s %q not found; try search_security with broader keywords, or omit query to list all %ss",
+			in.Type, in.Name, in.Type,
+		)
 	}
 
 	result := &GetResult{
