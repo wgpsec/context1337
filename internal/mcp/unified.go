@@ -115,6 +115,7 @@ type SearchResult struct {
 	Offset int               `json:"offset"`
 	Limit  int               `json:"limit"`
 	Items  []ResourceSummary `json:"items"`
+	Hint   string            `json:"hint,omitempty"`
 }
 
 func resourceToSummary(r search.Resource) ResourceSummary {
@@ -133,6 +134,16 @@ func resourceToSummary(r search.Resource) ResourceSummary {
 		s.BodyLines, s.RefCount, s.Lines = extractSizeMeta(r.Metadata, r.Type)
 	}
 	return s
+}
+
+func searchHint(query, typ string) string {
+	if typ != "" {
+		return fmt.Sprintf(
+			"no results for %q with type=%s; retry without the type filter to search across all resource types",
+			query, typ,
+		)
+	}
+	return fmt.Sprintf("no results for %q; try broader or alternative keywords", query)
 }
 
 func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, error) {
@@ -158,7 +169,11 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 		for i, r := range results {
 			items[i] = resourceToSummary(r.Resource)
 		}
-		return &SearchResult{Total: total, Offset: in.Offset, Limit: in.Limit, Items: items}, nil
+		out := &SearchResult{Total: total, Offset: in.Offset, Limit: in.Limit, Items: items}
+		if total == 0 {
+			out.Hint = searchHint(in.Query, in.Type)
+		}
+		return out, nil
 	}
 
 	// Empty query -> list

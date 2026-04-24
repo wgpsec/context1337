@@ -259,6 +259,51 @@ func TestGet_NotFound_ActionableError(t *testing.T) {
 	}
 }
 
+func TestSearch_ZeroResults_HintWithType(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Query: "nonexistent-xyz-999", Type: "tool", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Fatalf("expected 0 results, got %d", result.Total)
+	}
+	if result.Hint == "" {
+		t.Fatal("expected hint when 0 results with type filter")
+	}
+	if !strings.Contains(result.Hint, "without the type filter") {
+		t.Errorf("hint should suggest removing type filter, got: %s", result.Hint)
+	}
+}
+
+func TestSearch_ZeroResults_HintWithoutType(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Query: "nonexistent-xyz-999", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Hint == "" {
+		t.Fatal("expected hint when 0 results")
+	}
+	if !strings.Contains(result.Hint, "broader") {
+		t.Errorf("hint should suggest broader keywords, got: %s", result.Hint)
+	}
+}
+
+func TestSearch_WithResults_NoHint(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Query: "SQL injection", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Hint != "" {
+		t.Errorf("should have no hint when results exist, got: %s", result.Hint)
+	}
+}
+
 func TestGet_InvalidType(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	ctx := context.Background()
