@@ -311,6 +311,58 @@ func TestGet_Vuln_Brief(t *testing.T) {
 	}
 }
 
+func TestSearch_SkillSizeMetadata(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	svc.DB.Exec(`UPDATE resources SET metadata='{"body_lines":150,"ref_count":2}' WHERE name='sql-injection'`)
+
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Query: "SQL injection", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) == 0 {
+		t.Fatal("expected results")
+	}
+	found := false
+	for _, item := range result.Items {
+		if item.Name == "sql-injection" {
+			found = true
+			if item.BodyLines != 150 {
+				t.Errorf("BodyLines = %d, want 150", item.BodyLines)
+			}
+			if item.RefCount != 2 {
+				t.Errorf("RefCount = %d, want 2", item.RefCount)
+			}
+		}
+	}
+	if !found {
+		t.Error("sql-injection not in results")
+	}
+}
+
+func TestSearch_DictSizeMetadata(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	svc.DB.Exec(`UPDATE resources SET metadata='{"lines":586}' WHERE name='Auth/password/Top100.txt'`)
+
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Query: "password", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range result.Items {
+		if item.Name == "Auth/password/Top100.txt" {
+			found = true
+			if item.Lines != 586 {
+				t.Errorf("Lines = %d, want 586", item.Lines)
+			}
+		}
+	}
+	if !found {
+		t.Error("dict not in results")
+	}
+}
+
 func TestGet_Vuln_Full(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	res, err := svc.Get(context.Background(), GetInput{Name: "CVE-2021-44228", Type: "vuln", Depth: "full"})

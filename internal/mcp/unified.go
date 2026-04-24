@@ -43,6 +43,29 @@ func extractVulnMeta(metadata string) (severity, product, vendor, versionAffecte
 	return meta["severity"], meta["product"], meta["vendor"], meta["version_affected"], meta["fingerprint"]
 }
 
+func extractSizeMeta(metadata, resourceType string) (bodyLines, refCount, lines int) {
+	if metadata == "" {
+		return
+	}
+	dec := json.NewDecoder(strings.NewReader(metadata))
+	dec.UseNumber()
+	var meta map[string]json.Number
+	if err := dec.Decode(&meta); err != nil {
+		return
+	}
+	toInt := func(n json.Number) int {
+		v, _ := n.Int64()
+		return int(v)
+	}
+	switch resourceType {
+	case "skill":
+		return toInt(meta["body_lines"]), toInt(meta["ref_count"]), 0
+	case "dict", "payload":
+		return 0, 0, toInt(meta["lines"])
+	}
+	return
+}
+
 // splitSkillBody extracts frontmatter and body from a SKILL.md file content.
 func splitSkillBody(content string) (string, string, error) {
 	if !strings.HasPrefix(content, "---") {
@@ -82,6 +105,9 @@ type ResourceSummary struct {
 	Severity    string `json:"severity,omitempty"`
 	Product     string `json:"product,omitempty"`
 	Vendor      string `json:"vendor,omitempty"`
+	BodyLines   int    `json:"body_lines,omitempty"`
+	RefCount    int    `json:"ref_count,omitempty"`
+	Lines       int    `json:"lines,omitempty"`
 }
 
 type SearchResult struct {
@@ -102,6 +128,9 @@ func resourceToSummary(r search.Resource) ResourceSummary {
 	}
 	if r.Type == "vuln" {
 		s.Severity, s.Product, s.Vendor, _, _ = extractVulnMeta(r.Metadata)
+	}
+	if r.Type == "skill" || r.Type == "dict" || r.Type == "payload" {
+		s.BodyLines, s.RefCount, s.Lines = extractSizeMeta(r.Metadata, r.Type)
 	}
 	return s
 }
