@@ -218,14 +218,6 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 		return nil, err
 	}
 	if r == nil {
-		results, _, err := search.Search(s.DB, search.SearchQuery{
-			Query: in.Name, Type: in.Type, Limit: 1,
-		})
-		if err == nil && len(results) > 0 {
-			r = &results[0].Resource
-		}
-	}
-	if r == nil {
 		return nil, fmt.Errorf(
 			"%s %q not found; try search_security with broader keywords, or omit query to list all %ss",
 			in.Type, in.Name, in.Type,
