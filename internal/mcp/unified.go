@@ -106,7 +106,7 @@ type SearchInput struct {
 	Severity   string `json:"severity,omitempty"   jsonschema:"Filter by severity (vuln only): CRITICAL|HIGH|MEDIUM|LOW"`
 	Product    string `json:"product,omitempty"    jsonschema:"Filter by product name (vuln only)"`
 	Offset     int    `json:"offset,omitempty"     jsonschema:"Pagination offset (default 0)"`
-	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 20, vuln default 50)"`
+	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results to return (default 10). Increase only when the caller explicitly needs more."`
 }
 
 type ResourceSummary struct {
@@ -163,7 +163,7 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 		if in.Type == "vuln" {
 			in.Limit = 50
 		} else {
-			in.Limit = 20
+			in.Limit = 10
 		}
 	}
 
