@@ -215,78 +215,93 @@ func registerFullTools(server *gomcp.Server, svc *Service) {
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_skill",
 		Description: "Search penetration testing skills and exploit techniques (SQL injection, XSS, SSRF, RCE, privilege escalation, buffer overflow, command injection, path traversal, authentication bypass, CSRF). Use when the user asks about hacking techniques or vulnerability exploitation. Returns paginated results with name, description, category, and difficulty.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.searchSkillAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_dicts",
 		Description: "Search password wordlists and bruteforce dictionaries for penetration testing (rockyou, common passwords, credential lists, username lists, directory bruteforce, subdomain enumeration). Use when the user needs dictionaries for password cracking or fuzzing. Returns paginated results.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.searchDictsAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_payload",
 		Description: "Search attack payloads and exploit strings for penetration testing (XSS payloads, SQL injection strings, SSRF URLs, XXE payloads, command injection, template injection, LDAP injection, CRLF injection). Use when the user needs ready-made attack payloads. Returns paginated results.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.searchPayloadAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_tools",
 		Description: "Search security tool configurations and references (nmap, sqlmap, dirsearch, burp suite, metasploit, nuclei, ffuf, gobuster, hydra, john). Use when the user asks about security tools, their options, or usage. Returns paginated results with tool metadata.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.searchToolsAdapter))
 
 	// List tools
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_skills",
 		Description: "List all available penetration testing skills and exploit techniques. Browse by category or difficulty without a search query. Supports pagination with offset and limit. Use to discover available hacking skills, vulnerability classes, and attack methods.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.listSkillsAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_dicts",
 		Description: "List all available password wordlists and bruteforce dictionaries. Browse dictionary categories without a search query. Supports pagination. Use to discover available wordlists for password cracking, fuzzing, and enumeration.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.listDictsAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_payloads",
 		Description: "List all available attack payloads and exploit strings. Browse payload categories without a search query. Supports pagination. Use to discover available payloads for XSS, SQL injection, SSRF, and other attack vectors.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.listPayloadsAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_tools",
 		Description: "List all available security tool configurations and references. Browse tool categories without a search query. Supports pagination. Use to discover available security tools like nmap, sqlmap, burp suite, and metasploit.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.listToolsAdapter))
 
 	// Get tools
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_skill",
 		Description: "Get detailed penetration testing skill content by name. Returns full exploit technique documentation including description, body, and optional references. Use after search_skill or list_skills to retrieve complete skill details. Set depth=full to include reference files.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.getSkillAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_tool",
 		Description: "Get detailed security tool configuration and documentation by name. Returns tool description, binary name, homepage, and full YAML config. Use after search_tools or list_tools to retrieve complete tool details including usage examples.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.getToolAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_dict",
 		Description: "Read password dictionary or wordlist file content with line-level pagination. Returns file lines with total line count. Use after search_dicts or list_dicts to read actual dictionary content. Supports offset and limit for large files.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.getDictAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_payload",
 		Description: "Read attack payload file content with line-level pagination. Returns payload strings with total line count. Use after search_payload or list_payloads to read actual payload content. Supports offset and limit for large files.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.getPayloadAdapter))
 
 	// Vuln tools
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_vuln",
 		Description: "Search vulnerability database by keyword. Supports severity (CRITICAL/HIGH/MEDIUM/LOW) and product filters. Use this for specific CVE/CNVD lookups or product-targeted vulnerability discovery. Returns paginated results with severity, product, vendor, and category.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.searchVulnAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_vulns",
 		Description: "List vulnerabilities with pagination (default 50). Supports category (ai/cloud/middleware/network/web), severity, and product filters. Returns summary only — use get_vuln for full details and PoC.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.listVulnsAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_vuln",
 		Description: "Get vulnerability detail by name (CVE/CNVD ID). depth=\"brief\" (default) returns structured fields and description. depth=\"full\" returns complete content including PoC and remediation.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.getVulnAdapter))
 }
