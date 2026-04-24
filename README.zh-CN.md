@@ -1,5 +1,7 @@
 [English](README.md) | 中文文档
 
+![context1337 — Pentest knowledge base for AI agents](docs/images/banner.jpg)
+
 # context1337 — AboutSecurity MCP 服务
 
 独立的 MCP 资源服务，将 [AboutSecurity](https://github.com/wgpsec/AboutSecurity) 从文件仓库转变为可消费的 API。类似 context7，但专为安全领域打造。

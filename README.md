@@ -1,5 +1,7 @@
 [中文文档](README.zh-CN.md) | English
 
+![context1337 — Pentest knowledge base for AI agents](docs/images/banner.jpg)
+
 # context1337 — AboutSecurity MCP Server
 
 Standalone MCP resource service that turns [AboutSecurity](https://github.com/wgpsec/AboutSecurity) from a file repo into a consumable API. Like context7, but for security.
