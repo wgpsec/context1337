@@ -35,10 +35,23 @@ func NewService(db *sql.DB, dataDir string) *Service {
 // The mode parameter controls which tools are registered.
 func NewMCPServer(db *sql.DB, dataDir string, mode ToolMode) http.Handler {
 	svc := NewService(db, dataDir)
+
+	instructions := `Penetration testing and offensive security knowledge base.
+Use when: exploit techniques, post-exploitation tactics, cloud security assessment, password/bruteforce wordlists, attack payloads, security tool configs, vulnerability PoCs.
+Do not use for: general programming, defensive security configuration, compliance/audit checklists, or non-security topics.
+Resources: skills (attack methodologies), dicts (wordlists), payloads (attack payloads), tools (security tool configs), vulns (CVE-specific PoCs).`
+
+	switch mode {
+	case ToolModeFull:
+		instructions += "\nWorkflow: use search_* or list_* to find resources, then get_* for details."
+	default:
+		instructions += "\nWorkflow: search_security to find resources → get_security_detail for skills/tools/vulns → read_security_file for dicts/payloads."
+	}
+
 	server := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
 		Version: "0.5.0",
-	}, nil)
+	}, &gomcp.ServerOptions{Instructions: instructions})
 
 	switch mode {
 	case ToolModeFull:
@@ -57,16 +70,19 @@ func registerLiteTools(server *gomcp.Server, svc *Service) {
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_security",
 		Description: "Search the AboutSecurity penetration testing knowledge base. Covers: exploit techniques (SQL injection, XSS, SSRF, RCE...), password/bruteforce wordlists, attack payloads, and security tool configs (nmap, sqlmap, dirsearch...). To search vulnerabilities, you MUST specify type=\"vuln\" explicitly — vulnerabilities are excluded from default search to avoid polluting technique-oriented results. Vuln search supports additional filters: severity (CRITICAL/HIGH/MEDIUM/LOW) and product. Params: query (optional keyword — omit to list all), type (optional: skill|dict|payload|tool|vuln — omit to search all non-vuln types), category (optional), difficulty (optional, skill only), severity (optional, vuln only), product (optional, vuln only), offset (default 0), limit (default 20, vuln default 50). Returns paginated results with type, name, description, category.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.Search))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_security_detail",
 		Description: "Get detailed penetration testing knowledge for a skill, tool, or vulnerability by name. ALWAYS use this tool instead of reading files directly — it handles pagination automatically. Params: name (from search results), type (skill|tool|vuln), depth (optional — skill: metadata|summary|full, default summary; vuln: brief|full, default brief). For skills with many references, depth=full returns paginated references: use ref_offset (default 0) and ref_limit (default 3) to page through them. The response includes ref_total showing the total number of references available. Start with depth=summary to get the skill body, then use depth=full with ref_offset/ref_limit to fetch specific references as needed. Returns full content including body (skill), config YAML (tool), or vulnerability details with severity/product/PoC (vuln).",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.Get))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "read_security_file",
 		Description: "Read security dictionary (wordlists/passwords) or attack payload file content with line-level pagination. Use after search_security to read file data. Params: path (from search results, e.g. Auth/password/Top100.txt), type (dict|payload), offset (default 0 lines), limit (default 200 lines). Returns file content with total_lines count.",
+		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.GetFile))
 }
 
@@ -92,7 +108,7 @@ func wrapHandler[In any, Out any](fn func(context.Context, In) (Out, error)) gom
 
 		if len(data) > maxResponseBytes {
 			return nil, nil, fmt.Errorf(
-				"response too large (%dKB > %dKB limit); use depth=summary, reduce ref_limit, or paginate",
+				"response too large (%dKB > %dKB limit); retry with depth=summary to get the body without references, then use depth=full with ref_offset/ref_limit to page through references one at a time",
 				len(data)/1024, maxResponseBytes/1024,
 			)
 		}
