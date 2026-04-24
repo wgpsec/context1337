@@ -391,3 +391,58 @@ func TestGet_Vuln_Full(t *testing.T) {
 		t.Errorf("Fingerprint = %q", res.Fingerprint)
 	}
 }
+
+func TestTrimByRelevance(t *testing.T) {
+	mk := func(score float64) search.SearchResult {
+		return search.SearchResult{Score: score}
+	}
+
+	tests := []struct {
+		name   string
+		input  []search.SearchResult
+		wantN  int
+	}{
+		{"empty", nil, 0},
+		{"single", []search.SearchResult{mk(-10)}, 1},
+		{"all relevant", []search.SearchResult{mk(-10), mk(-8), mk(-5)}, 3},
+		{
+			"trim tail",
+			[]search.SearchResult{mk(-20), mk(-10), mk(-5), mk(-1), mk(-0.5)},
+			3, // -1 is 5% of -20, below 20% cutoff
+		},
+		{
+			"only best survives",
+			[]search.SearchResult{mk(-50), mk(-2), mk(-1)},
+			1, // -2 is 4% of -50
+		},
+		{"non-negative guard", []search.SearchResult{mk(0), mk(-1)}, 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := trimByRelevance(tt.input)
+			if len(got) != tt.wantN {
+				scores := make([]float64, len(got))
+				for i, r := range got {
+					scores[i] = r.Score
+				}
+				t.Errorf("trimByRelevance() kept %d items (want %d), scores=%v", len(got), tt.wantN, scores)
+			}
+		})
+	}
+}
+
+func TestSearch_RelevanceCutoff_AdjustsTotal(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	// "SQL" matches sql-injection strongly (name+description+body) but
+	// xss-payloads only weakly (body mentions "SQL" once).
+	// The cutoff should trim weak matches and adjust total accordingly.
+	res, err := svc.Search(context.Background(), SearchInput{Query: "sql", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Total should equal len(Items) when cutoff trims within a single page
+	if res.Total != len(res.Items) {
+		t.Errorf("Total=%d but len(Items)=%d; cutoff should align total with trimmed results", res.Total, len(res.Items))
+	}
+}

@@ -70,6 +70,32 @@ func splitSkillBody(content string) (string, string, error) {
 	return strings.TrimSpace(rest[:idx]), rest[idx+4:], nil
 }
 
+// relevanceCutoff is the minimum fraction of the best BM25 score a result
+// must reach to be included. FTS5 bm25() returns negative values (more
+// negative = more relevant). 0.2 means keep results at least 20% as strong
+// as the best hit, trimming the long tail of barely-matching documents.
+const relevanceCutoff = 0.2
+
+// trimByRelevance drops results whose BM25 score falls below relevanceCutoff
+// of the best (first) result. Results must be pre-sorted by score ascending
+// (most negative first), which is the FTS5 bm25() default order.
+func trimByRelevance(results []search.SearchResult) []search.SearchResult {
+	if len(results) <= 1 {
+		return results
+	}
+	best := results[0].Score
+	if best >= 0 {
+		return results // guard: unexpected non-negative scores
+	}
+	threshold := best * relevanceCutoff
+	for i := 1; i < len(results); i++ {
+		if results[i].Score > threshold { // closer to 0 = less relevant
+			return results[:i]
+		}
+	}
+	return results
+}
+
 // --- search ---
 
 type SearchInput struct {
@@ -151,9 +177,15 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 		if err != nil {
 			return nil, err
 		}
+		results = trimByRelevance(results)
 		items := make([]ResourceSummary, len(results))
 		for i, r := range results {
 			items[i] = resourceToSummary(r.Resource)
+		}
+		// If cutoff reduced this page, cap total so the caller does not
+		// paginate into low-relevance results.
+		if len(results) < in.Limit {
+			total = in.Offset + len(results)
 		}
 		out := &SearchResult{Total: total, Offset: in.Offset, Limit: in.Limit, Items: items}
 		if total == 0 {
