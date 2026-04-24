@@ -65,24 +65,6 @@ func TestSearchPayloadAdapter(t *testing.T) {
 	}
 }
 
-func TestSearchToolsAdapter(t *testing.T) {
-	svc := setupUnifiedTest(t)
-	ctx := context.Background()
-
-	result, err := svc.searchToolsAdapter(ctx, SearchToolsInput{Query: "nmap"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Items) == 0 {
-		t.Fatal("expected at least one result")
-	}
-	for _, item := range result.Items {
-		if item.Type != "tool" {
-			t.Errorf("item %q has type %q, want tool", item.Name, item.Type)
-		}
-	}
-}
-
 // ---------------------------------------------------------------------------
 // List adapter tests
 // ---------------------------------------------------------------------------
@@ -141,24 +123,6 @@ func TestListPayloadsAdapter(t *testing.T) {
 	}
 }
 
-func TestListToolsAdapter(t *testing.T) {
-	svc := setupUnifiedTest(t)
-	ctx := context.Background()
-
-	result, err := svc.listToolsAdapter(ctx, ListToolsInput{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Total != 1 {
-		t.Errorf("total = %d, want 1", result.Total)
-	}
-	for _, item := range result.Items {
-		if item.Type != "tool" {
-			t.Errorf("item %q has type %q, want tool", item.Name, item.Type)
-		}
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Get adapter tests
 // ---------------------------------------------------------------------------
@@ -202,33 +166,6 @@ func TestGetSkillAdapter_DepthFull(t *testing.T) {
 	}
 	if result.Body == "" {
 		t.Error("expected non-empty body at full depth")
-	}
-}
-
-func TestGetToolAdapter(t *testing.T) {
-	svc := setupUnifiedTest(t)
-	ctx := context.Background()
-
-	// Create on-disk YAML file for the tool
-	toolDir := filepath.Join(svc.DataDir, "Tools")
-	if err := os.MkdirAll(toolDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	toolPath := filepath.Join(toolDir, "nmap.yaml")
-	if err := os.WriteFile(toolPath, []byte("id: nmap\nbinary: nmap\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	svc.DB.Exec("UPDATE resources SET file_path=? WHERE name='nmap'", toolPath)
-
-	result, err := svc.getToolAdapter(ctx, GetToolInput{Name: "nmap"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Type != "tool" {
-		t.Errorf("type = %q, want tool", result.Type)
-	}
-	if result.Config == "" {
-		t.Error("expected non-empty config")
 	}
 }
 

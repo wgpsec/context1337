@@ -43,12 +43,6 @@ func setupUnifiedTest(t *testing.T) *Service {
 		Type: "payload", Name: "XSS/events.txt", Source: "builtin",
 		Category: "xss", Description: "XSS event handler payloads",
 	})
-	search.InsertResource(db, search.Resource{
-		Type: "tool", Name: "nmap", Source: "builtin",
-		Category: "scan", Description: "Port scanner",
-		Metadata: `{"binary":"nmap","homepage":"https://nmap.org"}`,
-	})
-
 	// Insert a vuln resource
 	db.Exec(`INSERT INTO resources (type,name,source,file_path,category,tags,description,body,metadata)
 		VALUES ('vuln','CVE-2021-44228','builtin','test/vuln.md','middleware','rce,jndi',
@@ -79,13 +73,13 @@ func TestSearch_Keyword(t *testing.T) {
 func TestSearch_TypeFilter(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	ctx := context.Background()
-	result, err := svc.Search(ctx, SearchInput{Query: "port", Type: "tool", Limit: 10})
+	result, err := svc.Search(ctx, SearchInput{Query: "SQL", Type: "skill", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, item := range result.Items {
-		if item.Type != "tool" {
-			t.Errorf("item %q has type %q, want tool", item.Name, item.Type)
+		if item.Type != "skill" {
+			t.Errorf("item %q has type %q, want skill", item.Name, item.Type)
 		}
 	}
 }
@@ -97,8 +91,8 @@ func TestSearch_EmptyQuery_ListAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Total < 5 {
-		t.Errorf("total = %d, want >= 5 (all resource types)", result.Total)
+	if result.Total < 4 {
+		t.Errorf("total = %d, want >= 4 (all non-vuln resource types)", result.Total)
 	}
 }
 
@@ -130,33 +124,6 @@ func TestSearch_CategoryFilter(t *testing.T) {
 		if item.Category != "exploit" {
 			t.Errorf("item %q has category %q, want exploit", item.Name, item.Category)
 		}
-	}
-}
-
-func TestSearch_ToolMetadata(t *testing.T) {
-	svc := setupUnifiedTest(t)
-	ctx := context.Background()
-	result, err := svc.Search(ctx, SearchInput{Query: "nmap", Limit: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Items) == 0 {
-		t.Fatal("expected nmap result")
-	}
-	found := false
-	for _, item := range result.Items {
-		if item.Name == "nmap" {
-			found = true
-			if item.Binary != "nmap" {
-				t.Errorf("binary = %q, want nmap", item.Binary)
-			}
-			if item.Homepage != "https://nmap.org" {
-				t.Errorf("homepage = %q", item.Homepage)
-			}
-		}
-	}
-	if !found {
-		t.Error("nmap not in results")
 	}
 }
 
@@ -211,29 +178,6 @@ func TestGet_Skill_Full_WithReferences(t *testing.T) {
 	}
 }
 
-func TestGet_Tool(t *testing.T) {
-	svc := setupUnifiedTest(t)
-	ctx := context.Background()
-
-	toolDir := filepath.Join(svc.DataDir, "Tools")
-	os.MkdirAll(toolDir, 0o755)
-	toolPath := filepath.Join(toolDir, "nmap.yaml")
-	os.WriteFile(toolPath, []byte("id: nmap\nbinary: nmap\n"), 0o644)
-
-	svc.DB.Exec("UPDATE resources SET file_path=? WHERE name='nmap'", toolPath)
-
-	result, err := svc.Get(ctx, GetInput{Name: "nmap", Type: "tool"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Config == "" {
-		t.Error("expected config content")
-	}
-	if result.Homepage != "https://nmap.org" {
-		t.Errorf("homepage = %q", result.Homepage)
-	}
-}
-
 func TestGet_NotFound(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	ctx := context.Background()
@@ -262,7 +206,7 @@ func TestGet_NotFound_ActionableError(t *testing.T) {
 func TestSearch_ZeroResults_HintWithType(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	ctx := context.Background()
-	result, err := svc.Search(ctx, SearchInput{Query: "nonexistent-xyz-999", Type: "tool", Limit: 10})
+	result, err := svc.Search(ctx, SearchInput{Query: "nonexistent-xyz-999", Type: "skill", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,6 +254,15 @@ func TestGet_InvalidType(t *testing.T) {
 	_, err := svc.Get(ctx, GetInput{Name: "test", Type: "dict"})
 	if err == nil {
 		t.Fatal("expected error for dict type")
+	}
+}
+
+func TestGet_InvalidType_Tool(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	_, err := svc.Get(ctx, GetInput{Name: "test", Type: "tool"})
+	if err == nil {
+		t.Fatal("expected error for tool type")
 	}
 }
 

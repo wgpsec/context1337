@@ -25,15 +25,6 @@ type SkillReference struct {
 	Content string `json:"content"`
 }
 
-func extractToolMeta(metadata string) (binary, homepage string) {
-	if metadata == "" {
-		return
-	}
-	var meta map[string]string
-	json.Unmarshal([]byte(metadata), &meta)
-	return meta["binary"], meta["homepage"]
-}
-
 func extractVulnMeta(metadata string) (severity, product, vendor, versionAffected, fingerprint string) {
 	if metadata == "" {
 		return
@@ -83,7 +74,7 @@ func splitSkillBody(content string) (string, string, error) {
 
 type SearchInput struct {
 	Query      string `json:"query,omitempty"      jsonschema:"Search keywords (omit to list all)"`
-	Type       string `json:"type,omitempty"       jsonschema:"Filter by type: skill|dict|payload|tool|vuln (omit to search all non-vuln types)"`
+	Type       string `json:"type,omitempty"       jsonschema:"Filter by type: skill|dict|payload|vuln (omit to search all non-vuln types)"`
 	Category   string `json:"category,omitempty"   jsonschema:"Filter by category"`
 	Difficulty string `json:"difficulty,omitempty" jsonschema:"Filter by difficulty (skill only): easy|medium|hard"`
 	Severity   string `json:"severity,omitempty"   jsonschema:"Filter by severity (vuln only): CRITICAL|HIGH|MEDIUM|LOW"`
@@ -100,8 +91,6 @@ type ResourceSummary struct {
 	Source      string `json:"source"`
 	Tags        string `json:"tags,omitempty"`
 	Difficulty  string `json:"difficulty,omitempty"`
-	Binary      string `json:"binary,omitempty"`
-	Homepage    string `json:"homepage,omitempty"`
 	Severity    string `json:"severity,omitempty"`
 	Product     string `json:"product,omitempty"`
 	Vendor      string `json:"vendor,omitempty"`
@@ -123,9 +112,6 @@ func resourceToSummary(r search.Resource) ResourceSummary {
 		Name: r.Name, Type: r.Type, Description: r.Description,
 		Category: r.Category, Source: r.Source,
 		Tags: r.Tags, Difficulty: r.Difficulty,
-	}
-	if r.Type == "tool" {
-		s.Binary, s.Homepage = extractToolMeta(r.Metadata)
 	}
 	if r.Type == "vuln" {
 		s.Severity, s.Product, s.Vendor, _, _ = extractVulnMeta(r.Metadata)
@@ -196,7 +182,7 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 
 type GetInput struct {
 	Name      string `json:"name"               jsonschema:"Resource name (from search results)"`
-	Type      string `json:"type"               jsonschema:"Resource type: skill|tool|vuln"`
+	Type      string `json:"type"               jsonschema:"Resource type: skill|vuln"`
 	Depth     string `json:"depth,omitempty"     jsonschema:"Loading depth. Skill: metadata|summary|full (default summary). Vuln: brief|full (default brief). full includes references (skill) or PoC (vuln)."`
 	RefOffset int    `json:"ref_offset,omitempty" jsonschema:"Reference pagination offset (default 0, skill depth=full only)"`
 	RefLimit  int    `json:"ref_limit,omitempty"  jsonschema:"Max references to include (default 3, skill depth=full only)"`
@@ -213,9 +199,6 @@ type GetResult struct {
 	Body            string           `json:"body,omitempty"`
 	References      []SkillReference `json:"references,omitempty"`
 	RefTotal        int              `json:"ref_total,omitempty"`
-	Binary          string           `json:"binary,omitempty"`
-	Homepage        string           `json:"homepage,omitempty"`
-	Config          string           `json:"config,omitempty"`
 	Severity        string           `json:"severity,omitempty"`
 	Product         string           `json:"product,omitempty"`
 	Vendor          string           `json:"vendor,omitempty"`
@@ -224,8 +207,8 @@ type GetResult struct {
 }
 
 func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
-	if in.Type != "skill" && in.Type != "tool" && in.Type != "vuln" {
-		return nil, fmt.Errorf("type must be skill, tool, or vuln (use read_security_file for dict/payload)")
+	if in.Type != "skill" && in.Type != "vuln" {
+		return nil, fmt.Errorf("type must be skill or vuln (use read_security_file for dict/payload)")
 	}
 
 	r, err := search.GetByName(s.DB, in.Type, in.Name)
@@ -302,24 +285,6 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 				}
 			}
 		}
-	case "tool":
-		binary, homepage := extractToolMeta(r.Metadata)
-		result.Binary = binary
-		result.Homepage = homepage
-
-		readPath := r.FilePath
-		if _, statErr := os.Stat(readPath); statErr != nil {
-			clean := filepath.Clean(r.Name + ".yaml")
-			if strings.Contains(clean, "..") {
-				return nil, fmt.Errorf("invalid tool path")
-			}
-			readPath = filepath.Join(s.DataDir, "Tools", clean)
-		}
-		config, readErr := os.ReadFile(readPath)
-		if readErr != nil {
-			return nil, fmt.Errorf("read tool config: %w", readErr)
-		}
-		result.Config = string(config)
 	case "vuln":
 		if in.Depth == "" {
 			in.Depth = "brief"
