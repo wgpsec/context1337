@@ -43,6 +43,19 @@ func TestHealthEndpoint(t *testing.T) {
 	if body["status"] != "ok" {
 		t.Errorf("status = %v, want ok", body["status"])
 	}
+	// setupTestRouter inserts 1 skill
+	if body["total_resources"] != float64(1) {
+		t.Errorf("total_resources = %v, want 1", body["total_resources"])
+	}
+	if body["skills"] != float64(1) {
+		t.Errorf("skills = %v, want 1", body["skills"])
+	}
+	// types with 0 resources should be absent
+	for _, key := range []string{"vulns", "dicts", "payloads"} {
+		if _, ok := body[key]; ok {
+			t.Errorf("unexpected key %q in response (no resources of that type)", key)
+		}
+	}
 }
 
 func TestStatsEndpoint(t *testing.T) {

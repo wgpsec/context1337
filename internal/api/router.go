@@ -25,9 +25,16 @@ func NewRouter(db *sql.DB, dataDir, apiKey string, mcpHandler http.Handler) http
 }
 
 func handleHealth(db *sql.DB) http.HandlerFunc {
+	// type → JSON field name
+	typeKey := map[string]string{
+		"skill":   "skills",
+		"vuln":    "vulns",
+		"dict":    "dicts",
+		"payload": "payloads",
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		var count int
-		err := db.QueryRow("SELECT count(*) FROM resources").Scan(&count)
+		rows, err := db.Query("SELECT type, count(*) FROM resources GROUP BY type")
 		w.Header().Set("Content-Type", "application/json")
 		if err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -36,10 +43,23 @@ func handleHealth(db *sql.DB) http.HandlerFunc {
 			})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":          "ok",
-			"total_resources": count,
-		})
+		defer rows.Close()
+
+		resp := map[string]interface{}{"status": "ok"}
+		total := 0
+		for rows.Next() {
+			var typ string
+			var cnt int
+			if err := rows.Scan(&typ, &cnt); err != nil {
+				continue
+			}
+			total += cnt
+			if key, ok := typeKey[typ]; ok {
+				resp[key] = cnt
+			}
+		}
+		resp["total_resources"] = total
+		json.NewEncoder(w).Encode(resp)
 	}
 }
 
