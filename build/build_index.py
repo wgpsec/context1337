@@ -344,41 +344,6 @@ def index_vulns(conn: sqlite3.Connection, base_dir: str):
     return count
 
 
-def index_tools(conn: sqlite3.Connection, base_dir: str):
-    """Index tool YAML files."""
-    tools_dir = os.path.join(base_dir, "Tools")
-    if not os.path.isdir(tools_dir):
-        return 0
-
-    count = 0
-    for root, dirs, files in os.walk(tools_dir):
-        for f in files:
-            if not f.endswith(".yaml"):
-                continue
-            path = os.path.join(root, f)
-            with open(path, "r") as fh:
-                tool = yaml.safe_load(fh)
-            if not tool:
-                continue
-
-            desc = tool.get("description", "")
-            cat = tool.get("category", "")
-            if not cat:
-                # Derive category from subdirectory name
-                rel = os.path.relpath(root, tools_dir)
-                if rel != ".":
-                    cat = rel.split(os.sep)[0]
-            meta = json.dumps({"binary": tool.get("binary", ""), "homepage": tool.get("homepage", "")})
-
-            conn.execute(
-                "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,description,body,metadata) VALUES (?,?,?,?,?,?,?,?)",
-                ("tool", tool.get("id", f), "builtin", path, cat,
-                 tokenize(desc), tokenize(f"{desc} {tool.get('name', '')}"), meta),
-            )
-            count += 1
-    return count
-
-
 def main():
     parser = argparse.ArgumentParser(description="Build AboutSecurity FTS5 index")
     parser.add_argument("--input", required=True, help="AboutSecurity data directory")
@@ -397,11 +362,10 @@ def main():
     skills = index_skills(conn, args.input)
     dicts = index_dicts(conn, args.input)
     payloads = index_payloads(conn, args.input)
-    tools = index_tools(conn, args.input)
     vulns = index_vulns(conn, args.input)
 
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('builtin_version', ?)",
-                 (f"v1-{skills}s-{dicts}d-{payloads}p-{tools}t-{vulns}v",))
+                 (f"v1-{skills}s-{dicts}d-{payloads}p-{vulns}v",))
 
     conn.execute("INSERT INTO resources_fts(resources_fts) VALUES('optimize')")
     conn.execute("PRAGMA journal_mode=DELETE")
@@ -409,7 +373,7 @@ def main():
     conn.commit()
     conn.close()
 
-    print(f"Built {args.output}: {skills} skills, {dicts} dicts, {payloads} payloads, {tools} tools, {vulns} vulns")
+    print(f"Built {args.output}: {skills} skills, {dicts} dicts, {payloads} payloads, {vulns} vulns")
 
 
 if __name__ == "__main__":
