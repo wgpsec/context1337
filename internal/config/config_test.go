@@ -14,8 +14,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Port != 8088 {
-		t.Errorf("Port = %d, want 8088", cfg.Port)
+	if cfg.Port != 1337 {
+		t.Errorf("Port = %d, want 1337", cfg.Port)
 	}
 	if cfg.DataDir != "./data" {
 		t.Errorf("DataDir = %q, want ./data", cfg.DataDir)

@@ -104,7 +104,7 @@ func serveCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().IntVar(&port, "port", 8088, "HTTP listen port")
+	cmd.Flags().IntVar(&port, "port", 1337, "HTTP listen port")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory")
 	cmd.Flags().BoolVar(&benchmark, "benchmark", false, "Enable MCP tool call logging")
 	cmd.Flags().StringVar(&benchmarkScenario, "benchmark-scenario", "default", "Scenario label for benchmark logs")

@@ -16,7 +16,7 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	port := 8088
+	port := 1337
 	if v := os.Getenv("ABOUTSECURITY_PORT"); v != "" {
 		p, err := strconv.Atoi(v)
 		if err != nil {

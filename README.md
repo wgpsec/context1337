@@ -33,7 +33,7 @@ make docker-ref ABOUTSECURITY_REF=dev
 ```
 
 ```bash
-docker run -p 8088:8088 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
+docker run -p 1337:1337 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
 ```
 
 ### Local Development (recommended for first-time users)
@@ -55,10 +55,10 @@ make run
 
 # Build & run (requires data/ populated with builtin.db or AboutSecurity content)
 make build
-./absec serve --port 8088 --data-dir ./data  # default: --tool-mode lite
+./absec serve --port 1337 --data-dir ./data  # default: --tool-mode lite
 ```
 
-The server will be available at `http://localhost:8088`.
+The server will be available at `http://localhost:1337`.
 
 ---
 
@@ -68,16 +68,16 @@ The server will be available at `http://localhost:8088`.
 
 ```bash
 # Add as user-level MCP server (available in all projects)
-claude mcp add aboutsecurity --transport http --scope user http://localhost:8088/mcp
+claude mcp add aboutsecurity --transport http --scope user http://localhost:1337/mcp
 
 # Or project-level only (run from within your project directory)
-claude mcp add aboutsecurity --transport http http://localhost:8088/mcp
+claude mcp add aboutsecurity --transport http http://localhost:1337/mcp
 ```
 
 If you set `ABOUTSECURITY_API_KEY` on the server, add the auth header:
 
 ```bash
-claude mcp add aboutsecurity --transport http --header "Authorization: Bearer your-api-key" --scope user http://localhost:8088/mcp
+claude mcp add aboutsecurity --transport http --header "Authorization: Bearer your-api-key" --scope user http://localhost:1337/mcp
 ```
 
 After adding, restart Claude Code and run `/mcp` to verify the connection shows `connected`.
@@ -90,7 +90,7 @@ Edit your Claude Desktop config file (`~/Library/Application Support/Claude/clau
 {
   "mcpServers": {
     "aboutsecurity": {
-      "url": "http://localhost:8088/mcp",
+      "url": "http://localhost:1337/mcp",
       "headers": {
         "Authorization": "Bearer your-api-key"
       }
@@ -105,7 +105,7 @@ Edit your Claude Desktop config file (`~/Library/Application Support/Claude/clau
 {
   "mcpServers": {
     "aboutsecurity": {
-      "serverUrl": "http://localhost:8088/mcp"
+      "serverUrl": "http://localhost:1337/mcp"
     }
   }
 }
@@ -190,7 +190,7 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ABOUTSECURITY_PORT` | `8088` | HTTP listen port |
+| `ABOUTSECURITY_PORT` | `1337` | HTTP listen port |
 | `ABOUTSECURITY_DATA_DIR` | `./data` | Data directory root |
 | `ABOUTSECURITY_API_KEY` | (empty=no auth) | API key for Bearer auth |
 | `ABOUTSECURITY_TOOL_MODE` | `lite` | Tool registration mode: `lite` (3 tools) or `full` (12 tools) |

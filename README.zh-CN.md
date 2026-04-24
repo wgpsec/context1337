@@ -33,7 +33,7 @@ make docker-ref ABOUTSECURITY_REF=dev
 ```
 
 ```bash
-docker run -p 8088:8088 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
+docker run -p 1337:1337 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
 ```
 
 ### 本地开发（推荐首次使用者）
@@ -55,10 +55,10 @@ make run
 
 # 手动构建和运行
 make build
-./absec serve --port 8088 --data-dir ./data  # 默认：--tool-mode lite
+./absec serve --port 1337 --data-dir ./data  # 默认：--tool-mode lite
 ```
 
-服务启动后访问 `http://localhost:8088`。
+服务启动后访问 `http://localhost:1337`。
 
 ---
 
@@ -68,10 +68,10 @@ make build
 
 ```bash
 # 添加为用户级 MCP 服务（所有项目可用）
-claude mcp add aboutsecurity --transport http --scope user http://localhost:8088/mcp
+claude mcp add aboutsecurity --transport http --scope user http://localhost:1337/mcp
 
 # 或仅项目级（在项目目录内运行）
-claude mcp add aboutsecurity --transport http http://localhost:8088/mcp
+claude mcp add aboutsecurity --transport http http://localhost:1337/mcp
 ```
 
 删除用 `claude mcp remove aboutsecurity -s user`
@@ -79,7 +79,7 @@ claude mcp add aboutsecurity --transport http http://localhost:8088/mcp
 如果服务端设置了 `ABOUTSECURITY_API_KEY`，需要添加认证头：
 
 ```bash
-claude mcp add aboutsecurity --transport http --header "Authorization: Bearer your-api-key" --scope user http://localhost:8088/mcp
+claude mcp add aboutsecurity --transport http --header "Authorization: Bearer your-api-key" --scope user http://localhost:1337/mcp
 ```
 
 添加后重启 Claude Code，运行 `/mcp` 确认连接状态为 `connected`。
@@ -92,7 +92,7 @@ claude mcp add aboutsecurity --transport http --header "Authorization: Bearer yo
 {
   "mcpServers": {
     "aboutsecurity": {
-      "url": "http://localhost:8088/mcp",
+      "url": "http://localhost:1337/mcp",
       "headers": {
         "Authorization": "Bearer your-api-key"
       }
@@ -107,7 +107,7 @@ claude mcp add aboutsecurity --transport http --header "Authorization: Bearer yo
 {
   "mcpServers": {
     "aboutsecurity": {
-      "serverUrl": "http://localhost:8088/mcp"
+      "serverUrl": "http://localhost:1337/mcp"
     }
   }
 }
@@ -195,7 +195,7 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `ABOUTSECURITY_PORT` | `8088` | HTTP 监听端口 |
+| `ABOUTSECURITY_PORT` | `1337` | HTTP 监听端口 |
 | `ABOUTSECURITY_DATA_DIR` | `./data` | 数据目录根路径 |
 | `ABOUTSECURITY_API_KEY` | （空=无认证） | Bearer 认证密钥 |
 | `ABOUTSECURITY_TOOL_MODE` | `lite` | 工具注册模式：`lite`（3 个工具）或 `full`（12 个工具） |
