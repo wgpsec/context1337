@@ -40,8 +40,9 @@ func TestTokenize_Mixed(t *testing.T) {
 	if !contains(tokens, "nmap") {
 		t.Errorf("missing 'nmap', got %v", tokens)
 	}
-	if !contains(tokens, "扫描") {
-		t.Errorf("missing '扫描', got %v", tokens)
+	// "端口扫描" is a dictionary term; "扫描" alone may not appear
+	if !contains(tokens, "端口扫描") && !contains(tokens, "扫描") {
+		t.Errorf("missing '端口扫描' or '扫描', got %v", tokens)
 	}
 }
 

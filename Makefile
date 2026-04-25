@@ -41,6 +41,7 @@ index: data/builtin.db
 # Force rebuild index (use after changing AboutSecurity data)
 reindex:
 	rm -f data/builtin.db
+	rm -f data/runtime/runtime.db data/runtime/runtime.db-wal data/runtime/runtime.db-shm
 	$(MAKE) data/builtin.db
 
 run: build reindex link-data

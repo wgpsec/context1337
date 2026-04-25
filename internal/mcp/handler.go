@@ -50,7 +50,7 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 
 	server := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
-		Version: "0.5.0",
+		Version: "0.6.0",
 	}, &gomcp.ServerOptions{Instructions: instructions})
 
 	switch mode {
@@ -69,7 +69,7 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 func registerLiteTools(server *gomcp.Server, svc *Service) {
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_security",
-		Description: "Search the AboutSecurity penetration testing knowledge base. Covers: exploit techniques (SQL injection, XSS, SSRF, RCE...), password/bruteforce wordlists, and attack payloads. To search vulnerabilities, you MUST specify type=\"vuln\" explicitly — vulnerabilities are excluded from default search to avoid polluting technique-oriented results. Vuln search supports additional filters: severity (CRITICAL/HIGH/MEDIUM/LOW) and product. Params: query (optional keyword — omit to list all), type (optional: skill|dict|payload|vuln — omit to search all non-vuln types), category (optional), difficulty (optional, skill only), severity (optional, vuln only), product (optional, vuln only), offset (default 0), limit (default 10, vuln default 50). Returns the top results ranked by relevance — increase limit only when you need broader coverage.",
+		Description: "Search the AboutSecurity penetration testing knowledge base. Covers: exploit techniques (SQL injection, XSS, SSRF, RCE...), password/bruteforce wordlists, and attack payloads. IMPORTANT: use space-separated keywords, NOT natural language sentences. Good: \"域控 持久化\", \"file upload webshell\", \"提权 linux\", \"应急响应\". Bad: \"拿到域管后怎么维持权限\". To search vulnerabilities, you MUST specify type=\"vuln\" explicitly — vulnerabilities are excluded from default search to avoid polluting technique-oriented results. Vuln search supports additional filters: severity (CRITICAL/HIGH/MEDIUM/LOW) and product. Params: query (optional keyword — omit to list all), type (optional: skill|dict|payload|vuln — omit to search all non-vuln types), category (optional), difficulty (optional, skill only), severity (optional, vuln only), product (optional, vuln only), offset (default 0), limit (default 10, vuln default 50). Returns the top results ranked by relevance — increase limit only when you need broader coverage.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.Search))
 
