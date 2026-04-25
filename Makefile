@@ -1,4 +1,4 @@
-.PHONY: build test test-integration run docker clean index link-data clean-benchmark
+.PHONY: build test test-integration run docker clean index reindex link-data clean-benchmark
 
 # Paths
 ABOUTSECURITY_DIR ?= ../AboutSecurity
@@ -38,7 +38,12 @@ link-data: | $(ABOUTSECURITY_DIR)
 # Alias for just building the index
 index: data/builtin.db
 
-run: build data/builtin.db link-data
+# Force rebuild index (use after changing AboutSecurity data)
+reindex:
+	rm -f data/builtin.db
+	$(MAKE) data/builtin.db
+
+run: build reindex link-data
 	./absec serve --port 1337 --data-dir ./data
 
 # Docker — default: clones AboutSecurity from GitHub
