@@ -11,6 +11,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: write   # required for GHA cache write (cache-to: type=gha)
 
     steps:
       - name: Checkout
@@ -42,3 +43,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: false   # disable SLSA attestation to keep a single manifest digest
+                              # without this, :latest resolves to an image index digest
+                              # which breaks the CronJob digest comparison
