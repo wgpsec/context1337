@@ -1,0 +1,69 @@
+# ── Deployment ────────────────────────────────────────────────────────────────
+# Namespace is injected by kustomization.yaml — do not hardcode it here.
+# imagePullPolicy: Always is required so that rollout-watcher's
+# "kubectl rollout restart" actually pulls the new image from ghcr.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: context1337
+  labels:
+    app: context1337
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: context1337
+  template:
+    metadata:
+      labels:
+        app: context1337
+    spec:
+      containers:
+        - name: context1337
+          image: ghcr.io/wgpsec/context1337:latest
+          imagePullPolicy: Always
+          args: ["serve", "--port", "1337", "--data-dir", "/app/data"]
+          ports:
+            - name: http
+              containerPort: 1337
+              protocol: TCP
+          volumeMounts:
+            - name: runtime-data
+              mountPath: /app/data/runtime
+            - name: team-data
+              mountPath: /app/data/team
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 1337
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 1337
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: runtime-data
+          emptyDir: {}   # replace with a PersistentVolumeClaim for persistent storage
+        - name: team-data
+          emptyDir: {}   # replace with a PersistentVolumeClaim for persistent storage
+---
+# ── Service ───────────────────────────────────────────────────────────────────
+# Namespace is injected by kustomization.yaml — do not hardcode it here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: context1337
+  labels:
+    app: context1337
+spec:
+  selector:
+    app: context1337
+  ports:
+    - name: http
+      port: 80
+      targetPort: 1337
+      protocol: TCP
+  type: ClusterIP
