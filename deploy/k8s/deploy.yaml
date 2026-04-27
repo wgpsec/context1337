@@ -1,0 +1,87 @@
+# ── ConfigMap: app configuration ─────────────────────────────────────────────
+# All runtime configuration for the absec server.
+# Namespace is injected by kustomization.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: context1337-config
+data:
+  ABOUTSECURITY_PORT: "1337"
+  ABOUTSECURITY_DATA_DIR: "/app/data"
+  ABOUTSECURITY_TOOL_MODE: "lite"   # "lite" (3 tools) or "full" (12 tools)
+  ABOUTSECURITY_API_KEY: ""         # set your MCP auth token here
+---
+# ── Deployment ────────────────────────────────────────────────────────────────
+# Namespace is injected by kustomization.yaml.
+# imagePullPolicy: Always is required so rollout-watcher can trigger
+# a real image pull on "kubectl rollout restart".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: context1337
+  labels:
+    app: context1337
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: context1337
+  template:
+    metadata:
+      labels:
+        app: context1337
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: context1337
+          image: ghcr.io/wgpsec/context1337:latest
+          imagePullPolicy: Always
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: 1337
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: context1337-config
+          volumeMounts:
+            - name: runtime-data
+              mountPath: /app/data/runtime
+            - name: team-data
+              mountPath: /app/data/team
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 1337
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 1337
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: runtime-data
+          emptyDir: {}   # replace with a PersistentVolumeClaim for persistent storage
+        - name: team-data
+          emptyDir: {}   # replace with a PersistentVolumeClaim for persistent storage
+---
+# ── Service ───────────────────────────────────────────────────────────────────
+# Namespace is injected by kustomization.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: context1337
+  labels:
+    app: context1337
+spec:
+  selector:
+    app: context1337
+  ports:
+    - name: http
+      port: 80
+      targetPort: 1337
+      protocol: TCP
+  type: ClusterIP

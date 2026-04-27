@@ -1,0 +1,182 @@
+# ── ServiceAccount ────────────────────────────────────────────────────────────
+# Namespace is injected by kustomization.yaml — do not hardcode it here.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rollout-watcher
+---
+# ── ClusterRole ───────────────────────────────────────────────────────────────
+# ClusterRole is cluster-scoped — no namespace field.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rollout-watcher
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+---
+# ── ClusterRoleBinding ────────────────────────────────────────────────────────
+# ClusterRoleBinding is cluster-scoped — no namespace field.
+# Kustomize will automatically patch subjects[0].namespace to match
+# the namespace set in kustomization.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rollout-watcher
+subjects:
+  - kind: ServiceAccount
+    name: rollout-watcher
+    namespace: default   # Kustomize patches this automatically
+roleRef:
+  kind: ClusterRole
+  name: rollout-watcher
+  apiGroup: rbac.authorization.k8s.io
+---
+# ── ConfigMap: digest-check script ───────────────────────────────────────────
+# Namespace is injected by kustomization.yaml — do not hardcode it here.
+# Env vars required (injected by CronJob below):
+#   GHCR_OWNER   - ghcr.io owner/org (lowercase), e.g. "wgpsec"
+#   GHCR_TOKEN   - GitHub PAT with read:packages scope (from Secret)
+#   GHCR_IMAGE   - image name, default "context1337"
+#   DEPLOYMENT   - k8s deployment name, default "context1337"
+#   NAMESPACE    - target namespace (must match kustomization.yaml namespace)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rollout-watcher-script
+data:
+  check.sh: |
+    #!/bin/sh
+    set -e
+
+    NAMESPACE="${NAMESPACE:-default}"
+    DEPLOYMENT="${DEPLOYMENT:-context1337}"
+    OWNER="${GHCR_OWNER}"
+    IMAGE="${GHCR_IMAGE:-context1337}"
+
+    if [ -z "$OWNER" ]; then
+      echo "ERROR: GHCR_OWNER env var is required" >&2
+      exit 1
+    fi
+
+    # ── Step 1: Extract PAT from mounted dockerconfigjson ────────────────────
+    DOCKER_CONFIG_FILE="/var/secrets/ghcr/.dockerconfigjson"
+    if [ ! -f "$DOCKER_CONFIG_FILE" ]; then
+      echo "ERROR: $DOCKER_CONFIG_FILE not found" >&2
+      exit 1
+    fi
+    # .dockerconfigjson stores auth as base64("username:password") — extract password
+    AUTH_B64=$(grep -o '"auth":"[^"]*"' "$DOCKER_CONFIG_FILE" | head -1 | cut -d'"' -f4)
+    GHCR_TOKEN=$(echo "$AUTH_B64" | base64 -d | cut -d: -f2-)
+    if [ -z "$GHCR_TOKEN" ]; then
+      echo "ERROR: Failed to extract token from dockerconfigjson" >&2
+      exit 1
+    fi
+
+    # ── Step 2: Authenticate to ghcr.io ─────────────────────────────────────
+    echo "Fetching ghcr.io auth token..."
+    AUTH_TOKEN=$(curl -sf \
+      -u ":${GHCR_TOKEN}" \
+      "https://ghcr.io/token?scope=repository:${OWNER}/${IMAGE}:pull&service=ghcr.io" \
+      | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+
+    if [ -z "$AUTH_TOKEN" ]; then
+      echo "ERROR: Failed to obtain ghcr auth token" >&2
+      exit 1
+    fi
+
+    # ── Step 2: Fetch remote digest for :latest ──────────────────────────────
+    echo "Fetching remote manifest digest..."
+    REMOTE_DIGEST=$(curl -sfI \
+      -H "Authorization: Bearer ${AUTH_TOKEN}" \
+      -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+      "https://ghcr.io/v2/${OWNER}/${IMAGE}/manifests/latest" \
+      | grep -i "docker-content-digest" | awk '{print $2}' | tr -d '\r')
+
+    if [ -z "$REMOTE_DIGEST" ]; then
+      echo "ERROR: Failed to retrieve remote digest" >&2
+      exit 1
+    fi
+
+    REMOTE_HASH=$(echo "$REMOTE_DIGEST" | grep -o 'sha256:[a-f0-9]*')
+    echo "Remote digest: ${REMOTE_HASH}"
+
+    # ── Step 3: Get local digest from Deployment spec ────────────────────────
+    echo "Fetching local deployment image..."
+    CURRENT_IMAGE=$(kubectl get deployment "${DEPLOYMENT}" \
+      -n "${NAMESPACE}" \
+      -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+
+    if echo "$CURRENT_IMAGE" | grep -q "@sha256:"; then
+      LOCAL_HASH=$(echo "$CURRENT_IMAGE" | grep -o 'sha256:[a-f0-9]*')
+    else
+      LOCAL_HASH=$(kubectl get pod \
+        -n "${NAMESPACE}" \
+        -l "app=${DEPLOYMENT}" \
+        -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' 2>/dev/null \
+        | grep -o 'sha256:[a-f0-9]*' || echo "")
+    fi
+
+    echo "Local  digest: ${LOCAL_HASH:-<none>}"
+
+    # ── Step 4: Compare and act ───────────────────────────────────────────────
+    if [ -z "$LOCAL_HASH" ] || [ "$REMOTE_HASH" != "$LOCAL_HASH" ]; then
+      echo "Digest changed or no running pods — triggering rollout restart..."
+      kubectl rollout restart deployment/"${DEPLOYMENT}" -n "${NAMESPACE}"
+      echo "Rollout triggered successfully."
+    else
+      echo "Digest unchanged — no action needed."
+    fi
+---
+# ── CronJob ───────────────────────────────────────────────────────────────────
+# Namespace is injected by kustomization.yaml — do not hardcode it here.
+# Prereq: create the ghcr readonly token secret before applying:
+#   kubectl create secret generic ghcr-readonly-token \
+#     --from-literal=token=<GITHUB_PAT_read:packages> \
+#     -n <your-namespace>
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rollout-watcher
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: rollout-watcher
+          restartPolicy: OnFailure
+          containers:
+            - name: watcher
+              image: bitnami/kubectl:latest
+              imagePullPolicy: Always
+              command: ["/bin/sh", "/scripts/check.sh"]
+              env:
+                - name: NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace  # auto-resolves to pod's namespace
+                - name: DEPLOYMENT
+                  value: "context1337"
+                - name: GHCR_OWNER
+                  value: "wgpsec"   # change to your ghcr owner (lowercase)
+                - name: GHCR_IMAGE
+                  value: "context1337"
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                - name: ghcr-secret
+                  mountPath: /var/secrets/ghcr
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: rollout-watcher-script
+                defaultMode: 0755
+            - name: ghcr-secret
+              secret:
+                secretName: ghcr-secret

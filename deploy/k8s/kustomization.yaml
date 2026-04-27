@@ -1,0 +1,9 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SET YOUR NAMESPACE HERE — this is the only place you need to change it.
+# Kustomize will inject this namespace into all resources automatically.
+# ─────────────────────────────────────────────────────────────────────────────
+namespace: context1337
+
+resources:
+  - deploy.yaml
+  - rollout-watcher/cronjob-watcher.yaml
