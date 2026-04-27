@@ -18,6 +18,8 @@ spec:
       labels:
         app: context1337
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: context1337
           image: ghcr.io/wgpsec/context1337:latest
