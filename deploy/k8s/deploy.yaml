@@ -8,8 +8,8 @@ metadata:
 data:
   ABOUTSECURITY_PORT: "1337"
   ABOUTSECURITY_DATA_DIR: "/app/data"
-  ABOUTSECURITY_TOOL_MODE: "lite"   # "lite" (3 tools) or "full" (12 tools)
-  ABOUTSECURITY_API_KEY: ""         # set your MCP auth token here
+  ABOUTSECURITY_TOOL_MODE: "lite" # "lite" (3 tools) or "full" (12 tools)
+  ABOUTSECURITY_API_KEY: "" # set your MCP auth token here
 ---
 # ── Deployment ────────────────────────────────────────────────────────────────
 # Namespace is injected by kustomization.yaml.
@@ -50,23 +50,11 @@ spec:
               mountPath: /app/data/runtime
             - name: team-data
               mountPath: /app/data/team
-          readinessProbe:
-            httpGet:
-              path: /api/health
-              port: 1337
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /api/health
-              port: 1337
-            initialDelaySeconds: 15
-            periodSeconds: 30
       volumes:
         - name: runtime-data
-          emptyDir: {}   # replace with a PersistentVolumeClaim for persistent storage
+          emptyDir: {} # replace with a PersistentVolumeClaim for persistent storage
         - name: team-data
-          emptyDir: {}   # replace with a PersistentVolumeClaim for persistent storage
+          emptyDir: {} # replace with a PersistentVolumeClaim for persistent storage
 ---
 # ── Service ───────────────────────────────────────────────────────────────────
 # Namespace is injected by kustomization.yaml.
