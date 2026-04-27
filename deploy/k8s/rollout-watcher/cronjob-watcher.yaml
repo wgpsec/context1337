@@ -60,7 +60,21 @@ data:
       exit 1
     fi
 
-    # ── Step 1: Authenticate to ghcr.io ─────────────────────────────────────
+    # ── Step 1: Extract PAT from mounted dockerconfigjson ────────────────────
+    DOCKER_CONFIG_FILE="/var/secrets/ghcr/.dockerconfigjson"
+    if [ ! -f "$DOCKER_CONFIG_FILE" ]; then
+      echo "ERROR: $DOCKER_CONFIG_FILE not found" >&2
+      exit 1
+    fi
+    # .dockerconfigjson stores auth as base64("username:password") — extract password
+    AUTH_B64=$(grep -o '"auth":"[^"]*"' "$DOCKER_CONFIG_FILE" | head -1 | cut -d'"' -f4)
+    GHCR_TOKEN=$(echo "$AUTH_B64" | base64 -d | cut -d: -f2-)
+    if [ -z "$GHCR_TOKEN" ]; then
+      echo "ERROR: Failed to extract token from dockerconfigjson" >&2
+      exit 1
+    fi
+
+    # ── Step 2: Authenticate to ghcr.io ─────────────────────────────────────
     echo "Fetching ghcr.io auth token..."
     AUTH_TOKEN=$(curl -sf \
       -u ":${GHCR_TOKEN}" \
@@ -152,16 +166,17 @@ spec:
                   value: "wgpsec"   # change to your ghcr owner (lowercase)
                 - name: GHCR_IMAGE
                   value: "context1337"
-                - name: GHCR_TOKEN
-                  valueFrom:
-                    secretKeyRef:
-                      name: ghcr-readonly-token
-                      key: token
               volumeMounts:
                 - name: script
                   mountPath: /scripts
+                - name: ghcr-secret
+                  mountPath: /var/secrets/ghcr
+                  readOnly: true
           volumes:
             - name: script
               configMap:
                 name: rollout-watcher-script
                 defaultMode: 0755
+            - name: ghcr-secret
+              secret:
+                secretName: ghcr-secret

@@ -19,7 +19,7 @@ spec:
         app: context1337
     spec:
       imagePullSecrets:
-        - name: ghcr-pull-secret
+        - name: ghcr-secret
       containers:
         - name: context1337
           image: ghcr.io/wgpsec/context1337:latest
