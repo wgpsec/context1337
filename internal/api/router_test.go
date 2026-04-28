@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wgpsec/context1337/internal/search"
@@ -66,5 +67,20 @@ func TestStatsEndpoint(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestLivenessEndpoint(t *testing.T) {
+	router := setupTestRouter(t)
+	req := httptest.NewRequest("GET", "/health", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+	body := strings.TrimSpace(rec.Body.String())
+	if body != "OK" {
+		t.Errorf("body = %q, want \"OK\"", body)
 	}
 }

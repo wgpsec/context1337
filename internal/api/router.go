@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -15,6 +16,12 @@ func NewRouter(db *sql.DB, dataDir, apiKey string, mcpHandler http.Handler) http
 	if mcpHandler != nil {
 		mux.Handle("/mcp", mcpHandler)
 	}
+
+	// Liveness probe — no auth required (exempted in AuthMiddleware)
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, "OK")
+	})
 
 	// REST API endpoints
 	mux.HandleFunc("GET /api/health", handleHealth(db))

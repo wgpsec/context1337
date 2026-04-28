@@ -108,6 +108,6 @@ func serveCmd() *cobra.Command {
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "Data directory")
 	cmd.Flags().BoolVar(&benchmark, "benchmark", false, "Enable MCP tool call logging")
 	cmd.Flags().StringVar(&benchmarkScenario, "benchmark-scenario", "default", "Scenario label for benchmark logs")
-	cmd.Flags().StringVar(&toolMode, "tool-mode", "lite", "Tool registration mode: lite (3 tools) or full (12 tools)")
+	cmd.Flags().StringVar(&toolMode, "tool-mode", "lite", "Default tool mode when X-Tool-Mode header is absent: lite (3 tools) or full (12 tools). Clients can override per-request via X-Tool-Mode header.")
 	return cmd
 }

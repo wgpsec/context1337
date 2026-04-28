@@ -17,6 +17,12 @@ func AuthMiddleware(apiKey string) func(http.Handler) http.Handler {
 				return
 			}
 
+			// /health is exempt — used as a liveness probe with no auth required.
+			if r.URL.Path == "/health" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// MCP endpoints: support both Bearer header and query param
 			if r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/") {
 				qk := r.URL.Query().Get("api_key")

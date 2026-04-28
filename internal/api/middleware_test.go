@@ -104,3 +104,28 @@ func TestAuthMiddleware_NonMCP_MissingHeader(t *testing.T) {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
 }
+
+func TestAuthMiddleware_Health_NoAuth(t *testing.T) {
+	handler := AuthMiddleware("test-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/health", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (/health must be exempt from auth)", rec.Code)
+	}
+}
+
+func TestAuthMiddleware_Health_WithBadToken_StillOK(t *testing.T) {
+	handler := AuthMiddleware("test-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/health", nil)
+	req.Header.Set("Authorization", "Bearer wrong-key")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (/health is exempt regardless of token)", rec.Code)
+	}
+}
