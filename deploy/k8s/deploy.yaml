@@ -1,16 +1,3 @@
-# ── ConfigMap: app configuration ─────────────────────────────────────────────
-# All runtime configuration for the absec server.
-# Namespace is injected by kustomization.yaml.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: context1337-config
-data:
-  ABOUTSECURITY_PORT: "1337"
-  ABOUTSECURITY_DATA_DIR: "/app/data"
-  ABOUTSECURITY_TOOL_MODE: "lite" # "lite" (3 tools) or "full" (12 tools)
-  ABOUTSECURITY_API_KEY: "" # set your MCP auth token here
----
 # ── Deployment ────────────────────────────────────────────────────────────────
 # Namespace is injected by kustomization.yaml.
 # imagePullPolicy: Always is required so rollout-watcher can trigger
@@ -50,6 +37,24 @@ spec:
               mountPath: /app/data/runtime
             - name: team-data
               mountPath: /app/data/team
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 1337
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 1337
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
       volumes:
         - name: runtime-data
           emptyDir: {} # replace with a PersistentVolumeClaim for persistent storage

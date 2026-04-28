@@ -5,31 +5,30 @@ kind: ServiceAccount
 metadata:
   name: rollout-watcher
 ---
-# ── ClusterRole ───────────────────────────────────────────────────────────────
-# ClusterRole is cluster-scoped — no namespace field.
+# ── Role ──────────────────────────────────────────────────────────────────────
+# Namespace-scoped role — only grants access within the same namespace.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: rollout-watcher
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
 ---
-# ── ClusterRoleBinding ────────────────────────────────────────────────────────
-# ClusterRoleBinding is cluster-scoped — no namespace field.
-# Kustomize will automatically patch subjects[0].namespace to match
-# the namespace set in kustomization.yaml.
+# ── RoleBinding ───────────────────────────────────────────────────────────────
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: rollout-watcher
 subjects:
   - kind: ServiceAccount
     name: rollout-watcher
-    namespace: default   # Kustomize patches this automatically
 roleRef:
-  kind: ClusterRole
+  kind: Role
   name: rollout-watcher
   apiGroup: rbac.authorization.k8s.io
 ---
@@ -66,18 +65,19 @@ data:
       echo "ERROR: $DOCKER_CONFIG_FILE not found" >&2
       exit 1
     fi
-    # .dockerconfigjson stores auth as base64("username:password") — extract password
+    # .dockerconfigjson stores auth as base64("username:password") — extract both
     AUTH_B64=$(grep -o '"auth":"[^"]*"' "$DOCKER_CONFIG_FILE" | head -1 | cut -d'"' -f4)
+    GHCR_USERNAME=$(echo "$AUTH_B64" | base64 -d | cut -d: -f1)
     GHCR_TOKEN=$(echo "$AUTH_B64" | base64 -d | cut -d: -f2-)
-    if [ -z "$GHCR_TOKEN" ]; then
-      echo "ERROR: Failed to extract token from dockerconfigjson" >&2
+    if [ -z "$GHCR_TOKEN" ] || [ -z "$GHCR_USERNAME" ]; then
+      echo "ERROR: Failed to extract credentials from dockerconfigjson" >&2
       exit 1
     fi
 
     # ── Step 2: Authenticate to ghcr.io ─────────────────────────────────────
     echo "Fetching ghcr.io auth token..."
     AUTH_TOKEN=$(curl -sf \
-      -u ":${GHCR_TOKEN}" \
+      -u "${GHCR_USERNAME}:${GHCR_TOKEN}" \
       "https://ghcr.io/token?scope=repository:${OWNER}/${IMAGE}:pull&service=ghcr.io" \
       | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
 
@@ -102,27 +102,26 @@ data:
     REMOTE_HASH=$(echo "$REMOTE_DIGEST" | grep -o 'sha256:[a-f0-9]*')
     echo "Remote digest: ${REMOTE_HASH}"
 
-    # ── Step 3: Get local digest from Deployment spec ────────────────────────
+    # ── Step 3: Get local digest from running pod's imageID ──────────────────
+    # Deployment image is always ":latest" tag — digest is only available from
+    # the running pod's containerStatuses.imageID after the image has been pulled.
     echo "Fetching local deployment image..."
-    CURRENT_IMAGE=$(kubectl get deployment "${DEPLOYMENT}" \
+    LOCAL_HASH=$(kubectl get pod \
       -n "${NAMESPACE}" \
-      -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
-
-    if echo "$CURRENT_IMAGE" | grep -q "@sha256:"; then
-      LOCAL_HASH=$(echo "$CURRENT_IMAGE" | grep -o 'sha256:[a-f0-9]*')
-    else
-      LOCAL_HASH=$(kubectl get pod \
-        -n "${NAMESPACE}" \
-        -l "app=${DEPLOYMENT}" \
-        -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' 2>/dev/null \
-        | grep -o 'sha256:[a-f0-9]*' || echo "")
-    fi
+      -l "app=${DEPLOYMENT}" \
+      -o jsonpath='{range .items[*]}{.status.containerStatuses[0].imageID}{"\n"}{end}' 2>/dev/null \
+      | grep -o 'sha256:[a-f0-9]*' | head -1 || echo "")
 
     echo "Local  digest: ${LOCAL_HASH:-<none>}"
 
     # ── Step 4: Compare and act ───────────────────────────────────────────────
-    if [ -z "$LOCAL_HASH" ] || [ "$REMOTE_HASH" != "$LOCAL_HASH" ]; then
-      echo "Digest changed or no running pods — triggering rollout restart..."
+    if [ -z "$LOCAL_HASH" ]; then
+      echo "Local digest unavailable (pod may be starting) — skipping restart."
+      exit 0
+    fi
+
+    if [ "$REMOTE_HASH" != "$LOCAL_HASH" ]; then
+      echo "Digest changed — triggering rollout restart..."
       kubectl rollout restart deployment/"${DEPLOYMENT}" -n "${NAMESPACE}"
       echo "Rollout triggered successfully."
     else

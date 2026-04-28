@@ -1,0 +1,12 @@
+# ── ConfigMap: app configuration ─────────────────────────────────────────────
+# All runtime configuration for the absec server.
+# Namespace is injected by kustomization.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: context1337-config
+data:
+  ABOUTSECURITY_PORT: "1337"
+  ABOUTSECURITY_DATA_DIR: "/app/data"
+  ABOUTSECURITY_TOOL_MODE: "lite" # "lite" (3 tools) or "full" (12 tools)
+  ABOUTSECURITY_API_KEY: "" # set your MCP auth token here
