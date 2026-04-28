@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -32,36 +33,43 @@ func NewService(db *sql.DB, dataDir string) *Service {
 }
 
 // NewMCPServer creates an MCP server and returns an HTTP handler.
-// The mode parameter controls which tools are registered.
+// The mode parameter is unused for per-request dispatch but kept for
+// compatibility with existing callers.
+// Clients select full or lite mode via the X-Tool-Mode request header:
+//   - "full"  → 12 per-type tools
+//   - anything else (or absent) → 3 core tools (default)
 func NewMCPServer(db *sql.DB, dataDir string, mode ToolMode) http.Handler {
+	if mode != ToolModeLite {
+		log.Printf("NewMCPServer: mode=%q is ignored; tool mode is now selected per-request via X-Tool-Mode header (default: lite)", mode)
+	}
 	svc := NewService(db, dataDir)
 
-	instructions := `Penetration testing and offensive security knowledge base.
+	baseInstructions := `Penetration testing and offensive security knowledge base.
 Use when: exploit techniques, post-exploitation tactics, cloud security assessment, password/bruteforce wordlists, attack payloads, vulnerability PoCs.
 Do not use for: general programming, defensive security configuration, compliance/audit checklists, or non-security topics.
 Resources: skills (attack methodologies), dicts (wordlists), payloads (attack payloads), vulns (CVE-specific PoCs).`
 
-	switch mode {
-	case ToolModeFull:
-		instructions += "\nWorkflow: use search_* or list_* to find resources, then get_* for details."
-	default:
-		instructions += "\nWorkflow: search_security to find resources → get_security_detail for skills/vulns → read_security_file for dicts/payloads."
-	}
-
-	server := gomcp.NewServer(&gomcp.Implementation{
+	liteServer := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
 		Version: "0.6.0",
-	}, &gomcp.ServerOptions{Instructions: instructions})
+	}, &gomcp.ServerOptions{
+		Instructions: baseInstructions + "\nWorkflow: search_security to find resources → get_security_detail for skills/vulns → read_security_file for dicts/payloads.",
+	})
+	registerLiteTools(liteServer, svc)
 
-	switch mode {
-	case ToolModeFull:
-		registerFullTools(server, svc)
-	default:
-		registerLiteTools(server, svc)
-	}
+	fullServer := gomcp.NewServer(&gomcp.Implementation{
+		Name:    "aboutsecurity",
+		Version: "0.6.0",
+	}, &gomcp.ServerOptions{
+		Instructions: baseInstructions + "\nWorkflow: use search_* or list_* to find resources, then get_* for details.",
+	})
+	registerFullTools(fullServer, svc)
 
-	return gomcp.NewStreamableHTTPHandler(func(_ *http.Request) *gomcp.Server {
-		return server
+	return gomcp.NewStreamableHTTPHandler(func(r *http.Request) *gomcp.Server {
+		if r.Header.Get("X-Tool-Mode") == "full" {
+			return fullServer
+		}
+		return liteServer
 	}, nil)
 }
 
