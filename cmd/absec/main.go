@@ -38,6 +38,8 @@ func serveCmd() *cobra.Command {
 	var benchmark bool
 	var benchmarkScenario string
 	var toolMode string
+	var nucleiDir string
+	var nucleiMinSeverity string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -68,6 +70,14 @@ func serveCmd() *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 
+			// Flag wins over env var for nuclei settings
+			if cmd.Flags().Changed("nuclei-dir") {
+				cfg.NucleiDir = nucleiDir
+			}
+			if cmd.Flags().Changed("nuclei-min-severity") {
+				cfg.NucleiMinSeverity = nucleiMinSeverity
+			}
+
 			// Benchmark logging
 			if benchmark {
 				logDir := filepath.Join(cfg.DataDir, "benchmark")
@@ -83,9 +93,11 @@ func serveCmd() *cobra.Command {
 			}
 
 			db, err := storage.InitRuntime(storage.LoaderConfig{
-				BuiltinDB: cfg.BuiltinDB,
-				RuntimeDB: cfg.RuntimeDB,
-				TeamDir:   cfg.TeamDir,
+				BuiltinDB:         cfg.BuiltinDB,
+				RuntimeDB:         cfg.RuntimeDB,
+				TeamDir:           cfg.TeamDir,
+				NucleiDir:         cfg.NucleiDir,
+				NucleiMinSeverity: cfg.NucleiMinSeverity,
 			})
 			if err != nil {
 				return fmt.Errorf("init runtime: %w", err)
@@ -100,6 +112,9 @@ func serveCmd() *cobra.Command {
 			log.Printf("absec server starting on %s (data: %s, tool-mode: %s)", addr, cfg.DataDir, toolMode)
 			log.Printf("resources loaded: %d skills, %d dicts, %d payloads, %d vulns",
 				counts["skill"], counts["dict"], counts["payload"], counts["vuln"])
+			if cfg.NucleiDir != "" {
+				log.Printf("nuclei-templates: %s (min-severity: %s)", cfg.NucleiDir, cfg.NucleiMinSeverity)
+			}
 			return http.ListenAndServe(addr, handler)
 		},
 	}
@@ -109,5 +124,7 @@ func serveCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&benchmark, "benchmark", false, "Enable MCP tool call logging")
 	cmd.Flags().StringVar(&benchmarkScenario, "benchmark-scenario", "default", "Scenario label for benchmark logs")
 	cmd.Flags().StringVar(&toolMode, "tool-mode", "lite", "Default tool mode when X-Tool-Mode header is absent: lite (3 tools) or full (12 tools). Clients can override per-request via X-Tool-Mode header.")
+	cmd.Flags().StringVar(&nucleiDir, "nuclei-dir", "", "Path to nuclei-templates repo root (enables CVE import when set)")
+	cmd.Flags().StringVar(&nucleiMinSeverity, "nuclei-min-severity", "high", "Minimum severity for nuclei CVE import: critical|high|medium|low")
 	return cmd
 }
