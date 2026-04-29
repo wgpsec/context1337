@@ -83,7 +83,7 @@ info:
 	writeFile("panel-detect.yaml", nonCVEYAML)
 	writeFile("CVE-2022-1111.yaml", listTagsYAML)
 
-	t.Run("minSeverity=high returns 1 result", func(t *testing.T) {
+	t.Run("minSeverity=high returns 2 results (critical+high)", func(t *testing.T) {
 		results, err := ScanNucleiVulns(tmpDir, "high")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
