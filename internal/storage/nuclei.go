@@ -8,13 +8,30 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// nucleiTagsField unmarshals both scalar ("cve,rce") and list (["cve","rce"]) YAML tag formats.
+type nucleiTagsField string
+
+func (t *nucleiTagsField) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		*t = nucleiTagsField(value.Value)
+	case yaml.SequenceNode:
+		var items []string
+		for _, item := range value.Content {
+			items = append(items, item.Value)
+		}
+		*t = nucleiTagsField(strings.Join(items, ","))
+	}
+	return nil
+}
+
 type nucleiInfo struct {
 	ID   string `yaml:"id"`
 	Info struct {
-		Name        string `yaml:"name"`
-		Severity    string `yaml:"severity"`
-		Description string `yaml:"description"`
-		Tags        string `yaml:"tags"`
+		Name        string         `yaml:"name"`
+		Severity    string         `yaml:"severity"`
+		Description string         `yaml:"description"`
+		Tags        nucleiTagsField `yaml:"tags"`
 		Metadata    struct {
 			Vendor  string `yaml:"vendor"`
 			Product string `yaml:"product"`
@@ -76,11 +93,11 @@ func ScanNucleiVulns(nucleiDir, minSeverity string) ([]VulnData, error) {
 			Title:       tmpl.Info.Name,
 			Description: tmpl.Info.Description,
 			Severity:    strings.ToUpper(tmpl.Info.Severity),
-			Tags:        tmpl.Info.Tags,
+			Tags:        string(tmpl.Info.Tags),
 			Vendor:      tmpl.Info.Metadata.Vendor,
 			Product:     tmpl.Info.Metadata.Product,
 			Category:    "nuclei-cve",
-			Body:        tmpl.Info.Description,
+			Body:        tmpl.Info.Description, // nuclei templates have no separate body; description doubles as body
 			FilePath:    path,
 		})
 		return nil
