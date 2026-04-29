@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -162,10 +163,18 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			log.Printf("loader: scan team vulns: %v", err)
 		}
 		for _, v := range vulns {
-			metadata := fmt.Sprintf(`{"severity":"%s","product":"%s","vendor":"%s","version_affected":"%s","fingerprint":"%s"}`,
-				v.Severity, v.Product, v.Vendor, v.VersionAffected, v.Fingerprint)
-			insertResourceWithMeta(db, "vuln", v.ID, "team", v.FilePath,
-				v.Category, v.Tags, "", "", v.Description, v.Body, metadata)
+			metaObj := map[string]string{
+				"severity":         v.Severity,
+				"product":          v.Product,
+				"vendor":           v.Vendor,
+				"version_affected": v.VersionAffected,
+				"fingerprint":      v.Fingerprint,
+			}
+			metaJSON, _ := json.Marshal(metaObj)
+			if err := insertResourceWithMeta(db, "vuln", v.ID, "team", v.FilePath,
+				v.Category, v.Tags, "", "", v.Description, v.Body, string(metaJSON)); err != nil {
+				log.Printf("loader: insert team vuln %s: %v", v.ID, err)
+			}
 		}
 	}
 
@@ -179,10 +188,16 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			log.Printf("loader: scan nuclei vulns: %v", err)
 		}
 		for _, v := range nvulns {
-			metadata := fmt.Sprintf(`{"severity":"%s","product":"%s","vendor":"%s"}`,
-				v.Severity, v.Product, v.Vendor)
-			insertResourceWithMeta(db, "vuln", v.ID, "nuclei", v.FilePath,
-				v.Category, v.Tags, "", "", v.Description, v.Body, metadata)
+			metaObj := map[string]string{
+				"severity": v.Severity,
+				"product":  v.Product,
+				"vendor":   v.Vendor,
+			}
+			metaJSON, _ := json.Marshal(metaObj)
+			if err := insertResourceWithMeta(db, "vuln", v.ID, "nuclei", v.FilePath,
+				v.Category, v.Tags, "", "", v.Description, v.Body, string(metaJSON)); err != nil {
+				log.Printf("loader: insert nuclei vuln %s: %v", v.ID, err)
+			}
 		}
 		log.Printf("loader: nuclei vulns indexed: %d", len(nvulns))
 	}
