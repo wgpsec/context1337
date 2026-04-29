@@ -201,11 +201,58 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 | `ABOUTSECURITY_DATA_DIR` | `./data` | 数据目录根路径 |
 | `ABOUTSECURITY_API_KEY` | （空=无认证） | Bearer 认证密钥 |
 | `ABOUTSECURITY_TOOL_MODE` | `lite` | 工具注册模式：`lite`（3 个工具）或 `full`（12 个工具） |
+| `NUCLEI_TEMPLATES_DIR` | （空=不启用） | nuclei-templates 仓库根目录，启用第二数据源 |
+| `NUCLEI_MIN_SEVERITY` | `high` | nuclei CVE 最低导入级别：`critical`/`high`/`medium`/`low` |
+
+## 数据源
+
+### 默认数据源：AboutSecurity
+
+服务启动时自动加载 [AboutSecurity](https://github.com/wgpsec/AboutSecurity) 仓库中的 skill、dict、payload、vuln 数据，构建 FTS5 全文搜索索引。这是唯一的必选数据源。
+
+### 第二数据源：nuclei-templates（按需开启）
+
+可选接入 [nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) CVE 漏洞库，将模板中的 CVE 情报导入漏洞库，补充 AboutSecurity 的 CVE 覆盖范围。
+
+**启用方式：**
+
+```bash
+# 命令行参数（推荐）
+./absec serve --nuclei-dir /path/to/nuclei-templates
+
+# 仅导入 critical 级别（默认 high，即 critical+high）
+./absec serve --nuclei-dir /path/to/nuclei-templates --nuclei-min-severity critical
+
+# 扩大范围到 medium
+./absec serve --nuclei-dir /path/to/nuclei-templates --nuclei-min-severity medium
+
+# 或通过环境变量
+NUCLEI_TEMPLATES_DIR=/path/to/nuclei-templates ./absec serve
+```
+
+**参数说明：**
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--nuclei-dir` | nuclei-templates 仓库根目录路径，不传则不启用 | （空=不启用） |
+| `--nuclei-min-severity` | 最低导入级别：`critical` \| `high` \| `medium` \| `low` | `high` |
+
+默认导入 critical+high 共约 2,300 条 CVE 模板。
+
+**注意：** nuclei-templates 仅在运行时数据库重建时扫描一次（首次启动或 builtin.db 版本升级时）。如果更换了 `--nuclei-dir` 或调整了 severity 参数，需手动删除 `data/runtime/runtime.db` 触发重建：
+
+```bash
+rm data/runtime/runtime.db
+./absec serve --nuclei-dir /path/to/nuclei-templates
+```
+
+---
 
 ## 架构
 
 ```
 构建阶段:   AboutSecurity/ → Python+jieba 分词 → builtin.db（FTS5 索引）
 启动阶段:   复制 builtin.db → runtime.db，扫描 team/ → INSERT
+            [可选] 扫描 nuclei-templates/http/cves/ → INSERT（source=nuclei）
 运行阶段:   MCP Streamable HTTP + REST API，Go 原生分词器处理新内容
 ```

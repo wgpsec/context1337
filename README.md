@@ -196,11 +196,51 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools
 | `ABOUTSECURITY_DATA_DIR` | `./data` | Data directory root |
 | `ABOUTSECURITY_API_KEY` | (empty=no auth) | API key for Bearer auth |
 | `ABOUTSECURITY_TOOL_MODE` | `lite` | Tool registration mode: `lite` (3 tools) or `full` (12 tools) |
+| `NUCLEI_TEMPLATES_DIR` | (empty=disabled) | Path to nuclei-templates repo root, enables secondary data source |
+| `NUCLEI_MIN_SEVERITY` | `high` | Minimum severity for nuclei CVE import: `critical`/`high`/`medium`/`low` |
+
+## Data Sources
+
+### Primary: AboutSecurity
+
+On startup, context1337 automatically loads skill, dict, payload, and vuln data from the [AboutSecurity](https://github.com/wgpsec/AboutSecurity) repo and builds an FTS5 full-text search index. This is the only required data source.
+
+### Secondary: nuclei-templates (opt-in)
+
+Optionally ingest CVE intelligence from [nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) to supplement AboutSecurity's CVE coverage. Disabled by default — only activates when `--nuclei-dir` is set.
+
+```bash
+# Enable nuclei CVE data (imports critical + high by default, ~2,300 CVEs)
+./absec serve --nuclei-dir /path/to/nuclei-templates
+
+# Import only critical severity
+./absec serve --nuclei-dir /path/to/nuclei-templates --nuclei-min-severity critical
+
+# Widen to include medium severity
+./absec serve --nuclei-dir /path/to/nuclei-templates --nuclei-min-severity medium
+
+# Via environment variables
+NUCLEI_TEMPLATES_DIR=/path/to/nuclei-templates ./absec serve
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--nuclei-dir` | Path to nuclei-templates repo root. Leave unset to disable. | (empty = disabled) |
+| `--nuclei-min-severity` | Minimum severity to import: `critical` \| `high` \| `medium` \| `low` | `high` |
+
+> **Note:** nuclei-templates are scanned once at startup during database rebuild. If you change `--nuclei-dir` or the severity threshold, delete `data/runtime/runtime.db` to force a rebuild:
+> ```bash
+> rm data/runtime/runtime.db
+> ./absec serve --nuclei-dir /path/to/nuclei-templates
+> ```
+
+---
 
 ## Architecture
 
 ```
 Build time:   AboutSecurity/ → Python+jieba → builtin.db (FTS5 index)
 Startup:      cp builtin.db → runtime.db, scan team/ → INSERT
+              [optional] scan nuclei-templates/http/cves/ → INSERT (source=nuclei)
 Runtime:      MCP Streamable HTTP + REST API, pure Go tokenizer for new content
 ```
