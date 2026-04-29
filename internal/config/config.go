@@ -13,6 +13,8 @@ type Config struct {
 	RuntimeDB string
 	TeamDir   string
 	APIKey string
+	NucleiDir         string
+	NucleiMinSeverity string
 }
 
 func Load() (*Config, error) {
@@ -26,14 +28,18 @@ func Load() (*Config, error) {
 	}
 
 	dataDir := envOrDefault("ABOUTSECURITY_DATA_DIR", "./data")
+	nucleiDir := os.Getenv("NUCLEI_TEMPLATES_DIR")
+	nucleiMinSeverity := os.Getenv("NUCLEI_MIN_SEVERITY")
 
 	return &Config{
-		Port:      port,
-		DataDir:   dataDir,
-		BuiltinDB: dataDir + "/builtin.db",
-		RuntimeDB: dataDir + "/runtime/runtime.db",
-		TeamDir:   dataDir + "/team",
-		APIKey: os.Getenv("ABOUTSECURITY_API_KEY"),
+		Port:              port,
+		DataDir:           dataDir,
+		BuiltinDB:         dataDir + "/builtin.db",
+		RuntimeDB:         dataDir + "/runtime/runtime.db",
+		TeamDir:           dataDir + "/team",
+		APIKey:            os.Getenv("ABOUTSECURITY_API_KEY"),
+		NucleiDir:         nucleiDir,
+		NucleiMinSeverity: nucleiMinSeverity,
 	}, nil
 }
 

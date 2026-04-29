@@ -16,6 +16,8 @@ type LoaderConfig struct {
 	BuiltinDB string
 	RuntimeDB string
 	TeamDir   string
+	NucleiDir         string
+	NucleiMinSeverity string
 }
 
 // InitRuntime handles the three-layer startup lifecycle:
@@ -165,6 +167,24 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			insertResourceWithMeta(db, "vuln", v.ID, "team", v.FilePath,
 				v.Category, v.Tags, "", "", v.Description, v.Body, metadata)
 		}
+	}
+
+	if cfg.NucleiDir != "" {
+		minSev := cfg.NucleiMinSeverity
+		if minSev == "" {
+			minSev = "high"
+		}
+		nvulns, err := ScanNucleiVulns(cfg.NucleiDir, minSev)
+		if err != nil {
+			log.Printf("loader: scan nuclei vulns: %v", err)
+		}
+		for _, v := range nvulns {
+			metadata := fmt.Sprintf(`{"severity":"%s","product":"%s","vendor":"%s"}`,
+				v.Severity, v.Product, v.Vendor)
+			insertResourceWithMeta(db, "vuln", v.ID, "nuclei", v.FilePath,
+				v.Category, v.Tags, "", "", v.Description, v.Body, metadata)
+		}
+		log.Printf("loader: nuclei vulns indexed: %d", len(nvulns))
 	}
 
 	return nil
