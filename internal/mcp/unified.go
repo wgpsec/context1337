@@ -390,6 +390,12 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 		case "full":
 			result.Body = r.Body
 			result.Fingerprint = fingerprint
+			// For nuclei templates, append raw YAML so LLM gets HTTP requests/payloads
+			if r.Source == "nuclei" && r.FilePath != "" {
+				if data, err := os.ReadFile(r.FilePath); err == nil {
+					result.Body = r.Body + "\n\n---\n# Nuclei Template\n```yaml\n" + string(data) + "\n```"
+				}
+			}
 		}
 	}
 
