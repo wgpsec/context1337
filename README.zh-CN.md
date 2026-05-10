@@ -256,3 +256,28 @@ rm data/runtime/runtime.db
             [可选] 扫描 nuclei-templates/http/cves/ → INSERT（source=nuclei）
 运行阶段:   MCP Streamable HTTP + REST API，Go 原生分词器处理新内容
 ```
+
+## WgpSec Agentic 生态
+
+context1337 是 **WgpSec Agentic 生态** 的服务层 — 连接结构化安全知识与自主 AI Agent。
+
+```
+┌───────────────────── WgpSec Agentic Ecosystem ─────────────────────┐
+│                                                                     │
+│  知识 ➜ 服务 ➜ 执行 ➜ 验证                                          │
+│                                                                     │
+│  AboutSecurity ──▶ context1337 ──▶ tchkiller ──▶ benchmark-platform │
+│                    (本仓库)         (渗透 Agent)    (CTF 靶场)       │
+│                                         ▲                           │
+│                                    破军 PoJun (通用求解引擎)         │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+| 项目 | 定位 |
+|------|------|
+| [AboutSecurity](https://github.com/wgpsec/AboutSecurity) | 结构化渗透知识库（Skills、Dic、Payload、Vuln） |
+| [context1337](https://github.com/wgpsec/context1337) | MCP Server — 将 AboutSecurity 转为 AI Agent 可检索的 API |
+| [tchkiller](https://github.com/wgpsec/tchkiller) | 智能渗透测试 Agent，多轮决策 + 团队协作 |
+| [benchmark-platform](https://github.com/wgpsec/benchmark-platform) | CTF 靶场竞赛平台，评估 Agent 攻防能力 |
+| 破军 PoJun | 通用 AI 问题求解引擎（内部项目，未开源） |

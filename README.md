@@ -244,3 +244,28 @@ Startup:      cp builtin.db → runtime.db, scan team/ → INSERT
               [optional] scan nuclei-templates/http/cves/ → INSERT (source=nuclei)
 Runtime:      MCP Streamable HTTP + REST API, pure Go tokenizer for new content
 ```
+
+## WgpSec Agentic Ecosystem
+
+context1337 is the service layer of the **WgpSec Agentic Ecosystem** — bridging structured security knowledge and autonomous AI agents.
+
+```
+┌───────────────────── WgpSec Agentic Ecosystem ─────────────────────┐
+│                                                                     │
+│  Knowledge ➜ Service ➜ Execution ➜ Evaluation                      │
+│                                                                     │
+│  AboutSecurity ──▶ context1337 ──▶ tchkiller ──▶ benchmark-platform │
+│                    (this repo)      (Pentest Agent)  (CTF Range)    │
+│                                         ▲                           │
+│                                    PoJun (通用求解引擎)              │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+| Project | Role |
+|---------|------|
+| [AboutSecurity](https://github.com/wgpsec/AboutSecurity) | Structured pentest knowledge base (Skills, Dic, Payload, Vuln) |
+| [context1337](https://github.com/wgpsec/context1337) | MCP Server — turns AboutSecurity into a searchable API for AI agents |
+| [tchkiller](https://github.com/wgpsec/tchkiller) | Autonomous pentest agent with multi-round decision-making and team collaboration |
+| [benchmark-platform](https://github.com/wgpsec/benchmark-platform) | CTF challenge platform for evaluating agent offensive capabilities |
+| PoJun | General-purpose AI problem-solving engine (private) |
