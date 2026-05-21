@@ -86,20 +86,39 @@ func (s *Service) resolveFileResource(in GetFileInput) (id, typ, path, absPath s
 	if r.Type != "dict" && r.Type != "payload" {
 		return "", "", "", "", fmt.Errorf("resource id %q resolves to type=%s; use get_security_detail for security details", in.ID, r.Type)
 	}
+
+	baseDir, err := fileBaseDir(r.Type)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	clean, err := cleanFileResourceName(r.Name)
+	if err != nil {
+		return "", "", "", "", err
+	}
 	if in.Type != "" && in.Type != r.Type {
 		return "", "", "", "", fmt.Errorf("type %q conflicts with resource id type %q", in.Type, r.Type)
 	}
-	if in.Path != "" && in.Path != r.Name {
-		return "", "", "", "", fmt.Errorf("path %q conflicts with resource id path %q", in.Path, r.Name)
+	if in.Path != "" && filepath.Clean(in.Path) != clean {
+		return "", "", "", "", fmt.Errorf("path %q conflicts with resource id path %q", in.Path, clean)
 	}
 
-	absPath = r.FilePath
-	if absPath == "" {
-		baseDir, err := fileBaseDir(r.Type)
-		if err != nil {
-			return "", "", "", "", err
-		}
-		absPath = filepath.Join(s.DataDir, baseDir, r.Name)
+	absPath = filepath.Join(s.DataDir, baseDir, clean)
+	return search.StableID(*r), r.Type, clean, absPath, nil
+}
+
+func cleanFileResourceName(name string) (string, error) {
+	clean := filepath.Clean(name)
+	if filepath.IsAbs(clean) || clean == "." || hasParentPathComponent(clean) {
+		return "", fmt.Errorf("invalid path")
 	}
-	return search.StableID(*r), r.Type, r.Name, absPath, nil
+	return clean, nil
+}
+
+func hasParentPathComponent(path string) bool {
+	for _, part := range strings.Split(path, string(filepath.Separator)) {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
 }

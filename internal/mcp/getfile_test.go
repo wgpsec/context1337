@@ -75,9 +75,6 @@ func TestGetFile_WithStableID_DictRoundTrip(t *testing.T) {
 	if err := os.WriteFile(dictPath, []byte("pass1\npass2\npass3\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.DB.Exec("UPDATE resources SET file_path=? WHERE type='dict' AND name='Auth/password/Top100.txt'", dictPath); err != nil {
-		t.Fatal(err)
-	}
 	searchResult, err := svc.Search(ctx, SearchInput{Type: "dict", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
@@ -111,9 +108,6 @@ func TestGetFile_WithStableID_PayloadRoundTrip(t *testing.T) {
 	if err := os.WriteFile(payloadPath, []byte("<img onerror>\n<svg onload>\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.DB.Exec("UPDATE resources SET file_path=? WHERE type='payload' AND name='XSS/events.txt'", payloadPath); err != nil {
-		t.Fatal(err)
-	}
 	got, err := svc.GetFile(ctx, GetFileInput{ID: "absec://builtin/payload/XSS%2Fevents.txt"})
 	if err != nil {
 		t.Fatal(err)
@@ -126,9 +120,58 @@ func TestGetFile_WithStableID_PayloadRoundTrip(t *testing.T) {
 	}
 }
 
-func TestGetFile_WithStableID_RejectsLegacyMismatch(t *testing.T) {
+func TestGetFile_WithStableID_FallsBackToDataDirWhenFilePathEmpty(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	dictDir := filepath.Join(svc.DataDir, "Dic", "Auth", "password")
+	if err := os.MkdirAll(dictDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dictDir, "Top100.txt"), []byte("fallback1\nfallback2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DB.Exec("UPDATE resources SET file_path='' WHERE type='dict' AND source='builtin' AND name='Auth/password/Top100.txt'"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://builtin/dict/Auth%2Fpassword%2FTop100.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalLines != 2 {
+		t.Fatalf("TotalLines = %d, want 2", got.TotalLines)
+	}
+}
+
+func TestGetFile_WithStableID_RejectsTraversalName(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	if _, err := svc.DB.Exec(`INSERT INTO resources (type,name,source,file_path,description,body)
+		VALUES ('dict','../secret.txt','builtin','','Traversal test','Traversal test')`); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://builtin/dict/..%2Fsecret.txt"})
+	if err == nil {
+		t.Fatal("expected traversal error")
+	}
+	if !strings.Contains(err.Error(), "invalid path") {
+		t.Fatalf("error = %q, want invalid path", err.Error())
+	}
+}
+
+func TestGetFile_WithStableID_RejectsLegacyPathMismatch(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	_, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://builtin/dict/Auth%2Fpassword%2FTop100.txt", Type: "dict", Path: "Other/passwords.txt"})
+	if err == nil {
+		t.Fatal("expected mismatch error")
+	}
+	if !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("error = %q, want conflict", err.Error())
+	}
+}
+
+func TestGetFile_WithStableID_RejectsLegacyTypeMismatch(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	_, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://builtin/dict/Auth%2Fpassword%2FTop100.txt", Type: "payload"})
 	if err == nil {
 		t.Fatal("expected mismatch error")
 	}
