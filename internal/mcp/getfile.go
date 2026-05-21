@@ -102,8 +102,23 @@ func (s *Service) resolveFileResource(in GetFileInput) (id, typ, path, absPath s
 		return "", "", "", "", fmt.Errorf("path %q conflicts with resource id path %q", in.Path, clean)
 	}
 
-	absPath = filepath.Join(s.DataDir, baseDir, clean)
+	root, err := s.fileSourceRoot(r.Source, baseDir, in.ID)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	absPath = filepath.Join(root, clean)
 	return search.StableID(*r), r.Type, clean, absPath, nil
+}
+
+func (s *Service) fileSourceRoot(source, baseDir, id string) (string, error) {
+	switch source {
+	case "builtin":
+		return filepath.Join(s.DataDir, baseDir), nil
+	case "team":
+		return filepath.Join(s.DataDir, "team", baseDir), nil
+	default:
+		return "", fmt.Errorf("resource id %q resolves to unsupported file source %q", id, source)
+	}
 }
 
 func cleanFileResourceName(name string) (string, error) {

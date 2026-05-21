@@ -180,6 +180,90 @@ func TestGetFile_WithStableID_RejectsLegacyTypeMismatch(t *testing.T) {
 	}
 }
 
+func TestGetFile_WithStableID_TeamDictReadsFromTeamDir(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	teamDir := filepath.Join(svc.DataDir, "team", "Dic", "Auth", "password")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "Top100.txt"), []byte("team-pass\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	builtinDir := filepath.Join(svc.DataDir, "Dic", "Auth", "password")
+	if err := os.MkdirAll(builtinDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(builtinDir, "Top100.txt"), []byte("builtin-pass\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DB.Exec(`INSERT INTO resources (type,name,source,file_path,description,body)
+		VALUES ('dict','Auth/password/Top100.txt','team','','Team password list','Team password list')`); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://team/dict/Auth%2Fpassword%2FTop100.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Content != "team-pass" {
+		t.Fatalf("Content = %q, want team content", got.Content)
+	}
+}
+
+func TestGetFile_WithStableID_SameNameCollisionUsesIDSource(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	builtinDir := filepath.Join(svc.DataDir, "Dic", "Shared")
+	if err := os.MkdirAll(builtinDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(builtinDir, "words.txt"), []byte("builtin-word\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	teamDir := filepath.Join(svc.DataDir, "team", "Dic", "Shared")
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "words.txt"), []byte("team-word\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DB.Exec(`INSERT INTO resources (type,name,source,file_path,description,body)
+		VALUES ('dict','Shared/words.txt','builtin','','Builtin shared words','Builtin shared words'),
+		       ('dict','Shared/words.txt','team','','Team shared words','Team shared words')`); err != nil {
+		t.Fatal(err)
+	}
+
+	builtin, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://builtin/dict/Shared%2Fwords.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://team/dict/Shared%2Fwords.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if builtin.Content != "builtin-word" {
+		t.Fatalf("builtin Content = %q, want builtin content", builtin.Content)
+	}
+	if team.Content != "team-word" {
+		t.Fatalf("team Content = %q, want team content", team.Content)
+	}
+}
+
+func TestGetFile_WithStableID_RejectsUnsupportedFileSource(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	if _, err := svc.DB.Exec(`INSERT INTO resources (type,name,source,file_path,description,body)
+		VALUES ('dict','External/words.txt','external','','External words','External words')`); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://external/dict/External%2Fwords.txt"})
+	if err == nil {
+		t.Fatal("expected unsupported source error")
+	}
+	if !strings.Contains(err.Error(), "unsupported file source") || !strings.Contains(err.Error(), "external") {
+		t.Fatalf("error = %q, want unsupported external source", err.Error())
+	}
+}
+
 func TestGetFile_WithStableID_RejectsWrongType(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	_, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://builtin/skill/sql-injection"})
