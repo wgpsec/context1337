@@ -125,18 +125,22 @@ claude mcp add aboutsecurity --transport http --header "Authorization: Bearer yo
 - "有哪些漏洞利用技能？" → `search_security(type="skill", category="exploit")`
 
 **获取详细知识**
-- "详细讲解 SQL 注入攻击技术" → `get_security_detail(name="sql-injection", type="skill", depth="full")` 包含参考资料
-- "nmap 扫描怎么做？" → `get_security_detail(name="nmap-scan", type="skill")` 返回方法论
+- "详细讲解 SQL 注入攻击技术" → 先搜索，再调用 `get_security_detail(id="absec://builtin/skill/sql-injection", depth="full")` 获取参考资料
+- "nmap 扫描怎么做？" → `get_security_detail(id="absec://builtin/skill/nmap-scan")` 返回方法论
 - "jenkins 的后渗透手段有哪些"
 
 **读取数据文件**
-- "给我常见弱口令字典前 100 行" → `read_security_file(path="Auth/password/Top100.txt", type="dict")`
-- "XSS 事件触发的 payload 有哪些？" → `read_security_file(path="XSS/events.txt", type="payload")`
+- "给我常见弱口令字典前 100 行" → 先搜索，再调用 `read_security_file(id="absec://builtin/dict/Auth%2Fpassword%2FTop100.txt")`
+- "XSS 事件触发的 payload 有哪些？" → `read_security_file(id="absec://builtin/payload/XSS%2Fevents.txt")`
 
 **搜索漏洞**
 - "查找 Apache 高危漏洞" → `search_security(query="Apache", type="vuln", severity="CRITICAL")`
 - "列出所有中间件漏洞" → `search_security(type="vuln", category="middleware")`
-- "获取 Log4j RCE 漏洞详情" → `get_security_detail(name="CVE-2021-44228", type="vuln", depth="full")`
+- "获取 Log4j RCE 漏洞详情" → 先搜索，再调用 `get_security_detail(id="absec://builtin/vuln/CVE-2021-44228", depth="full")`
+
+搜索结果会返回稳定 `id`，例如 `absec://builtin/skill/sql-injection`。推荐把这个 `id` 传给详情或文件读取工具，因为它保留了明确的数据源和资源身份。旧参数 `name`/`type`、`path`/`type` 仍然兼容，但当多个数据源存在同名资源时，`id` 可以避免歧义。
+
+例如 `absec://builtin/vuln/CVE-2021-44228` 和 `absec://nuclei/vuln/CVE-2021-44228` 可以同时存在。`get_security_detail(name="CVE-2021-44228", type="vuln")` 无法指定来源，而稳定 ID 可以精确选择目标资源。
 
 AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 
@@ -148,9 +152,9 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 
 | 工具 | 说明 |
 |------|------|
-| `search_security` | 搜索或列出所有资源类型（skill、dict、payload）。搜索漏洞须显式指定 type="vuln"（默认搜索排除漏洞）。漏洞支持 severity 和 product 过滤 |
-| `get_security_detail` | 获取 skill（支持 depth 和 references）或 vuln（brief/full 含 PoC）的详细内容 |
-| `read_security_file` | 按行分页读取字典或 payload 文件内容 |
+| `search_security` | 搜索或列出所有资源类型（skill、dict、payload），结果包含稳定 `id`。搜索漏洞须显式指定 type="vuln"（默认搜索排除漏洞）。漏洞支持 severity 和 product 过滤 |
+| `get_security_detail` | 通过稳定 `id`（推荐）或旧参数 `name` + `type` 获取 skill / vuln 详情 |
+| `read_security_file` | 通过稳定 `id`（推荐）或旧参数 `path` + `type` 按行分页读取字典或 payload 文件内容 |
 
 ### 完整模式（12 个工具）
 
@@ -158,18 +162,18 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 
 | 工具 | 说明 |
 |------|------|
-| `search_skill` | 按关键词搜索渗透测试技能 |
-| `search_dicts` | 按关键词搜索密码字典 |
-| `search_payload` | 按关键词搜索攻击载荷 |
-| `search_vuln` | 按关键词搜索漏洞库，支持 severity 和 product 过滤 |
-| `list_skills` | 浏览所有技能 |
-| `list_dicts` | 浏览所有字典 |
-| `list_payloads` | 浏览所有载荷 |
-| `list_vulns` | 列出漏洞（默认 50 条），支持 category/severity/product 过滤 |
-| `get_skill` | 获取技能详情（支持 depth 和 references） |
-| `get_dict` | 按行分页读取字典文件 |
-| `get_payload` | 按行分页读取载荷文件 |
-| `get_vuln` | 获取漏洞详情（CVE/CNVD ID），支持 brief/full 深度（含 PoC） |
+| `search_skill` | 按关键词搜索渗透测试技能，结果包含稳定 `id` |
+| `search_dicts` | 按关键词搜索密码字典，结果包含稳定 `id` |
+| `search_payload` | 按关键词搜索攻击载荷，结果包含稳定 `id` |
+| `search_vuln` | 按关键词搜索漏洞库，支持 severity 和 product 过滤，结果包含稳定 `id` |
+| `list_skills` | 浏览所有技能，结果包含稳定 `id` |
+| `list_dicts` | 浏览所有字典，结果包含稳定 `id` |
+| `list_payloads` | 浏览所有载荷，结果包含稳定 `id` |
+| `list_vulns` | 列出漏洞（默认 50 条），支持 category/severity/product 过滤，结果包含稳定 `id` |
+| `get_skill` | 通过稳定 `id`（推荐）或旧 name 获取技能详情（支持 depth 和 references） |
+| `get_dict` | 通过稳定 `id`（推荐）或旧 path 按行分页读取字典文件 |
+| `get_payload` | 通过稳定 `id`（推荐）或旧 path 按行分页读取载荷文件 |
+| `get_vuln` | 通过稳定 `id`（推荐）或旧 name 获取漏洞详情（CVE/CNVD ID），支持 brief/full 深度（含 PoC） |
 
 ## Makefile 命令
 

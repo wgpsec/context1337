@@ -123,17 +123,21 @@ Once connected, just ask your AI assistant naturally:
 - "Show me all exploit skills" → `search_security(type="skill", category="exploit")`
 
 **Get detailed knowledge**
-- "Explain the SQL injection skill in detail" → `get_security_detail(name="sql-injection", type="skill", depth="full")` includes references
-- "How does nmap scanning work?" → `get_security_detail(name="nmap-scan", type="skill")` returns methodology
+- "Explain the SQL injection skill in detail" → search first, then call `get_security_detail(id="absec://builtin/skill/sql-injection", depth="full")`
+- "How does nmap scanning work?" → `get_security_detail(id="absec://builtin/skill/nmap-scan")` returns methodology
 
 **Read data files**
-- "Show the top 100 passwords dictionary" → `read_security_file(path="Auth/password/Top100.txt", type="dict")`
-- "Get XSS event handler payloads" → `read_security_file(path="XSS/events.txt", type="payload")`
+- "Show the top 100 passwords dictionary" → search first, then call `read_security_file(id="absec://builtin/dict/Auth%2Fpassword%2FTop100.txt")`
+- "Get XSS event handler payloads" → `read_security_file(id="absec://builtin/payload/XSS%2Fevents.txt")`
 
 **Search vulnerabilities**
 - "Find critical Apache vulnerabilities" → `search_security(query="Apache", type="vuln", severity="CRITICAL")`
 - "List all middleware vulnerabilities" → `search_security(type="vuln", category="middleware")`
-- "Get the Log4j RCE vulnerability details" → `get_security_detail(name="CVE-2021-44228", type="vuln", depth="full")`
+- "Get the Log4j RCE vulnerability details" → search first, then call `get_security_detail(id="absec://builtin/vuln/CVE-2021-44228", depth="full")`
+
+Search results include a stable `id` such as `absec://builtin/skill/sql-injection`. Prefer passing that `id` into detail or file tools because it preserves the exact source and resource. Legacy inputs such as `name`/`type` and `path`/`type` still work, but `id` avoids ambiguity when the same resource appears in multiple sources.
+
+Example: `absec://builtin/vuln/CVE-2021-44228` and `absec://nuclei/vuln/CVE-2021-44228` can both exist. `get_security_detail(name="CVE-2021-44228", type="vuln")` cannot choose a source, while the stable ID selects the exact resource.
 
 The AI will automatically call the right MCP tools to find relevant security knowledge.
 
@@ -145,26 +149,26 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools
 
 | Tool | Description |
 |------|-------------|
-| `search_security` | Search or list all resource types (skill, dict, payload). To search vulnerabilities, specify type="vuln" explicitly (excluded from default search). Vuln supports severity and product filters. |
-| `get_security_detail` | Get full detail for a skill (with depth control + references) or vulnerability (brief/full with PoC) |
-| `read_security_file` | Read dictionary or payload file content with line-level pagination |
+| `search_security` | Search or list all resource types (skill, dict, payload). Results include stable `id` fields. To search vulnerabilities, specify type="vuln" explicitly (excluded from default search). Vuln supports severity and product filters. |
+| `get_security_detail` | Get full detail for a skill or vulnerability by stable `id` (preferred) or legacy `name` + `type` |
+| `read_security_file` | Read dictionary or payload file content by stable `id` (preferred) or legacy `path` + `type`, with line-level pagination |
 
 ### Full mode (12 tools)
 
 | Tool | Description |
 |------|-------------|
-| `search_skill` | Search penetration testing skills by keyword |
-| `search_dicts` | Search password dictionaries by keyword |
-| `search_payload` | Search attack payloads by keyword |
-| `search_vuln` | Search vulnerability database by keyword with severity and product filters |
-| `list_skills` | Browse all skills |
-| `list_dicts` | Browse all dictionaries |
-| `list_payloads` | Browse all payloads |
-| `list_vulns` | List vulnerabilities with pagination (default 50), category/severity/product filters |
-| `get_skill` | Get skill detail (with depth + references) |
-| `get_dict` | Read dictionary file with line pagination |
-| `get_payload` | Read payload file with line pagination |
-| `get_vuln` | Get vulnerability detail by name (CVE/CNVD ID), brief or full depth with PoC |
+| `search_skill` | Search penetration testing skills by keyword; results include stable `id` fields |
+| `search_dicts` | Search password dictionaries by keyword; results include stable `id` fields |
+| `search_payload` | Search attack payloads by keyword; results include stable `id` fields |
+| `search_vuln` | Search vulnerability database by keyword with severity and product filters; results include stable `id` fields |
+| `list_skills` | Browse all skills; results include stable `id` fields |
+| `list_dicts` | Browse all dictionaries; results include stable `id` fields |
+| `list_payloads` | Browse all payloads; results include stable `id` fields |
+| `list_vulns` | List vulnerabilities with pagination (default 50), category/severity/product filters; results include stable `id` fields |
+| `get_skill` | Get skill detail by stable `id` (preferred) or legacy name, with depth + references |
+| `get_dict` | Read dictionary file by stable `id` (preferred) or legacy path, with line pagination |
+| `get_payload` | Read payload file by stable `id` (preferred) or legacy path, with line pagination |
+| `get_vuln` | Get vulnerability detail by stable `id` (preferred) or legacy name, brief or full depth with PoC |
 
 ## Makefile Targets
 
