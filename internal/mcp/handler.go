@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wgpsec/context1337/internal/mcp/benchlog"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/wgpsec/context1337/internal/mcp/benchlog"
 )
 
 // BenchLogger is an optional benchmark logger. When non-nil every tool call
@@ -77,19 +77,19 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 func registerLiteTools(server *gomcp.Server, svc *Service) {
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_security",
-		Description: "Search the AboutSecurity penetration testing knowledge base. Covers: exploit techniques (SQL injection, XSS, SSRF, RCE...), password/bruteforce wordlists, and attack payloads. IMPORTANT: use space-separated keywords, NOT natural language sentences. Good: \"域控 持久化\", \"file upload webshell\", \"提权 linux\", \"应急响应\". Bad: \"拿到域管后怎么维持权限\". To search vulnerabilities, you MUST specify type=\"vuln\" explicitly — vulnerabilities are excluded from default search to avoid polluting technique-oriented results. Vuln search supports additional filters: severity (CRITICAL/HIGH/MEDIUM/LOW) and product. Params: query (optional keyword — omit to list all), type (optional: skill|dict|payload|vuln — omit to search all non-vuln types), category (optional), difficulty (optional, skill only), severity (optional, vuln only), product (optional, vuln only), offset (default 0), limit (default 10, vuln default 50). Returns the top results ranked by relevance — increase limit only when you need broader coverage.",
+		Description: "Search the AboutSecurity penetration testing knowledge base. Covers: exploit techniques (SQL injection, XSS, SSRF, RCE...), password/bruteforce wordlists, and attack payloads. IMPORTANT: use space-separated keywords, NOT natural language sentences. Good: \"域控 持久化\", \"file upload webshell\", \"提权 linux\", \"应急响应\". Bad: \"拿到域管后怎么维持权限\". To search vulnerabilities, you MUST specify type=\"vuln\" explicitly — vulnerabilities are excluded from default search to avoid polluting technique-oriented results. Vuln search supports additional filters: severity (CRITICAL/HIGH/MEDIUM/LOW) and product. Params: query (optional keyword — omit to list all), type (optional: skill|dict|payload|vuln — omit to search all non-vuln types), category (optional), difficulty (optional, skill only), severity (optional, vuln only), product (optional, vuln only), offset (default 0), limit (default 10, vuln default 50). Returns the top results ranked by relevance, including stable IDs for follow-up get/read calls — increase limit only when you need broader coverage.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.Search))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_security_detail",
-		Description: "Get detailed penetration testing knowledge for a skill or vulnerability by name. ALWAYS use this tool instead of reading files directly — it handles pagination automatically. Params: name (from search results), type (skill|vuln), depth (optional — skill: metadata|summary|full, default summary; vuln: brief|full, default brief). For skills with many references, depth=full returns paginated references: use ref_offset (default 0) and ref_limit (default 3) to page through them. The response includes ref_total showing the total number of references available. Start with depth=summary to get the skill body, then use depth=full with ref_offset/ref_limit to fetch specific references as needed. Returns full content including body (skill), or vulnerability details with severity/product/PoC (vuln).",
+		Description: "Get detailed penetration testing knowledge for a skill or vulnerability by stable ID (preferred) or name (legacy). ALWAYS use this tool instead of reading files directly — it handles pagination automatically. Params: id (from search results, preferred), name (legacy), type (skill|vuln), depth (optional — skill: metadata|summary|full, default summary; vuln: brief|full, default brief). For skills with many references, depth=full returns paginated references: use ref_offset (default 0) and ref_limit (default 3) to page through them. The response includes ref_total showing the total number of references available. Start with depth=summary to get the skill body, then use depth=full with ref_offset/ref_limit to fetch specific references as needed. Returns full content including body (skill), or vulnerability details with severity/product/PoC (vuln).",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.Get))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "read_security_file",
-		Description: "Read security dictionary (wordlists/passwords) or attack payload file content with line-level pagination. Use after search_security to read file data. Params: path (from search results, e.g. Auth/password/Top100.txt), type (dict|payload), offset (default 0 lines), limit (default 200 lines). Returns file content with total_lines count.",
+		Description: "Read security dictionary (wordlists/passwords) or attack payload file content with line-level pagination. Use after search_security to read file data by stable ID (preferred) or path (legacy). Params: id (from search results, preferred), path (legacy, e.g. Auth/password/Top100.txt), type (dict|payload), offset (default 0 lines), limit (default 200 lines). Returns file content with total_lines count.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.GetFile))
 }

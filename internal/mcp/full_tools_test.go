@@ -146,6 +146,70 @@ func TestGetSkillAdapter(t *testing.T) {
 	}
 }
 
+func TestGetSkillAdapter_WithID(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.getSkillAdapter(context.Background(), GetSkillInput{ID: "absec://builtin/skill/sql-injection"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ID != "absec://builtin/skill/sql-injection" {
+		t.Fatalf("ID = %q", res.ID)
+	}
+	if res.Name != "sql-injection" || res.Type != "skill" {
+		t.Fatalf("got (%q, %q), want (sql-injection, skill)", res.Name, res.Type)
+	}
+}
+
+func TestGetDictAdapter_WithID(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	dictDir := filepath.Join(svc.DataDir, "Dic", "Auth", "password")
+	if err := os.MkdirAll(dictDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dictPath := filepath.Join(dictDir, "Top100.txt")
+	if err := os.WriteFile(dictPath, []byte("pass1\npass2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DB.Exec("UPDATE resources SET file_path=? WHERE type='dict' AND name='Auth/password/Top100.txt'", dictPath); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.getDictAdapter(context.Background(), GetDictInput{ID: "absec://builtin/dict/Auth%2Fpassword%2FTop100.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ID != "absec://builtin/dict/Auth%2Fpassword%2FTop100.txt" {
+		t.Fatalf("ID = %q", res.ID)
+	}
+	if res.TotalLines != 2 {
+		t.Fatalf("TotalLines = %d, want 2", res.TotalLines)
+	}
+}
+
+func TestGetPayloadAdapter_WithID(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	payloadDir := filepath.Join(svc.DataDir, "Payload", "XSS")
+	if err := os.MkdirAll(payloadDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	payloadPath := filepath.Join(payloadDir, "events.txt")
+	if err := os.WriteFile(payloadPath, []byte("<img onerror>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DB.Exec("UPDATE resources SET file_path=? WHERE type='payload' AND name='XSS/events.txt'", payloadPath); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.getPayloadAdapter(context.Background(), GetPayloadInput{ID: "absec://builtin/payload/XSS%2Fevents.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ID != "absec://builtin/payload/XSS%2Fevents.txt" {
+		t.Fatalf("ID = %q", res.ID)
+	}
+	if res.TotalLines != 1 {
+		t.Fatalf("TotalLines = %d, want 1", res.TotalLines)
+	}
+}
+
 func TestGetSkillAdapter_DepthFull(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	ctx := context.Background()
@@ -285,6 +349,20 @@ func TestGetVulnAdapter_Brief(t *testing.T) {
 	}
 	if res.Body != "" {
 		t.Error("brief mode should not include body")
+	}
+}
+
+func TestGetVulnAdapter_WithID(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	res, err := svc.getVulnAdapter(context.Background(), GetVulnInput{ID: "absec://builtin/vuln/CVE-2021-44228"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ID != "absec://builtin/vuln/CVE-2021-44228" {
+		t.Fatalf("ID = %q", res.ID)
+	}
+	if res.Name != "CVE-2021-44228" || res.Type != "vuln" {
+		t.Fatalf("got (%q, %q), want (CVE-2021-44228, vuln)", res.Name, res.Type)
 	}
 }
 

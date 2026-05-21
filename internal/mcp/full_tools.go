@@ -71,24 +71,28 @@ type ListVulnsInput struct {
 // --- Get adapter inputs ---
 
 type GetSkillInput struct {
-	Name  string `json:"name"            jsonschema:"Skill name (from search results)"`
+	ID    string `json:"id,omitempty"    jsonschema:"Stable resource ID from search results (preferred)"`
+	Name  string `json:"name,omitempty"  jsonschema:"Skill name from search results (legacy; use id when available)"`
 	Depth string `json:"depth,omitempty" jsonschema:"Loading depth: metadata|summary|full (default summary). full includes references."`
 }
 
 type GetDictInput struct {
-	Path   string `json:"path"             jsonschema:"Relative file path from search results (e.g. Auth/password/Top100.txt)"`
+	ID     string `json:"id,omitempty"     jsonschema:"Stable resource ID from search results (preferred)"`
+	Path   string `json:"path,omitempty"   jsonschema:"Relative file path from search results (legacy; use id when available)"`
 	Offset int    `json:"offset,omitempty" jsonschema:"Line offset for pagination (default 0)"`
 	Limit  int    `json:"limit,omitempty"  jsonschema:"Max lines to return (default 200)"`
 }
 
 type GetPayloadInput struct {
-	Path   string `json:"path"             jsonschema:"Relative file path from search results (e.g. XSS/xss-payload-list.txt)"`
+	ID     string `json:"id,omitempty"     jsonschema:"Stable resource ID from search results (preferred)"`
+	Path   string `json:"path,omitempty"   jsonschema:"Relative file path from search results (legacy; use id when available)"`
 	Offset int    `json:"offset,omitempty" jsonschema:"Line offset for pagination (default 0)"`
 	Limit  int    `json:"limit,omitempty"  jsonschema:"Max lines to return (default 200)"`
 }
 
 type GetVulnInput struct {
-	Name  string `json:"name"            jsonschema:"Vulnerability ID (CVE/CNVD from search results)"`
+	ID    string `json:"id,omitempty"    jsonschema:"Stable resource ID from search results (preferred)"`
+	Name  string `json:"name,omitempty"  jsonschema:"Vulnerability name (CVE/CNVD) from search results (legacy; use id when available)"`
 	Depth string `json:"depth,omitempty" jsonschema:"Loading depth: brief|full (default brief). full includes PoC and remediation."`
 }
 
@@ -157,19 +161,19 @@ func (s *Service) listVulnsAdapter(ctx context.Context, in ListVulnsInput) (*Sea
 // --- Get adapters ---
 
 func (s *Service) getSkillAdapter(ctx context.Context, in GetSkillInput) (*GetResult, error) {
-	return s.Get(ctx, GetInput{Name: in.Name, Type: "skill", Depth: in.Depth})
+	return s.Get(ctx, GetInput{ID: in.ID, Name: in.Name, Type: "skill", Depth: in.Depth})
 }
 
 func (s *Service) getDictAdapter(ctx context.Context, in GetDictInput) (*GetFileResult, error) {
-	return s.GetFile(ctx, GetFileInput{Path: in.Path, Type: "dict", Offset: in.Offset, Limit: in.Limit})
+	return s.GetFile(ctx, GetFileInput{ID: in.ID, Path: in.Path, Type: "dict", Offset: in.Offset, Limit: in.Limit})
 }
 
 func (s *Service) getPayloadAdapter(ctx context.Context, in GetPayloadInput) (*GetFileResult, error) {
-	return s.GetFile(ctx, GetFileInput{Path: in.Path, Type: "payload", Offset: in.Offset, Limit: in.Limit})
+	return s.GetFile(ctx, GetFileInput{ID: in.ID, Path: in.Path, Type: "payload", Offset: in.Offset, Limit: in.Limit})
 }
 
 func (s *Service) getVulnAdapter(ctx context.Context, in GetVulnInput) (*GetResult, error) {
-	return s.Get(ctx, GetInput{Name: in.Name, Type: "vuln", Depth: in.Depth})
+	return s.Get(ctx, GetInput{ID: in.ID, Name: in.Name, Type: "vuln", Depth: in.Depth})
 }
 
 // --- Registration ---
@@ -179,19 +183,19 @@ func registerFullTools(server *gomcp.Server, svc *Service) {
 	// Search tools
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_skill",
-		Description: "Search penetration testing skills and exploit techniques (SQL injection, XSS, SSRF, RCE, privilege escalation, buffer overflow, command injection, path traversal, authentication bypass, CSRF). Use when the user asks about hacking techniques or vulnerability exploitation. Returns paginated results with name, description, category, and difficulty.",
+		Description: "Search penetration testing skills and exploit techniques (SQL injection, XSS, SSRF, RCE, privilege escalation, buffer overflow, command injection, path traversal, authentication bypass, CSRF). Use when the user asks about hacking techniques or vulnerability exploitation. Returns paginated results with stable ID, name, description, category, and difficulty.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.searchSkillAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_dicts",
-		Description: "Search password wordlists and bruteforce dictionaries for penetration testing (rockyou, common passwords, credential lists, username lists, directory bruteforce, subdomain enumeration). Use when the user needs dictionaries for password cracking or fuzzing. Returns paginated results.",
+		Description: "Search password wordlists and bruteforce dictionaries for penetration testing (rockyou, common passwords, credential lists, username lists, directory bruteforce, subdomain enumeration). Use when the user needs dictionaries for password cracking or fuzzing. Returns paginated results with stable IDs.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.searchDictsAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_payload",
-		Description: "Search attack payloads and exploit strings for penetration testing (XSS payloads, SQL injection strings, SSRF URLs, XXE payloads, command injection, template injection, LDAP injection, CRLF injection). Use when the user needs ready-made attack payloads. Returns paginated results.",
+		Description: "Search attack payloads and exploit strings for penetration testing (XSS payloads, SQL injection strings, SSRF URLs, XXE payloads, command injection, template injection, LDAP injection, CRLF injection). Use when the user needs ready-made attack payloads. Returns paginated results with stable IDs.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.searchPayloadAdapter))
 
@@ -217,38 +221,38 @@ func registerFullTools(server *gomcp.Server, svc *Service) {
 	// Get tools
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_skill",
-		Description: "Get detailed penetration testing skill content by name. Returns full exploit technique documentation including description, body, and optional references. Use after search_skill or list_skills to retrieve complete skill details. Set depth=full to include reference files.",
+		Description: "Get detailed penetration testing skill content by stable ID (preferred) or name (legacy). Returns full exploit technique documentation including description, body, and optional references. Use after search_skill or list_skills to retrieve complete skill details. Set depth=full to include reference files.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.getSkillAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_dict",
-		Description: "Read password dictionary or wordlist file content with line-level pagination. Returns file lines with total line count. Use after search_dicts or list_dicts to read actual dictionary content. Supports offset and limit for large files.",
+		Description: "Read password dictionary or wordlist file content by stable ID (preferred) or path (legacy) with line-level pagination. Returns file lines with total line count. Use after search_dicts or list_dicts to read actual dictionary content. Supports offset and limit for large files.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.getDictAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_payload",
-		Description: "Read attack payload file content with line-level pagination. Returns payload strings with total line count. Use after search_payload or list_payloads to read actual payload content. Supports offset and limit for large files.",
+		Description: "Read attack payload file content by stable ID (preferred) or path (legacy) with line-level pagination. Returns payload strings with total line count. Use after search_payload or list_payloads to read actual payload content. Supports offset and limit for large files.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.getPayloadAdapter))
 
 	// Vuln tools
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_vuln",
-		Description: "Search vulnerability database by keyword. Supports severity (CRITICAL/HIGH/MEDIUM/LOW) and product filters. Use this for specific CVE/CNVD lookups or product-targeted vulnerability discovery. Returns paginated results with severity, product, vendor, and category.",
+		Description: "Search vulnerability database by keyword. Supports severity (CRITICAL/HIGH/MEDIUM/LOW) and product filters. Use this for specific CVE/CNVD lookups or product-targeted vulnerability discovery. Returns paginated results with stable ID, severity, product, vendor, and category.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.searchVulnAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_vulns",
-		Description: "List vulnerabilities with pagination (default 50). Supports category (ai/cloud/middleware/network/web), severity, and product filters. Returns summary only — use get_vuln for full details and PoC.",
+		Description: "List vulnerabilities with pagination (default 50). Supports category (ai/cloud/middleware/network/web), severity, and product filters. Returns summaries with stable IDs — use get_vuln for full details and PoC.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.listVulnsAdapter))
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_vuln",
-		Description: "Get vulnerability detail by name (CVE/CNVD ID). depth=\"brief\" (default) returns structured fields and description. depth=\"full\" returns complete content including PoC and remediation.",
+		Description: "Get vulnerability detail by stable ID (preferred) or name/CVE/CNVD (legacy). depth=\"brief\" (default) returns structured fields and description. depth=\"full\" returns complete content including PoC and remediation.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.getVulnAdapter))
 }
