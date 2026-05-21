@@ -109,7 +109,7 @@ func diversifyByType(results []search.SearchResult) []search.SearchResult {
 	}
 
 	// Split results into per-type buckets, preserving order.
-	bucketOrder := []string{}       // insertion-ordered type keys
+	bucketOrder := []string{} // insertion-ordered type keys
 	buckets := map[string][]search.SearchResult{}
 	for _, r := range results {
 		if _, exists := buckets[r.Type]; !exists {
@@ -156,6 +156,7 @@ type SearchInput struct {
 }
 
 type ResourceSummary struct {
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Type        string `json:"type"`
 	Description string `json:"description"`
@@ -181,6 +182,7 @@ type SearchResult struct {
 
 func resourceToSummary(r search.Resource) ResourceSummary {
 	s := ResourceSummary{
+		ID:   search.StableID(r),
 		Name: r.Name, Type: r.Type, Description: r.Description,
 		Category: r.Category, Source: r.Source,
 		Tags: r.Tags, Difficulty: r.Difficulty,
@@ -271,14 +273,16 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 // --- get ---
 
 type GetInput struct {
-	Name      string `json:"name"               jsonschema:"Resource name (from search results)"`
-	Type      string `json:"type"               jsonschema:"Resource type: skill|vuln"`
-	Depth     string `json:"depth,omitempty"     jsonschema:"Loading depth. Skill: metadata|summary|full (default summary). Vuln: brief|full (default brief). full includes references (skill) or PoC (vuln)."`
+	ID        string `json:"id,omitempty"         jsonschema:"Stable resource ID from search results"`
+	Name      string `json:"name,omitempty"       jsonschema:"Resource name (from search results)"`
+	Type      string `json:"type,omitempty"       jsonschema:"Resource type: skill|vuln"`
+	Depth     string `json:"depth,omitempty"      jsonschema:"Loading depth. Skill: metadata|summary|full (default summary). Vuln: brief|full (default brief). full includes references (skill) or PoC (vuln)."`
 	RefOffset int    `json:"ref_offset,omitempty" jsonschema:"Reference pagination offset (default 0, skill depth=full only)"`
 	RefLimit  int    `json:"ref_limit,omitempty"  jsonschema:"Max references to include (default 3, skill depth=full only)"`
 }
 
 type GetResult struct {
+	ID              string           `json:"id"`
 	Name            string           `json:"name"`
 	Type            string           `json:"type"`
 	Description     string           `json:"description"`
@@ -296,29 +300,63 @@ type GetResult struct {
 	Fingerprint     string           `json:"fingerprint,omitempty"`
 }
 
-func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
-	if in.Type != "skill" && in.Type != "vuln" {
-		return nil, fmt.Errorf("type must be skill or vuln (use read_security_file for dict/payload)")
+func (s *Service) resolveGetResource(in GetInput) (*search.Resource, error) {
+	if in.ID == "" {
+		if in.Type != "skill" && in.Type != "vuln" {
+			return nil, fmt.Errorf("type must be skill or vuln (use read_security_file for dict/payload)")
+		}
+
+		r, err := search.GetByName(s.DB, in.Type, in.Name)
+		if err != nil {
+			return nil, err
+		}
+		if r == nil {
+			return nil, fmt.Errorf(
+				"%s %q not found; try search_security with broader keywords, or omit query to list all %ss",
+				in.Type, in.Name, in.Type,
+			)
+		}
+		return r, nil
 	}
 
-	r, err := search.GetByName(s.DB, in.Type, in.Name)
+	_, idType, _, err := search.ParseStableID(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	if idType != "skill" && idType != "vuln" {
+		return nil, fmt.Errorf("resource ID %q refers to type %s; use read_security_file for dict/payload", in.ID, idType)
+	}
+
+	r, err := search.GetByStableID(s.DB, in.ID)
 	if err != nil {
 		return nil, err
 	}
 	if r == nil {
-		return nil, fmt.Errorf(
-			"%s %q not found; try search_security with broader keywords, or omit query to list all %ss",
-			in.Type, in.Name, in.Type,
-		)
+		return nil, fmt.Errorf("resource ID %q not found; try search_security to get a current stable id", in.ID)
+	}
+	if in.Type != "" && in.Type != r.Type {
+		return nil, fmt.Errorf("type %q conflicts with resource ID type %q", in.Type, r.Type)
+	}
+	if in.Name != "" && in.Name != r.Name {
+		return nil, fmt.Errorf("name %q conflicts with resource ID name %q", in.Name, r.Name)
+	}
+	return r, nil
+}
+
+func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
+	r, err := s.resolveGetResource(in)
+	if err != nil {
+		return nil, err
 	}
 
 	result := &GetResult{
+		ID:   search.StableID(*r),
 		Name: r.Name, Type: r.Type, Description: r.Description,
 		Category: r.Category, Source: r.Source,
 		Tags: r.Tags, Difficulty: r.Difficulty,
 	}
 
-	switch in.Type {
+	switch r.Type {
 	case "skill":
 		if in.Depth == "" {
 			in.Depth = "summary"

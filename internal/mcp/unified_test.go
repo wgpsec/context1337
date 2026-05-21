@@ -392,15 +392,115 @@ func TestGet_Vuln_Full(t *testing.T) {
 	}
 }
 
+func TestSearch_ReturnsStableIDs(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	result, err := svc.Search(context.Background(), SearchInput{Query: "SQL injection", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) == 0 {
+		t.Fatal("expected results")
+	}
+	for _, item := range result.Items {
+		if item.ID == "" {
+			t.Fatalf("item %#v has empty ID", item)
+		}
+		if !strings.HasPrefix(item.ID, "absec://") {
+			t.Fatalf("ID = %q, want absec:// prefix", item.ID)
+		}
+	}
+}
+
+func TestGet_WithStableID_SkillRoundTrip(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	searchResult, err := svc.Search(context.Background(), SearchInput{Query: "SQL injection", Type: "skill", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(searchResult.Items) == 0 {
+		t.Fatal("expected skill search result")
+	}
+	got, err := svc.Get(context.Background(), GetInput{ID: searchResult.Items[0].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != searchResult.Items[0].ID {
+		t.Fatalf("ID = %q, want %q", got.ID, searchResult.Items[0].ID)
+	}
+	if got.Name != "sql-injection" || got.Type != "skill" || got.Source != "builtin" {
+		t.Fatalf("got (%q, %q, %q), want (sql-injection, skill, builtin)", got.Name, got.Type, got.Source)
+	}
+}
+
+func TestGet_WithStableID_VulnRoundTrip(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	searchResult, err := svc.Search(context.Background(), SearchInput{Query: "JNDI", Type: "vuln", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(searchResult.Items) == 0 {
+		t.Fatal("expected vuln search result")
+	}
+	got, err := svc.Get(context.Background(), GetInput{ID: searchResult.Items[0].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != searchResult.Items[0].ID {
+		t.Fatalf("ID = %q, want %q", got.ID, searchResult.Items[0].ID)
+	}
+	if got.Name != "CVE-2021-44228" || got.Type != "vuln" || got.Source != "builtin" {
+		t.Fatalf("got (%q, %q, %q), want (CVE-2021-44228, vuln, builtin)", got.Name, got.Type, got.Source)
+	}
+}
+
+func TestGet_WithStableID_RejectsLegacyMismatch(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	_, err := svc.Get(context.Background(), GetInput{ID: "absec://builtin/skill/sql-injection", Type: "skill", Name: "xss-reflected"})
+	if err == nil {
+		t.Fatal("expected mismatch error")
+	}
+	if !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("error = %q, want conflict", err.Error())
+	}
+}
+
+func TestGet_WithStableID_SourceCollision_AgentAmbiguity(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	_, err := svc.DB.Exec(`INSERT INTO resources (type,name,source,file_path,category,tags,description,body,metadata)
+		VALUES ('vuln','CVE-2021-44228','nuclei','nuclei/http/cves/CVE-2021-44228.yaml','middleware','rce,jndi',
+		'Nuclei Log4j template','nuclei yaml body',
+		'{"severity":"CRITICAL","product":"Apache Log4j","vendor":"ProjectDiscovery"}')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := svc.Get(context.Background(), GetInput{Name: "CVE-2021-44228", Type: "vuln"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.Source == "" {
+		t.Fatal("legacy lookup should return a source")
+	}
+	stable, err := svc.Get(context.Background(), GetInput{ID: "absec://nuclei/vuln/CVE-2021-44228"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stable.Source != "nuclei" {
+		t.Fatalf("stable Source = %q, want nuclei", stable.Source)
+	}
+	if stable.Vendor != "ProjectDiscovery" {
+		t.Fatalf("stable Vendor = %q, want ProjectDiscovery", stable.Vendor)
+	}
+}
+
 func TestTrimByRelevance(t *testing.T) {
 	mk := func(score float64) search.SearchResult {
 		return search.SearchResult{Score: score}
 	}
 
 	tests := []struct {
-		name   string
-		input  []search.SearchResult
-		wantN  int
+		name  string
+		input []search.SearchResult
+		wantN int
 	}{
 		{"empty", nil, 0},
 		{"single", []search.SearchResult{mk(-10)}, 1},
