@@ -64,6 +64,36 @@ func TestGetFile_PathTraversal(t *testing.T) {
 	}
 }
 
+func TestGetFile_LegacyAllowsDotsInsidePathSegment(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	dictDir := filepath.Join(svc.DataDir, "Dic", "Auth")
+	if err := os.MkdirAll(dictDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dictDir, "foo..bar.txt"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.GetFile(context.Background(), GetFileInput{Path: "Auth/foo..bar.txt", Type: "dict"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Content != "ok" {
+		t.Fatalf("Content = %q, want ok", got.Content)
+	}
+}
+
+func TestGetFile_WithStableID_RejectsInvalidLegacyPath(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	_, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://builtin/dict/Auth%2Fpassword%2FTop100.txt", Path: "../secret.txt"})
+	if err == nil {
+		t.Fatal("expected invalid path error")
+	}
+	if !strings.Contains(err.Error(), "invalid path") {
+		t.Fatalf("error = %q, want invalid path", err.Error())
+	}
+}
+
 func TestGetFile_WithStableID_DictRoundTrip(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	ctx := context.Background()

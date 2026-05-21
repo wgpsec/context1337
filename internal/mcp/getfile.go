@@ -69,11 +69,11 @@ func (s *Service) resolveFileResource(in GetFileInput) (id, typ, path, absPath s
 		if err != nil {
 			return "", "", "", "", err
 		}
-		clean := filepath.Clean(in.Path)
-		if strings.Contains(clean, "..") {
-			return "", "", "", "", fmt.Errorf("invalid path")
+		clean, err := cleanFileResourceName(in.Path)
+		if err != nil {
+			return "", "", "", "", err
 		}
-		return "", in.Type, in.Path, filepath.Join(s.DataDir, baseDir, clean), nil
+		return "", in.Type, clean, filepath.Join(s.DataDir, baseDir, clean), nil
 	}
 
 	r, err := search.GetByStableID(s.DB, in.ID)
@@ -98,8 +98,14 @@ func (s *Service) resolveFileResource(in GetFileInput) (id, typ, path, absPath s
 	if in.Type != "" && in.Type != r.Type {
 		return "", "", "", "", fmt.Errorf("type %q conflicts with resource id type %q", in.Type, r.Type)
 	}
-	if in.Path != "" && filepath.Clean(in.Path) != clean {
-		return "", "", "", "", fmt.Errorf("path %q conflicts with resource id path %q", in.Path, clean)
+	if in.Path != "" {
+		legacyClean, err := cleanFileResourceName(in.Path)
+		if err != nil {
+			return "", "", "", "", err
+		}
+		if legacyClean != clean {
+			return "", "", "", "", fmt.Errorf("path %q conflicts with resource id path %q", in.Path, clean)
+		}
 	}
 
 	root, err := s.fileSourceRoot(r.Source, baseDir, in.ID)
