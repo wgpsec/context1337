@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -60,5 +61,89 @@ func TestGetFile_PathTraversal(t *testing.T) {
 	_, err := svc.GetFile(ctx, GetFileInput{Path: "../../etc/passwd", Type: "dict"})
 	if err == nil {
 		t.Fatal("expected error for path traversal")
+	}
+}
+
+func TestGetFile_WithStableID_DictRoundTrip(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	dictDir := filepath.Join(svc.DataDir, "Dic", "Auth", "password")
+	if err := os.MkdirAll(dictDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dictPath := filepath.Join(dictDir, "Top100.txt")
+	if err := os.WriteFile(dictPath, []byte("pass1\npass2\npass3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DB.Exec("UPDATE resources SET file_path=? WHERE type='dict' AND name='Auth/password/Top100.txt'", dictPath); err != nil {
+		t.Fatal(err)
+	}
+	searchResult, err := svc.Search(ctx, SearchInput{Type: "dict", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(searchResult.Items) == 0 {
+		t.Fatal("expected dict search result")
+	}
+	got, err := svc.GetFile(ctx, GetFileInput{ID: searchResult.Items[0].ID, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != searchResult.Items[0].ID {
+		t.Fatalf("ID = %q, want %q", got.ID, searchResult.Items[0].ID)
+	}
+	if got.Type != "dict" || got.Path != "Auth/password/Top100.txt" {
+		t.Fatalf("got (%q, %q), want (dict, Auth/password/Top100.txt)", got.Type, got.Path)
+	}
+	if got.ReturnedLines != 2 {
+		t.Fatalf("ReturnedLines = %d, want 2", got.ReturnedLines)
+	}
+}
+
+func TestGetFile_WithStableID_PayloadRoundTrip(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	payloadDir := filepath.Join(svc.DataDir, "Payload", "XSS")
+	if err := os.MkdirAll(payloadDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	payloadPath := filepath.Join(payloadDir, "events.txt")
+	if err := os.WriteFile(payloadPath, []byte("<img onerror>\n<svg onload>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DB.Exec("UPDATE resources SET file_path=? WHERE type='payload' AND name='XSS/events.txt'", payloadPath); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.GetFile(ctx, GetFileInput{ID: "absec://builtin/payload/XSS%2Fevents.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "absec://builtin/payload/XSS%2Fevents.txt" {
+		t.Fatalf("ID = %q", got.ID)
+	}
+	if got.TotalLines != 2 {
+		t.Fatalf("TotalLines = %d, want 2", got.TotalLines)
+	}
+}
+
+func TestGetFile_WithStableID_RejectsLegacyMismatch(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	_, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://builtin/dict/Auth%2Fpassword%2FTop100.txt", Type: "dict", Path: "Other/passwords.txt"})
+	if err == nil {
+		t.Fatal("expected mismatch error")
+	}
+	if !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("error = %q, want conflict", err.Error())
+	}
+}
+
+func TestGetFile_WithStableID_RejectsWrongType(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	_, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://builtin/skill/sql-injection"})
+	if err == nil {
+		t.Fatal("expected wrong type error")
+	}
+	if !strings.Contains(err.Error(), "type=skill") {
+		t.Fatalf("error = %q, want type=skill", err.Error())
 	}
 }
