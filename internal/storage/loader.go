@@ -79,29 +79,46 @@ func InitRuntime(cfg LoaderConfig) (*sql.DB, error) {
 }
 
 // insertResource inserts a resource directly via SQL, avoiding an import cycle
-// with the search package. Description and body are pre-tokenized for FTS5
-// consistency with the Python build-time indexer (jieba).
+// with the search package. The resources table keeps the RAW text for display;
+// the FTS index gets pre-tokenized text (jieba-equivalent) so unicode61 can
+// match CJK. Keeping the two apart is why detail views return readable content.
 func insertResource(db *sql.DB, typ, name, source, filePath, category, tags, mitre, difficulty, description, body string) error {
-	tokDesc := tokenize.TokenizeToString(description)
-	tokBody := tokenize.TokenizeToString(body)
-	_, err := db.Exec(`
-		INSERT OR REPLACE INTO resources
-			(type, name, source, file_path, category, tags, mitre, difficulty, description, body, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-		typ, name, source, filePath, category, tags, mitre, difficulty, tokDesc, tokBody,
-	)
-	return err
+	return insertResourceWithMeta(db, typ, name, source, filePath, category, tags, mitre, difficulty, description, body, "")
 }
 
 // insertResourceWithMeta inserts a resource with a metadata JSON blob.
 func insertResourceWithMeta(db *sql.DB, typ, name, source, filePath, category, tags, mitre, difficulty, description, body, metadata string) error {
-	tokDesc := tokenize.TokenizeToString(description)
-	tokBody := tokenize.TokenizeToString(body)
-	_, err := db.Exec(`
+	res, err := db.Exec(`
 		INSERT OR REPLACE INTO resources
 			(type, name, source, file_path, category, tags, mitre, difficulty, description, body, metadata, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-		typ, name, source, filePath, category, tags, mitre, difficulty, tokDesc, tokBody, metadata,
+		typ, name, source, filePath, category, tags, mitre, difficulty, description, body, metadata,
+	)
+	if err != nil {
+		return err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+	return indexResourceFTS(db, id, name, description, tags, category, mitre, body)
+}
+
+// indexResourceFTS (re)populates the self-contained FTS row for a resource.
+// description/tags/body are tokenized for CJK matching; name/category/mitre are
+// indexed as-is. rowid is aligned with resources.id.
+func indexResourceFTS(db *sql.DB, id int64, name, description, tags, category, mitre, body string) error {
+	if _, err := db.Exec("DELETE FROM resources_fts WHERE rowid = ?", id); err != nil {
+		return err
+	}
+	_, err := db.Exec(`
+		INSERT INTO resources_fts(rowid, name, description, tags, category, mitre, body)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, name,
+		tokenize.TokenizeToString(description),
+		tokenize.TokenizeToString(tags),
+		category, mitre,
+		tokenize.TokenizeToString(body),
 	)
 	return err
 }

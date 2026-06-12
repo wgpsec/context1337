@@ -35,6 +35,11 @@ CREATE INDEX IF NOT EXISTS idx_resources_type ON resources(type);
 CREATE INDEX IF NOT EXISTS idx_resources_source ON resources(source);
 CREATE INDEX IF NOT EXISTS idx_resources_category ON resources(type, category);
 
+-- Self-contained FTS5 index: stores pre-tokenized text only (not original
+-- content). The resources table keeps the raw text for display; write paths
+-- explicitly populate this index with tokenized values, keeping rowid aligned
+-- with resources.id. No external-content / triggers, so the raw body is never
+-- overwritten by tokenized text.
 CREATE VIRTUAL TABLE IF NOT EXISTS resources_fts USING fts5(
     name,
     description,
@@ -42,32 +47,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS resources_fts USING fts5(
     category,
     mitre,
     body,
-    content='resources',
-    content_rowid='id'
+    tokenize='unicode61'
 );
 
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT
 );
-
--- Triggers to keep FTS in sync with resources
-CREATE TRIGGER IF NOT EXISTS resources_ai AFTER INSERT ON resources BEGIN
-    INSERT INTO resources_fts(rowid, name, description, tags, category, mitre, body)
-    VALUES (new.id, new.name, new.description, new.tags, new.category, new.mitre, new.body);
-END;
-
-CREATE TRIGGER IF NOT EXISTS resources_ad AFTER DELETE ON resources BEGIN
-    INSERT INTO resources_fts(resources_fts, rowid, name, description, tags, category, mitre, body)
-    VALUES ('delete', old.id, old.name, old.description, old.tags, old.category, old.mitre, old.body);
-END;
-
-CREATE TRIGGER IF NOT EXISTS resources_au AFTER UPDATE ON resources BEGIN
-    INSERT INTO resources_fts(resources_fts, rowid, name, description, tags, category, mitre, body)
-    VALUES ('delete', old.id, old.name, old.description, old.tags, old.category, old.mitre, old.body);
-    INSERT INTO resources_fts(rowid, name, description, tags, category, mitre, body)
-    VALUES (new.id, new.name, new.description, new.tags, new.category, new.mitre, new.body);
-END;
 `
 
 // OpenDB opens (or creates) a SQLite database with the full schema.

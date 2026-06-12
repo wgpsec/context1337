@@ -57,21 +57,50 @@ type ListResult struct {
 	Items []Resource
 }
 
-// InsertResource inserts a resource into the resources table.
+// InsertResource inserts a resource into the resources table (raw text) and
+// populates the self-contained FTS index with tokenized text.
 func InsertResource(db *sql.DB, r Resource) error {
-	_, err := db.Exec(`
+	res, err := db.Exec(`
 		INSERT OR REPLACE INTO resources
 			(type, name, source, file_path, category, tags, mitre, difficulty, description, body, metadata, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
 		r.Type, r.Name, r.Source, r.FilePath, r.Category,
 		r.Tags, r.Mitre, r.Difficulty, r.Description, r.Body, r.Metadata,
 	)
+	if err != nil {
+		return err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+	return IndexFTS(db, id, r.Name, r.Description, r.Tags, r.Category, r.Mitre, r.Body)
+}
+
+// IndexFTS (re)populates the FTS row for a resource id. description/tags/body
+// are tokenized for CJK matching; name/category/mitre indexed as-is.
+func IndexFTS(db *sql.DB, id int64, name, description, tags, category, mitre, body string) error {
+	if _, err := db.Exec("DELETE FROM resources_fts WHERE rowid = ?", id); err != nil {
+		return err
+	}
+	_, err := db.Exec(`
+		INSERT INTO resources_fts(rowid, name, description, tags, category, mitre, body)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, name,
+		Tokenize2String(description), Tokenize2String(tags),
+		category, mitre, Tokenize2String(body),
+	)
 	return err
 }
 
 // DeleteResource removes a resource by type, name, and source.
 func DeleteResource(db *sql.DB, typ, name, source string) error {
-	_, err := db.Exec("DELETE FROM resources WHERE type=? AND name=? AND source=?", typ, name, source)
+	var id int64
+	err := db.QueryRow("SELECT id FROM resources WHERE type=? AND name=? AND source=?", typ, name, source).Scan(&id)
+	if err == nil {
+		db.Exec("DELETE FROM resources_fts WHERE rowid = ?", id)
+	}
+	_, err = db.Exec("DELETE FROM resources WHERE type=? AND name=? AND source=?", typ, name, source)
 	return err
 }
 

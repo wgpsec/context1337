@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/wgpsec/context1337/internal/search"
 )
 
 func handleListResources(db *sql.DB) http.HandlerFunc {
@@ -186,6 +188,7 @@ func handleCreateResource(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		id, _ := res.LastInsertId()
+		search.IndexFTS(db, id, body.Name, body.Description, body.Tags, body.Category, "", body.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "name": body.Name, "type": body.Type})
@@ -250,8 +253,15 @@ func handleUpdateResource(db *sql.DB) http.HandlerFunc {
 		}
 		args = append(args, id)
 		db.Exec("UPDATE resources SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
-		w.Header().Set("Content-Type", "application/json")
+
+		// Re-index FTS from the updated row so search reflects new content.
+		var rName, rDesc, rTags, rCat, rMitre, rBody string
+		db.QueryRow("SELECT COALESCE(name,''), COALESCE(description,''), COALESCE(tags,''), COALESCE(category,''), COALESCE(mitre,''), COALESCE(body,'') FROM resources WHERE id = ?", id).
+			Scan(&rName, &rDesc, &rTags, &rCat, &rMitre, &rBody)
 		idInt, _ := strconv.Atoi(id)
+		search.IndexFTS(db, int64(idInt), rName, rDesc, rTags, rCat, rMitre, rBody)
+
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"id": idInt, "ok": true})
 	}
 }
@@ -270,6 +280,8 @@ func handleDeleteResource(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		db.Exec("DELETE FROM resources WHERE id = ?", id)
+		idInt, _ := strconv.Atoi(id)
+		db.Exec("DELETE FROM resources_fts WHERE rowid = ?", idInt)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 	}

@@ -204,15 +204,18 @@ func TestSearch_ReturnsTotal(t *testing.T) {
 func insertVuln(t *testing.T, db *sql.DB, name, category, severity, product string) {
 	t.Helper()
 	metadata := fmt.Sprintf(`{"severity":"%s","product":"%s","vendor":"TestVendor"}`, severity, product)
-	_, err := db.Exec(`INSERT OR REPLACE INTO resources
+	desc := fmt.Sprintf("vuln %s %s", name, product)
+	body := fmt.Sprintf("vuln body %s", name)
+	res, err := db.Exec(`INSERT OR REPLACE INTO resources
 		(type,name,source,file_path,category,tags,description,body,metadata)
 		VALUES ('vuln',?,'builtin','test.md',?,'rce',?,?,?)`,
-		name, category,
-		fmt.Sprintf("vuln %s %s", name, product),
-		fmt.Sprintf("vuln body %s", name),
-		metadata)
+		name, category, desc, body, metadata)
 	if err != nil {
 		t.Fatalf("insertVuln %s: %v", name, err)
+	}
+	id, _ := res.LastInsertId()
+	if err := IndexFTS(db, id, name, desc, "rce", category, "", body); err != nil {
+		t.Fatalf("insertVuln IndexFTS %s: %v", name, err)
 	}
 }
 

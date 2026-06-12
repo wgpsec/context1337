@@ -28,7 +28,13 @@ def tokenize(text: str) -> str:
 
 
 def create_schema(conn: sqlite3.Connection):
-    """Create the database schema."""
+    """Create the database schema.
+
+    The resources table holds RAW text for display. resources_fts is a
+    self-contained FTS5 index holding pre-tokenized (jieba) text so unicode61
+    can match CJK. The two are kept separate so detail views return readable
+    content instead of tokenized fragments.
+    """
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS resources (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,17 +60,37 @@ def create_schema(conn: sqlite3.Connection):
 
         CREATE VIRTUAL TABLE IF NOT EXISTS resources_fts USING fts5(
             name, description, tags, category, mitre, body,
-            content='resources', content_rowid='id',
             tokenize='unicode61'
         );
 
-        CREATE TRIGGER IF NOT EXISTS resources_ai AFTER INSERT ON resources BEGIN
-            INSERT INTO resources_fts(rowid, name, description, tags, category, mitre, body)
-            VALUES (new.id, new.name, new.description, new.tags, new.category, new.mitre, new.body);
-        END;
-
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
     """)
+
+
+def insert_resource(conn, *, type, name, source, file_path, category="",
+                    tags="", mitre="", difficulty="", description="",
+                    body="", metadata="", fts_body=None):
+    """Insert a resource with RAW text, then populate the FTS index with the
+    tokenized form. rowid in resources_fts is aligned with resources.id.
+
+    fts_body: optional extra text to index for body instead of `body` itself
+    (e.g. vuln title+body), so search recall is unchanged while the stored
+    body remains the clean original."""
+    cur = conn.execute(
+        "INSERT OR REPLACE INTO resources "
+        "(type,name,source,file_path,category,tags,mitre,difficulty,description,body,metadata) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (type, name, source, file_path, category, tags, mitre, difficulty,
+         description, body, metadata),
+    )
+    rowid = cur.lastrowid
+    conn.execute("DELETE FROM resources_fts WHERE rowid = ?", (rowid,))
+    conn.execute(
+        "INSERT INTO resources_fts(rowid,name,description,tags,category,mitre,body) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (rowid, name, tokenize(description), tokenize(tags), category, mitre,
+         tokenize(fts_body if fts_body is not None else body)),
+    )
 
 
 def parse_skill_md(path: str) -> dict:
@@ -131,18 +157,17 @@ def index_skills(conn: sqlite3.Connection, base_dir: str):
                     except Exception:
                         pass
 
-            tok_body = tokenize(f"{skill['description']} {body}")
-            tok_tags = tokenize(skill["tags"])
-
             body_lines = len(skill["body"].strip().splitlines()) if skill["body"].strip() else 0
             ref_count = len(ref_files)
             metadata = json.dumps({"body_lines": body_lines, "ref_count": ref_count})
 
-            conn.execute(
-                "INSERT OR REPLACE INTO resources (type,name,source,file_path,category,tags,mitre,difficulty,description,body,metadata) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                ("skill", skill["name"], "builtin", skill["file_path"],
-                 skill["category"], tok_tags, skill["mitre"], skill["difficulty"],
-                 tokenize(skill["description"]), tok_body, metadata),
+            insert_resource(
+                conn, type="skill", name=skill["name"], source="builtin",
+                file_path=skill["file_path"], category=skill["category"],
+                tags=skill["tags"], mitre=skill["mitre"],
+                difficulty=skill["difficulty"], description=skill["description"],
+                body=body, metadata=metadata,
+                fts_body=f"{skill['description']} {body}",
             )
             count += 1
 
@@ -197,13 +222,10 @@ def _index_data_dir(conn, base_dir, subdir, resource_type):
                     lines = entry.get("lines", 0)
                     metadata = json.dumps({"lines": lines}) if lines else ""
 
-                    conn.execute(
-                        "INSERT OR REPLACE INTO resources "
-                        "(type,name,source,file_path,category,tags,description,body,metadata) "
-                        "VALUES (?,?,?,?,?,?,?,?,?)",
-                        (resource_type, rel, "builtin", path, dir_cat,
-                         tokenize(merged_tags), tokenize(desc),
-                         tokenize(body_text), metadata),
+                    insert_resource(
+                        conn, type=resource_type, name=rel, source="builtin",
+                        file_path=path, category=dir_cat, tags=merged_tags,
+                        description=desc, body=body_text, metadata=metadata,
                     )
                 else:
                     _index_file_fallback(conn, resource_type, data_dir, root, f)
@@ -223,12 +245,11 @@ def _index_file_fallback(conn, resource_type, data_dir, root, filename):
     parts = rel.split(os.sep)
     cat = parts[0] if len(parts) > 1 else ""
     label = "dictionary" if resource_type == "dict" else "payload"
-    conn.execute(
-        "INSERT OR REPLACE INTO resources "
-        "(type,name,source,file_path,category,description,body) "
-        "VALUES (?,?,?,?,?,?,?)",
-        (resource_type, rel, "builtin", path, cat,
-         f"{cat} {label}: {filename}", tokenize(f"{cat} {filename}")),
+    insert_resource(
+        conn, type=resource_type, name=rel, source="builtin",
+        file_path=path, category=cat,
+        description=f"{cat} {label}: {filename}",
+        body=f"{cat} {filename}",
     )
 
 
@@ -328,16 +349,12 @@ def index_vulns(conn: sqlite3.Connection, base_dir: str):
                 "fingerprint": vuln["fingerprint"],
             })
 
-            tok_tags = tokenize(vuln["tags"])
-            tok_desc = tokenize(vuln["description"])
-            tok_body = tokenize(f"{vuln['description']} {vuln['title']} {vuln['body']}")
-
-            conn.execute(
-                "INSERT OR REPLACE INTO resources "
-                "(type,name,source,file_path,category,tags,description,body,metadata) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
-                ("vuln", vuln["id"], "builtin", vuln["file_path"],
-                 cat, tok_tags, tok_desc, tok_body, meta),
+            insert_resource(
+                conn, type="vuln", name=vuln["id"], source="builtin",
+                file_path=vuln["file_path"], category=cat, tags=vuln["tags"],
+                description=vuln["description"], body=vuln["body"],
+                metadata=meta,
+                fts_body=f"{vuln['description']} {vuln['title']} {vuln['body']}",
             )
             count += 1
 
@@ -365,7 +382,7 @@ def main():
     vulns = index_vulns(conn, args.input)
 
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('builtin_version', ?)",
-                 (f"v1-{skills}s-{dicts}d-{payloads}p-{vulns}v",))
+                 (f"v2raw-{skills}s-{dicts}d-{payloads}p-{vulns}v",))
 
     conn.execute("INSERT INTO resources_fts(resources_fts) VALUES('optimize')")
     conn.execute("PRAGMA journal_mode=DELETE")

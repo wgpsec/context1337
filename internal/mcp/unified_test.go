@@ -43,11 +43,13 @@ func setupUnifiedTest(t *testing.T) *Service {
 		Type: "payload", Name: "XSS/events.txt", Source: "builtin",
 		Category: "xss", Description: "XSS event handler payloads",
 	})
-	// Insert a vuln resource
-	db.Exec(`INSERT INTO resources (type,name,source,file_path,category,tags,description,body,metadata)
+	// Insert a vuln resource (raw row + FTS index)
+	vres, _ := db.Exec(`INSERT INTO resources (type,name,source,file_path,category,tags,description,body,metadata)
 		VALUES ('vuln','CVE-2021-44228','builtin','test/vuln.md','middleware','rce,jndi',
 		'JNDI injection leads to RCE','## PoC\ntest payload',
 		'{"severity":"CRITICAL","product":"Apache Log4j","vendor":"Apache","version_affected":"<2.17.0","fingerprint":"header=X-Log4j"}')`)
+	vid, _ := vres.LastInsertId()
+	search.IndexFTS(db, vid, "CVE-2021-44228", "JNDI injection leads to RCE", "rce,jndi", "middleware", "", "## PoC\ntest payload")
 
 	return &Service{DB: db, DataDir: dir}
 }
