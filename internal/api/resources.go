@@ -157,7 +157,6 @@ func handleCreateResource(db *sql.DB) http.HandlerFunc {
 			Name        string `json:"name"`
 			Category    string `json:"category"`
 			Tags        string `json:"tags"`
-			Difficulty  string `json:"difficulty"`
 			Description string `json:"description"`
 			Body        string `json:"body"`
 			Metadata    string `json:"metadata"`
@@ -176,8 +175,8 @@ func handleCreateResource(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		res, err := db.Exec(
-			"INSERT INTO resources (type, name, category, tags, difficulty, description, body, metadata, source, file_path) VALUES (?,?,?,?,?,?,?,?,?,?)",
-			body.Type, body.Name, body.Category, body.Tags, body.Difficulty, body.Description, body.Body, body.Metadata, "custom", "",
+			"INSERT INTO resources (type, name, category, tags, description, body, metadata, source, file_path) VALUES (?,?,?,?,?,?,?,?,?)",
+			body.Type, body.Name, body.Category, body.Tags, body.Description, body.Body, body.Metadata, "custom", "",
 		)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
@@ -188,7 +187,7 @@ func handleCreateResource(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		id, _ := res.LastInsertId()
-		search.IndexFTS(db, id, body.Name, body.Description, body.Tags, body.Category, "", body.Body)
+		search.IndexFTS(db, id, body.Name, body.Description, body.Tags, body.Category, body.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "name": body.Name, "type": body.Type})
@@ -212,7 +211,6 @@ func handleUpdateResource(db *sql.DB) http.HandlerFunc {
 			Name        *string `json:"name"`
 			Category    *string `json:"category"`
 			Tags        *string `json:"tags"`
-			Difficulty  *string `json:"difficulty"`
 			Description *string `json:"description"`
 			Body        *string `json:"body"`
 			Metadata    *string `json:"metadata"`
@@ -235,10 +233,6 @@ func handleUpdateResource(db *sql.DB) http.HandlerFunc {
 			sets = append(sets, "tags = ?")
 			args = append(args, *body.Tags)
 		}
-		if body.Difficulty != nil {
-			sets = append(sets, "difficulty = ?")
-			args = append(args, *body.Difficulty)
-		}
 		if body.Description != nil {
 			sets = append(sets, "description = ?")
 			args = append(args, *body.Description)
@@ -255,11 +249,11 @@ func handleUpdateResource(db *sql.DB) http.HandlerFunc {
 		db.Exec("UPDATE resources SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
 
 		// Re-index FTS from the updated row so search reflects new content.
-		var rName, rDesc, rTags, rCat, rMitre, rBody string
-		db.QueryRow("SELECT COALESCE(name,''), COALESCE(description,''), COALESCE(tags,''), COALESCE(category,''), COALESCE(mitre,''), COALESCE(body,'') FROM resources WHERE id = ?", id).
-			Scan(&rName, &rDesc, &rTags, &rCat, &rMitre, &rBody)
+		var rName, rDesc, rTags, rCat, rBody string
+		db.QueryRow("SELECT COALESCE(name,''), COALESCE(description,''), COALESCE(tags,''), COALESCE(category,''), COALESCE(body,'') FROM resources WHERE id = ?", id).
+			Scan(&rName, &rDesc, &rTags, &rCat, &rBody)
 		idInt, _ := strconv.Atoi(id)
-		search.IndexFTS(db, int64(idInt), rName, rDesc, rTags, rCat, rMitre, rBody)
+		search.IndexFTS(db, int64(idInt), rName, rDesc, rTags, rCat, rBody)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"id": idInt, "ok": true})

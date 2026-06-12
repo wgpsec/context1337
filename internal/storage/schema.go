@@ -20,8 +20,6 @@ CREATE TABLE IF NOT EXISTS resources (
     file_path   TEXT NOT NULL,
     category    TEXT,
     tags        TEXT,
-    mitre       TEXT,
-    difficulty  TEXT,
     description TEXT,
     body        TEXT,
     metadata    TEXT,
@@ -45,7 +43,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS resources_fts USING fts5(
     description,
     tags,
     category,
-    mitre,
     body,
     tokenize='unicode61'
 );

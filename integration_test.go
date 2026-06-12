@@ -28,7 +28,7 @@ func TestIntegration_FullStack(t *testing.T) {
 	search.InsertResource(db, search.Resource{
 		Type: "skill", Name: "sql-injection", Source: "builtin",
 		FilePath: "skills/sql-injection/SKILL.md", Category: "exploit",
-		Tags: "sqli,owasp,web", Difficulty: "medium",
+		Tags: "sqli,owasp,web",
 		Description: "SQL Injection attack techniques",
 		Body:        "SQL注入攻击是一种常见的Web安全漏洞",
 	})

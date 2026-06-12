@@ -15,8 +15,6 @@ type SkillData struct {
 	Description string
 	Tags        string
 	Category    string
-	Difficulty  string
-	Mitre       string
 	Body        string
 	FilePath    string
 }
@@ -76,8 +74,6 @@ type skillFrontmatter struct {
 	Metadata    struct {
 		Tags        string `yaml:"tags"`
 		Category    string `yaml:"category"`
-		Difficulty  string `yaml:"difficulty"`
-		MitreAttack string `yaml:"mitre_attack"`
 	} `yaml:"metadata"`
 }
 
@@ -175,8 +171,6 @@ func ParseSkillMD(path string) (*SkillData, error) {
 		Description: meta.Description,
 		Tags:        meta.Metadata.Tags,
 		Category:    meta.Metadata.Category,
-		Difficulty:  meta.Metadata.Difficulty,
-		Mitre:       meta.Metadata.MitreAttack,
 		Body:        strings.TrimSpace(body),
 		FilePath:    path,
 	}, nil

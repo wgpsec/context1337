@@ -24,14 +24,14 @@ func setupUnifiedTest(t *testing.T) *Service {
 	search.InsertResource(db, search.Resource{
 		Type: "skill", Name: "sql-injection", Source: "builtin",
 		FilePath: "skills/sql-injection/SKILL.md", Category: "exploit",
-		Tags: "sqli,owasp,web", Difficulty: "medium",
+		Tags: "sqli,owasp,web",
 		Description: "SQL Injection attack techniques",
 		Body:        "SQL injection is a common web vulnerability",
 	})
 	search.InsertResource(db, search.Resource{
 		Type: "skill", Name: "xss-reflected", Source: "builtin",
 		FilePath: "skills/xss-reflected/SKILL.md", Category: "exploit",
-		Tags: "xss,owasp", Difficulty: "easy",
+		Tags: "xss,owasp",
 		Description: "Reflected XSS attacks",
 		Body:        "Reflected cross-site scripting techniques",
 	})
@@ -49,7 +49,7 @@ func setupUnifiedTest(t *testing.T) *Service {
 		'JNDI injection leads to RCE','## PoC\ntest payload',
 		'{"severity":"CRITICAL","product":"Apache Log4j","vendor":"Apache","version_affected":"<2.17.0","fingerprint":"header=X-Log4j"}')`)
 	vid, _ := vres.LastInsertId()
-	search.IndexFTS(db, vid, "CVE-2021-44228", "JNDI injection leads to RCE", "rce,jndi", "middleware", "", "## PoC\ntest payload")
+	search.IndexFTS(db, vid, "CVE-2021-44228", "JNDI injection leads to RCE", "rce,jndi", "middleware", "## PoC\ntest payload")
 
 	return &Service{DB: db, DataDir: dir}
 }

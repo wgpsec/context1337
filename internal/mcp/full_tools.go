@@ -9,11 +9,10 @@ import (
 // --- Search adapter inputs (no Type field — injected by adapter) ---
 
 type SearchSkillInput struct {
-	Query      string `json:"query,omitempty"      jsonschema:"Search keywords for skill lookup"`
-	Category   string `json:"category,omitempty"   jsonschema:"Filter by category"`
-	Difficulty string `json:"difficulty,omitempty" jsonschema:"Filter by difficulty: easy|medium|hard"`
-	Offset     int    `json:"offset,omitempty"     jsonschema:"Pagination offset (default 0)"`
-	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 20)"`
+	Query    string `json:"query,omitempty"    jsonschema:"Search keywords for skill lookup"`
+	Category string `json:"category,omitempty" jsonschema:"Filter by category"`
+	Offset   int    `json:"offset,omitempty"   jsonschema:"Pagination offset (default 0)"`
+	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 20)"`
 }
 
 type SearchDictsInput struct {
@@ -42,10 +41,9 @@ type SearchVulnInput struct {
 // --- List adapter inputs (no Type or Query field) ---
 
 type ListSkillsInput struct {
-	Category   string `json:"category,omitempty"   jsonschema:"Filter by category"`
-	Difficulty string `json:"difficulty,omitempty" jsonschema:"Filter by difficulty: easy|medium|hard"`
-	Offset     int    `json:"offset,omitempty"     jsonschema:"Pagination offset (default 0)"`
-	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results (default 20)"`
+	Category string `json:"category,omitempty" jsonschema:"Filter by category"`
+	Offset   int    `json:"offset,omitempty"   jsonschema:"Pagination offset (default 0)"`
+	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results (default 20)"`
 }
 
 type ListDictsInput struct {
@@ -101,7 +99,7 @@ type GetVulnInput struct {
 func (s *Service) searchSkillAdapter(ctx context.Context, in SearchSkillInput) (*SearchResult, error) {
 	return s.Search(ctx, SearchInput{
 		Query: in.Query, Type: "skill", Category: in.Category,
-		Difficulty: in.Difficulty, Offset: in.Offset, Limit: in.Limit,
+		Offset: in.Offset, Limit: in.Limit,
 	})
 }
 
@@ -132,7 +130,7 @@ func (s *Service) searchVulnAdapter(ctx context.Context, in SearchVulnInput) (*S
 func (s *Service) listSkillsAdapter(ctx context.Context, in ListSkillsInput) (*SearchResult, error) {
 	return s.Search(ctx, SearchInput{
 		Type: "skill", Category: in.Category,
-		Difficulty: in.Difficulty, Offset: in.Offset, Limit: in.Limit,
+		Offset: in.Offset, Limit: in.Limit,
 	})
 }
 
@@ -183,7 +181,7 @@ func registerFullTools(server *gomcp.Server, svc *Service) {
 	// Search tools
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "search_skill",
-		Description: "Search penetration testing skills and exploit techniques (SQL injection, XSS, SSRF, RCE, privilege escalation, buffer overflow, command injection, path traversal, authentication bypass, CSRF). Use when the user asks about hacking techniques or vulnerability exploitation. Returns paginated results with stable ID, name, description, category, and difficulty.",
+		Description: "Search penetration testing skills and exploit techniques (SQL injection, XSS, SSRF, RCE, privilege escalation, buffer overflow, command injection, path traversal, authentication bypass, CSRF). Use when the user asks about hacking techniques or vulnerability exploitation. Returns paginated results with stable ID, name, description, and category.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.searchSkillAdapter))
 
@@ -202,7 +200,7 @@ func registerFullTools(server *gomcp.Server, svc *Service) {
 	// List tools
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_skills",
-		Description: "List all available penetration testing skills and exploit techniques. Browse by category or difficulty without a search query. Supports pagination with offset and limit. Use to discover available hacking skills, vulnerability classes, and attack methods.",
+		Description: "List all available penetration testing skills and exploit techniques. Browse by category without a search query. Supports pagination with offset and limit. Use to discover available hacking skills, vulnerability classes, and attack methods.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.listSkillsAdapter))
 

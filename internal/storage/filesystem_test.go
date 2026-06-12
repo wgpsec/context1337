@@ -25,9 +25,6 @@ func TestParseSkillMD(t *testing.T) {
 	if skill.Category != "exploit" {
 		t.Errorf("category = %q, want exploit", skill.Category)
 	}
-	if skill.Difficulty != "medium" {
-		t.Errorf("difficulty = %q, want medium", skill.Difficulty)
-	}
 	if skill.Body == "" {
 		t.Error("body is empty")
 	}
@@ -211,42 +208,6 @@ func TestScanSkills_ReferencesInBody(t *testing.T) {
 	}
 	if !strings.Contains(refSkill.Body, "Main body content") {
 		t.Error("body should contain original SKILL.md body")
-	}
-}
-
-func TestScanSkills_Mitre(t *testing.T) {
-	dir := t.TempDir()
-	skillDir := filepath.Join(dir, "exploit", "test-mitre")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
-name: test-mitre
-description: Test MITRE mapping
-metadata:
-  tags: "test"
-  category: "exploit"
-  mitre_attack: "T1190,T1059"
----
-Test body
-`), 0o644)
-
-	skills, err := ScanSkills(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(skills) == 0 {
-		t.Fatal("expected at least 1 skill")
-	}
-	found := false
-	for _, s := range skills {
-		if s.Name == "test-mitre" {
-			found = true
-			if s.Mitre != "T1190,T1059" {
-				t.Errorf("mitre = %q, want T1190,T1059", s.Mitre)
-			}
-		}
-	}
-	if !found {
-		t.Error("test-mitre skill not found")
 	}
 }
 

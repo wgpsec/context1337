@@ -15,8 +15,6 @@ type Resource struct {
 	FilePath    string
 	Category    string
 	Tags        string
-	Mitre       string
-	Difficulty  string
 	Description string
 	Body        string
 	Metadata    string
@@ -24,14 +22,13 @@ type Resource struct {
 
 // SearchQuery defines search parameters.
 type SearchQuery struct {
-	Query      string
-	Type       string
-	Category   string
-	Difficulty string
-	Severity   string // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
-	Product    string // vuln metadata filter: product name
-	Offset     int
-	Limit      int
+	Query    string
+	Type     string
+	Category string
+	Severity string // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
+	Product  string // vuln metadata filter: product name
+	Offset   int
+	Limit    int
 }
 
 // SearchResult is a Resource with a relevance score.
@@ -42,13 +39,12 @@ type SearchResult struct {
 
 // ListQuery defines list/filter parameters with pagination.
 type ListQuery struct {
-	Type       string
-	Category   string
-	Difficulty string
-	Severity   string // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
-	Product    string // vuln metadata filter: product name
-	Offset     int
-	Limit      int
+	Type     string
+	Category string
+	Severity string // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
+	Product  string // vuln metadata filter: product name
+	Offset   int
+	Limit    int
 }
 
 // ListResult wraps a page of resources with total count.
@@ -62,10 +58,10 @@ type ListResult struct {
 func InsertResource(db *sql.DB, r Resource) error {
 	res, err := db.Exec(`
 		INSERT OR REPLACE INTO resources
-			(type, name, source, file_path, category, tags, mitre, difficulty, description, body, metadata, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+			(type, name, source, file_path, category, tags, description, body, metadata, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
 		r.Type, r.Name, r.Source, r.FilePath, r.Category,
-		r.Tags, r.Mitre, r.Difficulty, r.Description, r.Body, r.Metadata,
+		r.Tags, r.Description, r.Body, r.Metadata,
 	)
 	if err != nil {
 		return err
@@ -74,21 +70,21 @@ func InsertResource(db *sql.DB, r Resource) error {
 	if err != nil {
 		return err
 	}
-	return IndexFTS(db, id, r.Name, r.Description, r.Tags, r.Category, r.Mitre, r.Body)
+	return IndexFTS(db, id, r.Name, r.Description, r.Tags, r.Category, r.Body)
 }
 
 // IndexFTS (re)populates the FTS row for a resource id. description/tags/body
-// are tokenized for CJK matching; name/category/mitre indexed as-is.
-func IndexFTS(db *sql.DB, id int64, name, description, tags, category, mitre, body string) error {
+// are tokenized for CJK matching; name/category indexed as-is.
+func IndexFTS(db *sql.DB, id int64, name, description, tags, category, body string) error {
 	if _, err := db.Exec("DELETE FROM resources_fts WHERE rowid = ?", id); err != nil {
 		return err
 	}
 	_, err := db.Exec(`
-		INSERT INTO resources_fts(rowid, name, description, tags, category, mitre, body)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO resources_fts(rowid, name, description, tags, category, body)
+		VALUES (?, ?, ?, ?, ?, ?)`,
 		id, name,
 		Tokenize2String(description), Tokenize2String(tags),
-		category, mitre, Tokenize2String(body),
+		category, Tokenize2String(body),
 	)
 	return err
 }
@@ -138,10 +134,6 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 		conditions = append(conditions, "LOWER(r.category) = LOWER(?)")
 		args = append(args, q.Category)
 	}
-	if q.Difficulty != "" {
-		conditions = append(conditions, "LOWER(r.difficulty) = LOWER(?)")
-		args = append(args, q.Difficulty)
-	}
 	// Exclude vuln from default search (no type specified)
 	if q.Type == "" {
 		conditions = append(conditions, "r.type != 'vuln'")
@@ -170,9 +162,9 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 
 	query := fmt.Sprintf(`
 		SELECT r.id, r.type, COALESCE(r.name,''), COALESCE(r.source,''), COALESCE(r.file_path,''),
-		       COALESCE(r.category,''), COALESCE(r.tags,''), COALESCE(r.mitre,''), COALESCE(r.difficulty,''),
+		       COALESCE(r.category,''), COALESCE(r.tags,''),
 		       COALESCE(r.description,''), COALESCE(r.body,''), COALESCE(r.metadata,''),
-		       bm25(resources_fts, 10.0, 5.0, 5.0, 2.0, 1.0, 1.0) AS score
+		       bm25(resources_fts, 10.0, 5.0, 5.0, 2.0, 1.0) AS score
 		FROM resources_fts
 		JOIN resources r ON r.id = resources_fts.rowid
 		WHERE %s
@@ -190,7 +182,7 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 		var sr SearchResult
 		err := rows.Scan(
 			&sr.ID, &sr.Type, &sr.Name, &sr.Source, &sr.FilePath,
-			&sr.Category, &sr.Tags, &sr.Mitre, &sr.Difficulty,
+			&sr.Category, &sr.Tags,
 			&sr.Description, &sr.Body, &sr.Metadata,
 			&sr.Score,
 		)
@@ -225,10 +217,6 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 		conditions = append(conditions, "LOWER(category) = LOWER(?)")
 		args = append(args, q.Category)
 	}
-	if q.Difficulty != "" {
-		conditions = append(conditions, "LOWER(difficulty) = LOWER(?)")
-		args = append(args, q.Difficulty)
-	}
 	// Exclude vuln from default list (no type specified)
 	if q.Type == "" {
 		conditions = append(conditions, "type != 'vuln'")
@@ -257,7 +245,7 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 
 	// Fetch the page.
 	pageArgs := append(args, q.Limit, q.Offset)
-	query := fmt.Sprintf("SELECT id, type, COALESCE(name,''), COALESCE(source,''), COALESCE(file_path,''), COALESCE(category,''), COALESCE(tags,''), COALESCE(mitre,''), COALESCE(difficulty,''), COALESCE(description,''), COALESCE(metadata,'') FROM resources WHERE %s ORDER BY name LIMIT ? OFFSET ?", where)
+	query := fmt.Sprintf("SELECT id, type, COALESCE(name,''), COALESCE(source,''), COALESCE(file_path,''), COALESCE(category,''), COALESCE(tags,''), COALESCE(description,''), COALESCE(metadata,'') FROM resources WHERE %s ORDER BY name LIMIT ? OFFSET ?", where)
 
 	rows, err := db.Query(query, pageArgs...)
 	if err != nil {
@@ -269,7 +257,7 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 	for rows.Next() {
 		var r Resource
 		err := rows.Scan(&r.ID, &r.Type, &r.Name, &r.Source, &r.FilePath,
-			&r.Category, &r.Tags, &r.Mitre, &r.Difficulty, &r.Description, &r.Metadata)
+			&r.Category, &r.Tags, &r.Description, &r.Metadata)
 		if err != nil {
 			return ListResult{}, err
 		}
@@ -286,11 +274,11 @@ func GetByName(db *sql.DB, typ, name string) (*Resource, error) {
 	var r Resource
 	err := db.QueryRow(`
 		SELECT id, type, COALESCE(name,''), COALESCE(source,''), COALESCE(file_path,''),
-		       COALESCE(category,''), COALESCE(tags,''), COALESCE(mitre,''),
-		       COALESCE(difficulty,''), COALESCE(description,''), COALESCE(body,''), COALESCE(metadata,'')
+		       COALESCE(category,''), COALESCE(tags,''),
+		       COALESCE(description,''), COALESCE(body,''), COALESCE(metadata,'')
 		FROM resources WHERE type=? AND name=? AND enabled = 1 LIMIT 1`, typ, name).Scan(
 		&r.ID, &r.Type, &r.Name, &r.Source, &r.FilePath,
-		&r.Category, &r.Tags, &r.Mitre, &r.Difficulty,
+		&r.Category, &r.Tags,
 		&r.Description, &r.Body, &r.Metadata,
 	)
 	if err == sql.ErrNoRows {

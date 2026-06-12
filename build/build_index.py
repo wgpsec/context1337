@@ -44,8 +44,6 @@ def create_schema(conn: sqlite3.Connection):
             file_path   TEXT NOT NULL,
             category    TEXT,
             tags        TEXT,
-            mitre       TEXT,
-            difficulty  TEXT,
             description TEXT,
             body        TEXT,
             metadata    TEXT,
@@ -59,7 +57,7 @@ def create_schema(conn: sqlite3.Connection):
         CREATE INDEX IF NOT EXISTS idx_resources_category ON resources(type, category);
 
         CREATE VIRTUAL TABLE IF NOT EXISTS resources_fts USING fts5(
-            name, description, tags, category, mitre, body,
+            name, description, tags, category, body,
             tokenize='unicode61'
         );
 
@@ -68,7 +66,7 @@ def create_schema(conn: sqlite3.Connection):
 
 
 def insert_resource(conn, *, type, name, source, file_path, category="",
-                    tags="", mitre="", difficulty="", description="",
+                    tags="", description="",
                     body="", metadata="", fts_body=None):
     """Insert a resource with RAW text, then populate the FTS index with the
     tokenized form. rowid in resources_fts is aligned with resources.id.
@@ -78,17 +76,17 @@ def insert_resource(conn, *, type, name, source, file_path, category="",
     body remains the clean original."""
     cur = conn.execute(
         "INSERT OR REPLACE INTO resources "
-        "(type,name,source,file_path,category,tags,mitre,difficulty,description,body,metadata) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        (type, name, source, file_path, category, tags, mitre, difficulty,
+        "(type,name,source,file_path,category,tags,description,body,metadata) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (type, name, source, file_path, category, tags,
          description, body, metadata),
     )
     rowid = cur.lastrowid
     conn.execute("DELETE FROM resources_fts WHERE rowid = ?", (rowid,))
     conn.execute(
-        "INSERT INTO resources_fts(rowid,name,description,tags,category,mitre,body) "
-        "VALUES (?,?,?,?,?,?,?)",
-        (rowid, name, tokenize(description), tokenize(tags), category, mitre,
+        "INSERT INTO resources_fts(rowid,name,description,tags,category,body) "
+        "VALUES (?,?,?,?,?,?)",
+        (rowid, name, tokenize(description), tokenize(tags), category,
          tokenize(fts_body if fts_body is not None else body)),
     )
 
@@ -117,8 +115,6 @@ def parse_skill_md(path: str) -> dict:
         "description": fm.get("description", ""),
         "tags": tags,
         "category": meta.get("category", ""),
-        "difficulty": meta.get("difficulty", ""),
-        "mitre": meta.get("mitre_attack", ""),
         "body": body,
         "file_path": path,
     }
@@ -164,8 +160,8 @@ def index_skills(conn: sqlite3.Connection, base_dir: str):
             insert_resource(
                 conn, type="skill", name=skill["name"], source="builtin",
                 file_path=skill["file_path"], category=skill["category"],
-                tags=skill["tags"], mitre=skill["mitre"],
-                difficulty=skill["difficulty"], description=skill["description"],
+                tags=skill["tags"],
+                description=skill["description"],
                 body=body, metadata=metadata,
                 fts_body=f"{skill['description']} {body}",
             )
@@ -382,7 +378,7 @@ def main():
     vulns = index_vulns(conn, args.input)
 
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('builtin_version', ?)",
-                 (f"v2raw-{skills}s-{dicts}d-{payloads}p-{vulns}v",))
+                 (f"v4nomitre-{skills}s-{dicts}d-{payloads}p-{vulns}v",))
 
     conn.execute("INSERT INTO resources_fts(resources_fts) VALUES('optimize')")
     conn.execute("PRAGMA journal_mode=DELETE")

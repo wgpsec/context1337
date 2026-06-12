@@ -82,17 +82,17 @@ func InitRuntime(cfg LoaderConfig) (*sql.DB, error) {
 // with the search package. The resources table keeps the RAW text for display;
 // the FTS index gets pre-tokenized text (jieba-equivalent) so unicode61 can
 // match CJK. Keeping the two apart is why detail views return readable content.
-func insertResource(db *sql.DB, typ, name, source, filePath, category, tags, mitre, difficulty, description, body string) error {
-	return insertResourceWithMeta(db, typ, name, source, filePath, category, tags, mitre, difficulty, description, body, "")
+func insertResource(db *sql.DB, typ, name, source, filePath, category, tags, description, body string) error {
+	return insertResourceWithMeta(db, typ, name, source, filePath, category, tags, description, body, "")
 }
 
 // insertResourceWithMeta inserts a resource with a metadata JSON blob.
-func insertResourceWithMeta(db *sql.DB, typ, name, source, filePath, category, tags, mitre, difficulty, description, body, metadata string) error {
+func insertResourceWithMeta(db *sql.DB, typ, name, source, filePath, category, tags, description, body, metadata string) error {
 	res, err := db.Exec(`
 		INSERT OR REPLACE INTO resources
-			(type, name, source, file_path, category, tags, mitre, difficulty, description, body, metadata, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-		typ, name, source, filePath, category, tags, mitre, difficulty, description, body, metadata,
+			(type, name, source, file_path, category, tags, description, body, metadata, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+		typ, name, source, filePath, category, tags, description, body, metadata,
 	)
 	if err != nil {
 		return err
@@ -101,23 +101,23 @@ func insertResourceWithMeta(db *sql.DB, typ, name, source, filePath, category, t
 	if err != nil {
 		return err
 	}
-	return indexResourceFTS(db, id, name, description, tags, category, mitre, body)
+	return indexResourceFTS(db, id, name, description, tags, category, body)
 }
 
 // indexResourceFTS (re)populates the self-contained FTS row for a resource.
-// description/tags/body are tokenized for CJK matching; name/category/mitre are
+// description/tags/body are tokenized for CJK matching; name/category are
 // indexed as-is. rowid is aligned with resources.id.
-func indexResourceFTS(db *sql.DB, id int64, name, description, tags, category, mitre, body string) error {
+func indexResourceFTS(db *sql.DB, id int64, name, description, tags, category, body string) error {
 	if _, err := db.Exec("DELETE FROM resources_fts WHERE rowid = ?", id); err != nil {
 		return err
 	}
 	_, err := db.Exec(`
-		INSERT INTO resources_fts(rowid, name, description, tags, category, mitre, body)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO resources_fts(rowid, name, description, tags, category, body)
+		VALUES (?, ?, ?, ?, ?, ?)`,
 		id, name,
 		tokenize.TokenizeToString(description),
 		tokenize.TokenizeToString(tags),
-		category, mitre,
+		category,
 		tokenize.TokenizeToString(body),
 	)
 	return err
@@ -148,7 +148,7 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		}
 		for _, s := range skills {
 			insertResource(db, "skill", s.Name, "team", s.FilePath,
-				s.Category, s.Tags, s.Mitre, s.Difficulty, s.Description, s.Body)
+				s.Category, s.Tags, s.Description, s.Body)
 		}
 	}
 
@@ -159,7 +159,7 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		}
 		for _, d := range dicts {
 			insertResource(db, "dict", d.Path, "team", d.FilePath,
-				d.Category, d.Tags, "", "", d.Description, "")
+				d.Category, d.Tags, d.Description, "")
 		}
 	}
 
@@ -170,7 +170,7 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		}
 		for _, p := range payloads {
 			insertResource(db, "payload", p.Path, "team", p.FilePath,
-				p.Category, p.Tags, "", "", p.Description, "")
+				p.Category, p.Tags, p.Description, "")
 		}
 	}
 
@@ -189,7 +189,7 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			}
 			metaJSON, _ := json.Marshal(metaObj)
 			if err := insertResourceWithMeta(db, "vuln", v.ID, "team", v.FilePath,
-				v.Category, v.Tags, "", "", v.Description, v.Body, string(metaJSON)); err != nil {
+				v.Category, v.Tags, v.Description, v.Body, string(metaJSON)); err != nil {
 				log.Printf("loader: insert team vuln %s: %v", v.ID, err)
 			}
 		}
@@ -212,7 +212,7 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			}
 			metaJSON, _ := json.Marshal(metaObj)
 			if err := insertResourceWithMeta(db, "vuln", v.ID, "nuclei", v.FilePath,
-				v.Category, v.Tags, "", "", v.Description, v.Body, string(metaJSON)); err != nil {
+				v.Category, v.Tags, v.Description, v.Body, string(metaJSON)); err != nil {
 				log.Printf("loader: insert nuclei vuln %s: %v", v.ID, err)
 			}
 		}

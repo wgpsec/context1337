@@ -145,14 +145,13 @@ func diversifyByType(results []search.SearchResult) []search.SearchResult {
 // --- search ---
 
 type SearchInput struct {
-	Query      string `json:"query,omitempty"      jsonschema:"Search keywords (omit to list all)"`
-	Type       string `json:"type,omitempty"       jsonschema:"Filter by type: skill|dict|payload|vuln (omit to search all non-vuln types)"`
-	Category   string `json:"category,omitempty"   jsonschema:"Filter by category"`
-	Difficulty string `json:"difficulty,omitempty" jsonschema:"Filter by difficulty (skill only): easy|medium|hard"`
-	Severity   string `json:"severity,omitempty"   jsonschema:"Filter by severity (vuln only): CRITICAL|HIGH|MEDIUM|LOW"`
-	Product    string `json:"product,omitempty"    jsonschema:"Filter by product name (vuln only)"`
-	Offset     int    `json:"offset,omitempty"     jsonschema:"Pagination offset (default 0)"`
-	Limit      int    `json:"limit,omitempty"      jsonschema:"Max results to return (default 10). Increase only when the caller explicitly needs more."`
+	Query    string `json:"query,omitempty"    jsonschema:"Search keywords (omit to list all)"`
+	Type     string `json:"type,omitempty"     jsonschema:"Filter by type: skill|dict|payload|vuln (omit to search all non-vuln types)"`
+	Category string `json:"category,omitempty" jsonschema:"Filter by category"`
+	Severity string `json:"severity,omitempty" jsonschema:"Filter by severity (vuln only): CRITICAL|HIGH|MEDIUM|LOW"`
+	Product  string `json:"product,omitempty"  jsonschema:"Filter by product name (vuln only)"`
+	Offset   int    `json:"offset,omitempty"   jsonschema:"Pagination offset (default 0)"`
+	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results to return (default 10). Increase only when the caller explicitly needs more."`
 }
 
 type ResourceSummary struct {
@@ -163,7 +162,6 @@ type ResourceSummary struct {
 	Category    string `json:"category"`
 	Source      string `json:"source"`
 	Tags        string `json:"tags,omitempty"`
-	Difficulty  string `json:"difficulty,omitempty"`
 	Severity    string `json:"severity,omitempty"`
 	Product     string `json:"product,omitempty"`
 	Vendor      string `json:"vendor,omitempty"`
@@ -185,7 +183,7 @@ func resourceToSummary(r search.Resource) ResourceSummary {
 		ID:   search.StableID(r),
 		Name: r.Name, Type: r.Type, Description: r.Description,
 		Category: r.Category, Source: r.Source,
-		Tags: r.Tags, Difficulty: r.Difficulty,
+		Tags: r.Tags,
 	}
 	if r.Type == "vuln" {
 		s.Severity, s.Product, s.Vendor, _, _ = extractVulnMeta(r.Metadata)
@@ -225,7 +223,7 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 		}
 		results, total, err := search.Search(s.DB, search.SearchQuery{
 			Query: in.Query, Type: in.Type, Category: in.Category,
-			Difficulty: in.Difficulty, Severity: in.Severity, Product: in.Product,
+			Severity: in.Severity, Product: in.Product,
 			Offset: in.Offset, Limit: fetchLimit,
 		})
 		if err != nil {
@@ -257,7 +255,7 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 	// Empty query -> list
 	result, err := search.ListByType(s.DB, search.ListQuery{
 		Type: in.Type, Category: in.Category,
-		Difficulty: in.Difficulty, Severity: in.Severity, Product: in.Product,
+		Severity: in.Severity, Product: in.Product,
 		Offset: in.Offset, Limit: in.Limit,
 	})
 	if err != nil {
@@ -289,7 +287,6 @@ type GetResult struct {
 	Category        string           `json:"category"`
 	Source          string           `json:"source"`
 	Tags            string           `json:"tags,omitempty"`
-	Difficulty      string           `json:"difficulty,omitempty"`
 	Body            string           `json:"body,omitempty"`
 	References      []SkillReference `json:"references,omitempty"`
 	RefTotal        int              `json:"ref_total,omitempty"`
@@ -353,7 +350,7 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 		ID:   search.StableID(*r),
 		Name: r.Name, Type: r.Type, Description: r.Description,
 		Category: r.Category, Source: r.Source,
-		Tags: r.Tags, Difficulty: r.Difficulty,
+		Tags: r.Tags,
 	}
 
 	switch r.Type {

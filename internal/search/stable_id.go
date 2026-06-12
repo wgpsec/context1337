@@ -53,11 +53,11 @@ func GetByStableID(db *sql.DB, id string) (*Resource, error) {
 	var r Resource
 	err = db.QueryRow(`
         SELECT id, type, COALESCE(name,''), COALESCE(source,''), COALESCE(file_path,''),
-               COALESCE(category,''), COALESCE(tags,''), COALESCE(mitre,''),
-               COALESCE(difficulty,''), COALESCE(description,''), COALESCE(body,''), COALESCE(metadata,'')
+               COALESCE(category,''), COALESCE(tags,''),
+               COALESCE(description,''), COALESCE(body,''), COALESCE(metadata,'')
         FROM resources WHERE source=? AND type=? AND name=? LIMIT 1`, source, typ, key).Scan(
 		&r.ID, &r.Type, &r.Name, &r.Source, &r.FilePath,
-		&r.Category, &r.Tags, &r.Mitre, &r.Difficulty,
+		&r.Category, &r.Tags,
 		&r.Description, &r.Body, &r.Metadata,
 	)
 	if err == sql.ErrNoRows {

@@ -131,28 +131,6 @@ func TestListByType_ReturnsTotalAndOffset(t *testing.T) {
 	}
 }
 
-func TestListByType_DifficultyFilter(t *testing.T) {
-	db := setupTestDB(t)
-	InsertResource(db, Resource{
-		Type: "skill", Name: "easy-one", Source: "builtin",
-		Category: "exploit", Difficulty: "easy", Description: "easy skill",
-	})
-	InsertResource(db, Resource{
-		Type: "skill", Name: "hard-one", Source: "builtin",
-		Category: "exploit", Difficulty: "hard", Description: "hard skill",
-	})
-	result, err := ListByType(db, ListQuery{Type: "skill", Difficulty: "easy", Limit: 50})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Total != 1 {
-		t.Errorf("total = %d, want 1", result.Total)
-	}
-	if len(result.Items) != 1 || result.Items[0].Name != "easy-one" {
-		t.Errorf("unexpected items: %v", result.Items)
-	}
-}
-
 func TestListByType_AllTypes(t *testing.T) {
 	db := setupTestDB(t)
 	InsertResource(db, Resource{
@@ -214,7 +192,7 @@ func insertVuln(t *testing.T, db *sql.DB, name, category, severity, product stri
 		t.Fatalf("insertVuln %s: %v", name, err)
 	}
 	id, _ := res.LastInsertId()
-	if err := IndexFTS(db, id, name, desc, "rce", category, "", body); err != nil {
+	if err := IndexFTS(db, id, name, desc, "rce", category, body); err != nil {
 		t.Fatalf("insertVuln IndexFTS %s: %v", name, err)
 	}
 }

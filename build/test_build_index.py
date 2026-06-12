@@ -359,38 +359,6 @@ class TestEmptyDir(unittest.TestCase):
             conn.close()
 
 
-class TestMitreField(unittest.TestCase):
-    def setUp(self):
-        self.conn = _create_db()
-        self.tmpdir = tempfile.mkdtemp()
-        skill_dir = os.path.join(self.tmpdir, "skills", "exploit", "test-skill")
-        os.makedirs(skill_dir)
-        with open(os.path.join(skill_dir, "SKILL.md"), "w") as f:
-            f.write("""---
-name: test-skill
-description: Test skill with MITRE
-metadata:
-  tags: "test"
-  category: "exploit"
-  mitre_attack: "T1190,T1059"
----
-Test body
-""")
-
-    def tearDown(self):
-        self.conn.close()
-        shutil.rmtree(self.tmpdir)
-
-    def test_mitre_field_indexed(self):
-        build_index.index_skills(self.conn, self.tmpdir)
-        self.conn.commit()
-        row = self.conn.execute(
-            "SELECT mitre FROM resources WHERE name='test-skill'"
-        ).fetchone()
-        self.assertIsNotNone(row)
-        self.assertIn("T1190", row[0])
-
-
 class TestSkillReferences(unittest.TestCase):
     def setUp(self):
         self.conn = _create_db()
