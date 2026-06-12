@@ -99,6 +99,7 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 
 	conditions = append(conditions, "resources_fts MATCH ?")
 	args = append(args, ftsQuery)
+	conditions = append(conditions, "r.enabled = 1")
 
 	if q.Type != "" {
 		conditions = append(conditions, "r.type = ?")
@@ -184,6 +185,8 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 	var conditions []string
 	var args []interface{}
 
+	conditions = append(conditions, "enabled = 1")
+
 	if q.Type != "" {
 		conditions = append(conditions, "type = ?")
 		args = append(args, q.Type)
@@ -256,7 +259,7 @@ func GetByName(db *sql.DB, typ, name string) (*Resource, error) {
 		SELECT id, type, COALESCE(name,''), COALESCE(source,''), COALESCE(file_path,''),
 		       COALESCE(category,''), COALESCE(tags,''), COALESCE(mitre,''),
 		       COALESCE(difficulty,''), COALESCE(description,''), COALESCE(body,''), COALESCE(metadata,'')
-		FROM resources WHERE type=? AND name=? LIMIT 1`, typ, name).Scan(
+		FROM resources WHERE type=? AND name=? AND enabled = 1 LIMIT 1`, typ, name).Scan(
 		&r.ID, &r.Type, &r.Name, &r.Source, &r.FilePath,
 		&r.Category, &r.Tags, &r.Mitre, &r.Difficulty,
 		&r.Description, &r.Body, &r.Metadata,

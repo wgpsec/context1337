@@ -26,6 +26,12 @@ func NewRouter(db *sql.DB, dataDir, apiKey string, mcpHandler http.Handler) http
 	// REST API endpoints
 	mux.HandleFunc("GET /api/health", handleHealth(db))
 	mux.HandleFunc("GET /api/stats", handleStats(db))
+	mux.HandleFunc("GET /api/resources", handleListResources(db))
+	mux.HandleFunc("POST /api/resources", handleCreateResource(db))
+	mux.HandleFunc("PUT /api/resources/batch-toggle", handleBatchToggle(db))
+	mux.HandleFunc("PUT /api/resources/{id}", handleUpdateResource(db))
+	mux.HandleFunc("DELETE /api/resources/{id}", handleDeleteResource(db))
+	mux.HandleFunc("PUT /api/resources/{id}/toggle", handleToggleResource(db))
 
 	// Apply auth middleware
 	return AuthMiddleware(apiKey)(mux)
@@ -41,7 +47,7 @@ func handleHealth(db *sql.DB) http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query("SELECT type, count(*) FROM resources GROUP BY type")
+		rows, err := db.Query("SELECT type, count(*) FROM resources WHERE enabled = 1 GROUP BY type")
 		w.Header().Set("Content-Type", "application/json")
 		if err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -72,7 +78,7 @@ func handleHealth(db *sql.DB) http.HandlerFunc {
 
 func handleStats(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query("SELECT type, source, count(*) FROM resources GROUP BY type, source")
+		rows, err := db.Query("SELECT type, source, count(*) FROM resources WHERE enabled = 1 GROUP BY type, source")
 		if err != nil {
 			http.Error(w, `{"error":"internal server error"}`, 500)
 			return

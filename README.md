@@ -189,8 +189,44 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/health` | Health check + resource count |
-| `GET /api/stats` | Resource statistics by type/source |
+| `GET /api/health` | Health check + enabled resource count |
+| `GET /api/stats` | Resource statistics by type/source (enabled only) |
+| `GET /api/resources` | List all resources with pagination and filters (admin management) |
+| `POST /api/resources` | Create custom resource (source forced to "custom") |
+| `PUT /api/resources/{id}` | Update custom resource (source=custom only, 403 otherwise) |
+| `DELETE /api/resources/{id}` | Delete custom resource (source=custom only, 403 otherwise) |
+| `PUT /api/resources/{id}/toggle` | Toggle resource enabled/disabled |
+| `PUT /api/resources/batch-toggle` | Batch toggle by type/category/source filter |
+
+### Resource Management
+
+Resources have an `enabled` field (default: `1`). Disabled resources are excluded from all MCP tool queries (search, list, get) but remain visible in the management API (`GET /api/resources`).
+
+**Toggle single resource:**
+```bash
+curl -X PUT http://localhost:1337/api/resources/42/toggle \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
+
+**Batch toggle (by category/source):**
+```bash
+curl -X PUT http://localhost:1337/api/resources/batch-toggle \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false, "filter": {"type": "skill", "category": "web"}}'
+```
+
+**Create custom resource:**
+```bash
+curl -X POST http://localhost:1337/api/resources \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "skill", "name": "my-technique", "category": "web", "description": "...", "body": "..."}'
+```
+
+Custom resources use `source=custom` (server-enforced) and can be edited or deleted. Built-in resources cannot be modified or deleted (403).
 
 ## Environment Variables
 

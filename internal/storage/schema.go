@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS resources (
     metadata    TEXT,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
+    enabled     INTEGER NOT NULL DEFAULT 1,
     UNIQUE(type, name, source)
 );
 
@@ -86,6 +87,9 @@ func OpenDB(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
+
+	db.Exec("ALTER TABLE resources ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_resources_enabled ON resources(enabled)")
 
 	return db, nil
 }

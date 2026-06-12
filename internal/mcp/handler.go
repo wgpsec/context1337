@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -33,15 +32,11 @@ func NewService(db *sql.DB, dataDir string) *Service {
 }
 
 // NewMCPServer creates an MCP server and returns an HTTP handler.
-// The mode parameter is unused for per-request dispatch but kept for
-// compatibility with existing callers.
-// Clients select full or lite mode via the X-Tool-Mode request header:
+// The mode parameter sets the default tool mode when the X-Tool-Mode
+// request header is absent. Clients can override per-request:
 //   - "full"  → 12 per-type tools
-//   - anything else (or absent) → 3 core tools (default)
+//   - "lite"  → 3 core tools
 func NewMCPServer(db *sql.DB, dataDir string, mode ToolMode) http.Handler {
-	if mode != ToolModeLite {
-		log.Printf("NewMCPServer: mode=%q is ignored; tool mode is now selected per-request via X-Tool-Mode header (default: lite)", mode)
-	}
 	svc := NewService(db, dataDir)
 
 	baseInstructions := `Penetration testing and offensive security knowledge base.
@@ -51,7 +46,7 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 
 	liteServer := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
-		Version: "0.6.0",
+		Version: "0.7.0",
 	}, &gomcp.ServerOptions{
 		Instructions: baseInstructions + "\nWorkflow: search_security to find resources → get_security_detail for skills/vulns → read_security_file for dicts/payloads.",
 	})
@@ -59,17 +54,26 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 
 	fullServer := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
-		Version: "0.6.0",
+		Version: "0.7.0",
 	}, &gomcp.ServerOptions{
 		Instructions: baseInstructions + "\nWorkflow: use search_* or list_* to find resources, then get_* for details.",
 	})
 	registerFullTools(fullServer, svc)
 
+	defaultServer := liteServer
+	if mode == ToolModeFull {
+		defaultServer = fullServer
+	}
+
 	return gomcp.NewStreamableHTTPHandler(func(r *http.Request) *gomcp.Server {
-		if r.Header.Get("X-Tool-Mode") == "full" {
+		switch r.Header.Get("X-Tool-Mode") {
+		case "full":
 			return fullServer
+		case "lite":
+			return liteServer
+		default:
+			return defaultServer
 		}
-		return liteServer
 	}, nil)
 }
 

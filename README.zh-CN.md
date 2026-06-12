@@ -194,8 +194,44 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 
 | 接口 | 说明 |
 |------|------|
-| `GET /api/health` | 健康检查 + 资源计数 |
-| `GET /api/stats` | 按类型/来源统计资源 |
+| `GET /api/health` | 健康检查 + 已启用资源计数 |
+| `GET /api/stats` | 按类型/来源统计已启用资源 |
+| `GET /api/resources` | 分页列表（含 enabled 状态，管理用） |
+| `POST /api/resources` | 创建自定义资源（source 强制为 custom） |
+| `PUT /api/resources/{id}` | 编辑自定义资源（仅 source=custom，否则 403） |
+| `DELETE /api/resources/{id}` | 删除自定义资源（仅 source=custom，否则 403） |
+| `PUT /api/resources/{id}/toggle` | 切换资源启用/禁用状态 |
+| `PUT /api/resources/batch-toggle` | 按 type/category/source 批量切换 |
+
+### 资源管理
+
+资源表有 `enabled` 字段（默认 `1`）。禁用的资源在所有 MCP 工具查询（搜索、列表、详情）中不可见，但管理 API（`GET /api/resources`）仍可查看。
+
+**切换单个资源：**
+```bash
+curl -X PUT http://localhost:1337/api/resources/42/toggle \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
+
+**批量切换（按分类/数据源）：**
+```bash
+curl -X PUT http://localhost:1337/api/resources/batch-toggle \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false, "filter": {"type": "skill", "category": "web"}}'
+```
+
+**创建自定义资源：**
+```bash
+curl -X POST http://localhost:1337/api/resources \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "skill", "name": "my-technique", "category": "web", "description": "...", "body": "..."}'
+```
+
+自定义资源的 `source` 由服务端强制设为 `custom`，可编辑和删除。内置资源不可修改或删除（返回 403）。
 
 ## 环境变量
 
