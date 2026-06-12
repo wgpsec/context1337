@@ -387,6 +387,13 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 				if _, rawBody, fmErr := splitSkillBody(string(data)); fmErr == nil {
 					result.Body = strings.TrimSpace(rawBody)
 				}
+			} else {
+				// Fallback for custom skills with no on-disk file: use DB body
+				body := r.Body
+				if idx := strings.Index(body, "\n\n---\n## [ref] "); idx >= 0 {
+					body = body[:idx]
+				}
+				result.Body = body
 			}
 			// Load references with pagination
 			refs, err := storage.ReadReferences(skillDir)
