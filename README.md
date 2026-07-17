@@ -268,11 +268,9 @@ NUCLEI_TEMPLATES_DIR=/path/to/nuclei-templates ./absec serve
 | `--nuclei-dir` | Path to nuclei-templates repo root. Leave unset to disable. | (empty = disabled) |
 | `--nuclei-min-severity` | Minimum severity to import: `critical` \| `high` \| `medium` \| `low` | `high` |
 
-> **Note:** nuclei-templates are scanned once at startup during database rebuild. If you change `--nuclei-dir` or the severity threshold, delete `data/runtime/runtime.db` to force a rebuild:
-> ```bash
-> rm data/runtime/runtime.db
-> ./absec serve --nuclei-dir /path/to/nuclei-templates
-> ```
+> **Sync behavior:** on startup, context1337 checks the nuclei configuration automatically. First-time `--nuclei-dir`, directory changes, and severity changes rebuild only `source=nuclei` resources. The runtime DB stays in place, so `custom` resources are preserved. Starting again with the same config reuses the existing nuclei index.
+>
+> If `--nuclei-dir` is no longer set, startup removes `source=nuclei` resources, effectively disabling the secondary data source.
 
 ---
 
@@ -281,7 +279,7 @@ NUCLEI_TEMPLATES_DIR=/path/to/nuclei-templates ./absec serve
 ```
 Build time:   AboutSecurity/ → Python+jieba → builtin.db (FTS5 index)
 Startup:      cp builtin.db → runtime.db, scan team/ → INSERT
-              [optional] scan nuclei-templates/http/cves/ → INSERT (source=nuclei)
+              [optional] sync nuclei-templates/http/cves/ → INSERT (source=nuclei)
 Runtime:      MCP Streamable HTTP + REST API, pure Go tokenizer for new content
 ```
 

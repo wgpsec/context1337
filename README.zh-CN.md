@@ -279,12 +279,9 @@ NUCLEI_TEMPLATES_DIR=/path/to/nuclei-templates ./absec serve
 
 默认导入 critical+high 共约 2,300 条 CVE 模板。
 
-**注意：** nuclei-templates 仅在运行时数据库重建时扫描一次（首次启动或 builtin.db 版本升级时）。如果更换了 `--nuclei-dir` 或调整了 severity 参数，需手动删除 `data/runtime/runtime.db` 触发重建：
+**同步行为：** 服务启动时会自动检查 nuclei 配置。首次设置 `--nuclei-dir`、更换目录、调整 severity，都会只重建 `source=nuclei` 的资源，不会删除 runtime DB，也不会影响 `custom` 资源。下次用相同配置启动会直接复用已有 nuclei 索引。
 
-```bash
-rm data/runtime/runtime.db
-./absec serve --nuclei-dir /path/to/nuclei-templates
-```
+如果不再传 `--nuclei-dir`，服务会在启动时移除 `source=nuclei` 资源，相当于关闭第二数据源。
 
 ---
 
@@ -293,7 +290,7 @@ rm data/runtime/runtime.db
 ```
 构建阶段:   AboutSecurity/ → Python+jieba 分词 → builtin.db（FTS5 索引）
 启动阶段:   复制 builtin.db → runtime.db，扫描 team/ → INSERT
-            [可选] 扫描 nuclei-templates/http/cves/ → INSERT（source=nuclei）
+            [可选] 按配置同步 nuclei-templates/http/cves/ → INSERT（source=nuclei）
 运行阶段:   MCP Streamable HTTP + REST API，Go 原生分词器处理新内容
 ```
 

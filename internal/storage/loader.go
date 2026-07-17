@@ -8,18 +8,25 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wgpsec/context1337/internal/tokenize"
 )
 
 // LoaderConfig defines paths for the startup loader.
 type LoaderConfig struct {
-	BuiltinDB string
-	RuntimeDB string
-	TeamDir   string
+	BuiltinDB         string
+	RuntimeDB         string
+	TeamDir           string
 	NucleiDir         string
 	NucleiMinSeverity string
 }
+
+const (
+	nucleiDirMetaKey         = "nuclei_dir"
+	nucleiMinSeverityMetaKey = "nuclei_min_severity"
+	nucleiCountMetaKey       = "nuclei_count"
+)
 
 // InitRuntime handles the three-layer startup lifecycle:
 // 1. If runtime.db doesn't exist -> copy builtin.db -> scan team data
@@ -73,6 +80,11 @@ func InitRuntime(cfg LoaderConfig) (*sql.DB, error) {
 			db.Close()
 			return nil, fmt.Errorf("scan team data: %w", err)
 		}
+	}
+
+	if err := syncNucleiSource(db, cfg); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("sync nuclei data: %w", err)
 	}
 
 	return db, nil
@@ -195,31 +207,129 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 		}
 	}
 
-	if cfg.NucleiDir != "" {
-		minSev := cfg.NucleiMinSeverity
-		if minSev == "" {
-			minSev = "high"
-		}
-		nvulns, err := ScanNucleiVulns(cfg.NucleiDir, minSev)
-		if err != nil {
-			log.Printf("loader: scan nuclei vulns: %v", err)
-		}
-		for _, v := range nvulns {
-			metaObj := map[string]string{
-				"severity": v.Severity,
-				"product":  v.Product,
-				"vendor":   v.Vendor,
-			}
-			metaJSON, _ := json.Marshal(metaObj)
-			if err := insertResourceWithMeta(db, "vuln", v.ID, "nuclei", v.FilePath,
-				v.Category, v.Tags, v.Description, v.Body, string(metaJSON)); err != nil {
-				log.Printf("loader: insert nuclei vuln %s: %v", v.ID, err)
-			}
-		}
-		log.Printf("loader: nuclei vulns indexed: %d", len(nvulns))
+	return nil
+}
+
+func syncNucleiSource(db *sql.DB, cfg LoaderConfig) error {
+	nucleiDir, err := normalizeNucleiDir(cfg.NucleiDir)
+	if err != nil {
+		return err
+	}
+	minSeverity := normalizeNucleiMinSeverity(cfg.NucleiMinSeverity)
+
+	currentDir, err := GetMeta(db, nucleiDirMetaKey)
+	if err != nil {
+		return err
+	}
+	currentMinSeverity, err := GetMeta(db, nucleiMinSeverityMetaKey)
+	if err != nil {
+		return err
+	}
+	currentCountMeta, err := GetMeta(db, nucleiCountMetaKey)
+	if err != nil {
+		return err
 	}
 
+	if nucleiDir == "" {
+		count, err := countNucleiResources(db)
+		if err != nil {
+			return err
+		}
+		if currentDir == "" && currentMinSeverity == "" && count == 0 {
+			return nil
+		}
+		if err := deleteNucleiResources(db); err != nil {
+			return err
+		}
+		if err := clearNucleiMeta(db); err != nil {
+			return err
+		}
+		log.Println("loader: nuclei data disabled; removed source=nuclei resources")
+		return nil
+	}
+
+	if currentDir == nucleiDir && currentMinSeverity == minSeverity {
+		count, err := countNucleiResources(db)
+		if err != nil {
+			return err
+		}
+		if currentCountMeta == fmt.Sprintf("%d", count) {
+			log.Printf("loader: nuclei data up to date: %d vulns", count)
+			return nil
+		}
+	}
+
+	nvulns, err := ScanNucleiVulns(nucleiDir, minSeverity)
+	if err != nil {
+		return err
+	}
+
+	if err := deleteNucleiResources(db); err != nil {
+		return err
+	}
+
+	for _, v := range nvulns {
+		metaObj := map[string]string{
+			"severity": v.Severity,
+			"product":  v.Product,
+			"vendor":   v.Vendor,
+		}
+		metaJSON, _ := json.Marshal(metaObj)
+		if err := insertResourceWithMeta(db, "vuln", v.ID, "nuclei", v.FilePath,
+			v.Category, v.Tags, v.Description, v.Body, string(metaJSON)); err != nil {
+			return fmt.Errorf("insert nuclei vuln %s: %w", v.ID, err)
+		}
+	}
+	if err := SetMeta(db, nucleiDirMetaKey, nucleiDir); err != nil {
+		return err
+	}
+	if err := SetMeta(db, nucleiMinSeverityMetaKey, minSeverity); err != nil {
+		return err
+	}
+	if err := SetMeta(db, nucleiCountMetaKey, fmt.Sprintf("%d", len(nvulns))); err != nil {
+		return err
+	}
+	log.Printf("loader: nuclei vulns indexed: %d", len(nvulns))
 	return nil
+}
+
+func normalizeNucleiDir(dir string) (string, error) {
+	if dir == "" {
+		return "", nil
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	return abs, nil
+}
+
+func normalizeNucleiMinSeverity(severity string) string {
+	if severity == "" {
+		return "high"
+	}
+	return strings.ToLower(severity)
+}
+
+func deleteNucleiResources(db *sql.DB) error {
+	if _, err := db.Exec(`DELETE FROM resources_fts
+		WHERE rowid IN (SELECT id FROM resources WHERE source = 'nuclei')`); err != nil {
+		return err
+	}
+	_, err := db.Exec("DELETE FROM resources WHERE source = 'nuclei'")
+	return err
+}
+
+func countNucleiResources(db *sql.DB) (int, error) {
+	var count int
+	err := db.QueryRow("SELECT count(*) FROM resources WHERE source = 'nuclei'").Scan(&count)
+	return count, err
+}
+
+func clearNucleiMeta(db *sql.DB) error {
+	_, err := db.Exec("DELETE FROM meta WHERE key IN (?, ?, ?)",
+		nucleiDirMetaKey, nucleiMinSeverityMetaKey, nucleiCountMetaKey)
+	return err
 }
 
 func readBuiltinVersion(path string) (string, error) {
