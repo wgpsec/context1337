@@ -15,7 +15,7 @@ import (
 	"github.com/wgpsec/context1337/internal/storage"
 )
 
-var version = "0.7.3"
+var version = "0.7.4"
 
 func main() {
 	root := &cobra.Command{

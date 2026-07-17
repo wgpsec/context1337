@@ -36,6 +36,49 @@ func TestListResourcesAppliesFullTextQuery(t *testing.T) {
 	}
 }
 
+func TestListResourcesUsesVersionedCanonicalSearchOrdering(t *testing.T) {
+	db, err := storage.OpenDB(filepath.Join(t.TempDir(), "resources.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	for _, resource := range []search.Resource{
+		{
+			Type: "skill", Name: "jwt-attack-methodology", Source: "builtin",
+			Description: "JWT 算法混淆方法论", Tags: "jwt,算法混淆",
+		},
+		{
+			Type: "skill", Name: "generic-auth-audit", Source: "builtin",
+			Description: "JWT algorithm confusion audit", Tags: "jwt,algorithm,confusion",
+		},
+	} {
+		if err := search.InsertResource(db, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources?type=skill&q=JWT+algorithm+confusion&enabled=true", nil)
+	rec := httptest.NewRecorder()
+	NewRouter(db, t.TempDir(), "", nil).ServeHTTP(rec, req)
+
+	var body struct {
+		SearchVersion string `json:"search_version"`
+		Items         []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.SearchVersion != search.SearchContractVersion {
+		t.Fatalf("search_version = %q, want %q", body.SearchVersion, search.SearchContractVersion)
+	}
+	if len(body.Items) == 0 || body.Items[0].Name != "jwt-attack-methodology" {
+		t.Fatalf("top result = %+v, want jwt-attack-methodology", body.Items)
+	}
+}
+
 func TestListResourcesQueryIncludesDisabledResourcesForManagement(t *testing.T) {
 	db, err := storage.OpenDB(filepath.Join(t.TempDir(), "resources.db"))
 	if err != nil {

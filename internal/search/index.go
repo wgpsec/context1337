@@ -120,17 +120,21 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 		q.Limit = 10
 	}
 
-	tokens := Tokenize(q.Query)
-	if len(tokens) == 0 {
+	plan, err := PlanQuery(q.Query)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(plan.Groups) == 0 {
 		return nil, 0, nil
 	}
-
-	// Build FTS5 match expression: each token joined with AND for precision
-	var escaped []string
-	for _, tok := range tokens {
-		escaped = append(escaped, `"`+strings.ReplaceAll(tok, `"`, `""`)+`"`)
+	ftsQuery := plan.FTSExpression
+	if q.Type == "vuln" {
+		exactGroups := make([]string, 0, len(plan.Groups))
+		for _, group := range plan.Groups {
+			exactGroups = append(exactGroups, quoteFTSToken(group.Original))
+		}
+		ftsQuery = strings.Join(exactGroups, " AND ")
 	}
-	ftsQuery := strings.Join(escaped, " AND ")
 
 	var conditions []string
 	var args []interface{}
@@ -186,7 +190,7 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 	query := fmt.Sprintf(`
 		SELECT r.id, r.type, COALESCE(r.name,''), COALESCE(r.source,''), COALESCE(r.file_path,''),
 		       COALESCE(r.category,''), COALESCE(r.tags,''),
-		       COALESCE(r.description,''), COALESCE(r.body,''), COALESCE(r.metadata,''), r.enabled,
+		       COALESCE(r.description,''), '', COALESCE(r.metadata,''), r.enabled,
 		       bm25(resources_fts, 10.0, 5.0, 5.0, 2.0, 1.0) AS score
 		FROM resources_fts
 		JOIN resources r ON r.id = resources_fts.rowid
@@ -216,6 +220,9 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, err
+	}
+	if q.Type != "vuln" {
+		rankCandidates(plan, results)
 	}
 	return results, total, nil
 }

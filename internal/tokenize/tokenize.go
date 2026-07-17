@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Tokenize splits text into search tokens using:
@@ -116,6 +117,10 @@ func dictMatch(text string, add func(string)) []string {
 			}
 			absPos := idx + pos
 			end := absPos + len(term)
+			if isASCIIConcept(term) && !hasWordBoundaries(lower, absPos, end) {
+				idx = end
+				continue
+			}
 			overlaps := false
 			for _, m := range matched {
 				if absPos < m.end && end > m.start {
@@ -148,6 +153,31 @@ func dictMatch(text string, add func(string)) []string {
 	}
 
 	return remaining
+}
+
+func isASCIIConcept(term string) bool {
+	for _, r := range term {
+		if r > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
+}
+
+func hasWordBoundaries(text string, start, end int) bool {
+	if start > 0 {
+		before, _ := utf8.DecodeLastRuneInString(text[:start])
+		if unicode.IsLetter(before) || unicode.IsDigit(before) {
+			return false
+		}
+	}
+	if end < len(text) {
+		after, _ := utf8.DecodeRuneInString(text[end:])
+		if unicode.IsLetter(after) || unicode.IsDigit(after) {
+			return false
+		}
+	}
+	return true
 }
 
 func isCJK(r rune) bool {

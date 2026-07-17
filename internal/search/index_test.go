@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wgpsec/context1337/internal/storage"
@@ -67,6 +68,413 @@ func TestSearch_ByKeyword(t *testing.T) {
 	if results[0].Name != "sql-injection" {
 		t.Errorf("top result = %q, want sql-injection", results[0].Name)
 	}
+}
+
+func TestSearch_ReturnsLightweightCandidatesWithoutLoadingBody(t *testing.T) {
+	db := setupTestDB(t)
+	if err := InsertResource(db, Resource{
+		Type: "skill", Name: "body-only-match", Source: "builtin",
+		Description: "lightweight summary",
+		Body:        "bodymarker " + strings.Repeat("large content ", 1000),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	results, _, err := Search(db, SearchQuery{Query: "bodymarker", Type: "skill", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %v, want body-indexed resource", resultNames(results))
+	}
+	if results[0].Body != "" {
+		t.Fatalf("search candidate loaded %d body bytes; summaries must stay lightweight", len(results[0].Body))
+	}
+}
+
+func TestSearch_JWTAlgorithmConfusionMatchesEquivalentChineseConcept(t *testing.T) {
+	db := setupTestDB(t)
+
+	if err := InsertResource(db, Resource{
+		Type: "skill", Name: "jwt-attack-methodology", Source: "builtin",
+		FilePath: "skills/jwt-attack-methodology/SKILL.md", Category: "exploit",
+		Tags:        "jwt,HS256,RS256,算法混淆",
+		Description: "JWT 攻击方法论，覆盖 RS256 到 HS256 算法混淆。",
+		Body:        "验证 JWT 签名算法并安全构造测试 token。",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := InsertResource(db, Resource{
+		Type: "skill", Name: "generic-auth-audit", Source: "builtin",
+		FilePath: "skills/generic-auth-audit/SKILL.md", Category: "code-audit",
+		Tags:        "jwt,algorithm,confusion",
+		Description: "Generic JWT algorithm confusion audit notes.",
+		Body:        "Broad authentication review.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "JWT algorithm confusion",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, result := range results {
+		if result.Name == "jwt-attack-methodology" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("jwt-attack-methodology missing from results: %v", resultNames(results))
+	}
+}
+
+func TestSearch_JWTNoneAlgorithmBypassRequiresEverySemanticGroup(t *testing.T) {
+	db := setupTestDB(t)
+
+	for _, resource := range []Resource{
+		{
+			Type: "skill", Name: "jwt-attack-methodology", Source: "builtin",
+			FilePath: "skills/jwt-attack-methodology/SKILL.md", Category: "exploit",
+			Tags:        "jwt,alg none",
+			Description: "JWT alg:none 空算法绕过方法论。",
+			Body:        "构造无签名 token 验证认证绕过。",
+		},
+		{
+			Type: "skill", Name: "jwt-format-reference", Source: "builtin",
+			FilePath: "skills/jwt-format-reference/SKILL.md", Category: "general",
+			Tags:        "jwt,none,algorithm",
+			Description: "JWT none algorithm token format reference.",
+			Body:        "Describes token structure only.",
+		},
+	} {
+		if err := InsertResource(db, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "JWT none algorithm bypass",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := resultNames(results); len(got) != 1 || got[0] != "jwt-attack-methodology" {
+		t.Fatalf("results = %v, want only jwt-attack-methodology", got)
+	}
+}
+
+func TestSearch_ChineseJWTAlgorithmConfusionMatchesEquivalentEnglishConcept(t *testing.T) {
+	db := setupTestDB(t)
+
+	if err := InsertResource(db, Resource{
+		Type: "skill", Name: "jwt-attack-methodology", Source: "builtin",
+		FilePath: "skills/jwt-attack-methodology/SKILL.md", Category: "exploit",
+		Tags:        "jwt,algorithm confusion",
+		Description: "JWT algorithm confusion attack methodology.",
+		Body:        "Validate RS256 and HS256 signature handling.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "JWT 算法混淆",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := resultNames(results); len(got) != 1 || got[0] != "jwt-attack-methodology" {
+		t.Fatalf("results = %v, want jwt-attack-methodology", got)
+	}
+}
+
+func TestSearch_RejectsQueriesWithTooManySemanticGroups(t *testing.T) {
+	db := setupTestDB(t)
+
+	_, _, err := Search(db, SearchQuery{
+		Query: "alpha bravo charlie delta echo foxtrot golf hotel india",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err == nil {
+		t.Fatal("expected an explicit query complexity error")
+	}
+	if !strings.Contains(err.Error(), "too many search concepts") {
+		t.Fatalf("error = %q, want query complexity diagnostic", err)
+	}
+}
+
+func TestPlanQuery_RejectsOversizedRawQueryAndExposesContractVersion(t *testing.T) {
+	if _, err := PlanQuery(strings.Repeat("a", 257)); err == nil || !strings.Contains(err.Error(), "query too long") {
+		t.Fatalf("oversized query error = %v, want explicit query too long error", err)
+	}
+
+	plan, err := PlanQuery("JWT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Version != SearchContractVersion {
+		t.Fatalf("plan version = %q, want %q", plan.Version, SearchContractVersion)
+	}
+}
+
+func TestSearch_JWTAuthenticationBypassRanksCanonicalSkillFirst(t *testing.T) {
+	db := setupTestDB(t)
+
+	resources := []Resource{
+		{
+			Type: "skill", Name: "jwt-attack-methodology", Source: "builtin",
+			FilePath: "skills/jwt-attack-methodology/SKILL.md", Category: "exploit",
+			Tags:        "jwt,authentication,token",
+			Description: "JWT Token 攻击方法论，覆盖 alg:none 绕过和签名验证。",
+			Body:        "认证绕过、算法混淆和 Claims 篡改。" + strings.Repeat(" general token guidance", 200),
+		},
+		{
+			Type: "skill", Name: "cookie-analysis", Source: "builtin",
+			FilePath: "skills/cookie-analysis/SKILL.md", Category: "exploit",
+			Tags:        "cookie,authentication,bypass",
+			Description: "Cookie authentication bypass; JWT tokens should use another skill.",
+			Body:        "Cookie forgery and authentication bypass workflow.",
+		},
+		{
+			Type: "skill", Name: "java-auth-config-audit", Source: "builtin",
+			FilePath: "skills/java-auth-config-audit/SKILL.md", Category: "code-audit",
+			Tags:        "java,jwt,authentication bypass",
+			Description: "Java authentication bypass and JWT source audit.",
+			Body:        "Review authentication bypass filters and JWT claims.",
+		},
+	}
+	for _, resource := range resources {
+		if err := InsertResource(db, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 40; i++ {
+		if err := InsertResource(db, Resource{
+			Type: "skill", Name: fmt.Sprintf("token-reference-%02d", i), Source: "builtin",
+			FilePath:    fmt.Sprintf("skills/token-reference-%02d/SKILL.md", i),
+			Category:    "general",
+			Tags:        "jwt,token",
+			Description: "JWT token format reference.",
+			Body:        "Header payload signature.",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "JWT authentication bypass",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "jwt-attack-methodology" {
+		t.Fatalf("top result = %v, want jwt-attack-methodology", resultNames(results))
+	}
+}
+
+func TestSearch_JavaJWTSourceAuditRanksJavaSkillBeforeGenericJWT(t *testing.T) {
+	db := setupTestDB(t)
+
+	for _, resource := range []Resource{
+		{
+			Type: "skill", Name: "java-auth-config-audit", Source: "builtin",
+			FilePath: "skills/java-auth-config-audit/SKILL.md", Category: "code-audit",
+			Tags:        "java,jwt,source,audit",
+			Description: "Java JWT source audit for authentication configuration.",
+			Body:        "Inspect Java source and JWT validation.",
+		},
+		{
+			Type: "skill", Name: "jwt-attack-methodology", Source: "builtin",
+			FilePath: "skills/jwt-attack-methodology/SKILL.md", Category: "exploit",
+			Tags:        "jwt,java,source,audit",
+			Description: "Generic JWT attacks with a short Java source audit note.",
+			Body:        "JWT source audit reference for Java targets.",
+		},
+	} {
+		if err := InsertResource(db, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "Java JWT source audit",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "java-auth-config-audit" {
+		t.Fatalf("top result = %v, want java-auth-config-audit", resultNames(results))
+	}
+}
+
+func TestSearch_PHPJWTConfigurationAuditRanksPHPSkillBeforeGenericJWT(t *testing.T) {
+	db := setupTestDB(t)
+
+	for _, resource := range []Resource{
+		{
+			Type: "skill", Name: "php-auth-config-audit", Source: "builtin",
+			FilePath: "skills/php-auth-config-audit/SKILL.md", Category: "code-audit",
+			Tags:        "php,jwt,configuration,audit",
+			Description: "PHP JWT configuration audit.",
+			Body:        "Inspect PHP authentication configuration and JWT validation.",
+		},
+		{
+			Type: "skill", Name: "jwt-attack-methodology", Source: "builtin",
+			FilePath: "skills/jwt-attack-methodology/SKILL.md", Category: "exploit",
+			Tags:        "jwt,php,configuration,audit",
+			Description: "Generic JWT attacks with a PHP configuration audit note.",
+			Body:        "JWT configuration audit reference for PHP targets.",
+		},
+	} {
+		if err := InsertResource(db, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "PHP JWT configuration audit",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "php-auth-config-audit" {
+		t.Fatalf("top result = %v, want php-auth-config-audit", resultNames(results))
+	}
+}
+
+func TestSearch_SQLiRanksCanonicalSQLInjectionMethodologyFirst(t *testing.T) {
+	db := setupTestDB(t)
+
+	for _, resource := range []Resource{
+		{
+			Type: "skill", Name: "sql-injection-methodology", Source: "builtin",
+			FilePath: "skills/sql-injection-methodology/SKILL.md", Category: "exploit",
+			Tags:        "sql injection,database,web",
+			Description: "SQL injection exploitation methodology.",
+			Body:        "Union, error, boolean and time based SQL injection.",
+		},
+		{
+			Type: "skill", Name: "sqlmap-advanced", Source: "builtin",
+			FilePath: "skills/sqlmap-advanced/SKILL.md", Category: "tool",
+			Tags:        "sqli,sqlmap",
+			Description: "Advanced SQLi automation with sqlmap.",
+			Body:        "SQLi tamper scripts and automation.",
+		},
+	} {
+		if err := InsertResource(db, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "SQLi",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "sql-injection-methodology" {
+		t.Fatalf("top result = %v, want sql-injection-methodology", resultNames(results))
+	}
+}
+
+func TestSearch_LinuxPrivilegeEscalationRanksLinuxPostExploitSkillFirst(t *testing.T) {
+	db := setupTestDB(t)
+
+	for _, resource := range []Resource{
+		{
+			Type: "skill", Name: "post-exploit-linux", Source: "builtin",
+			FilePath: "skills/post-exploit-linux/SKILL.md", Category: "postexploit",
+			Tags:        "linux,privesc,提权",
+			Description: "Linux 后渗透与提权方法论。",
+			Body:        "sudo、SUID、capabilities 与内核提权。",
+		},
+		{
+			Type: "skill", Name: "aws-iam-privesc", Source: "builtin",
+			FilePath: "skills/aws-iam-privesc/SKILL.md", Category: "cloud",
+			Tags:        "aws,iam,privilege escalation",
+			Description: "AWS privilege escalation techniques.",
+			Body:        "Includes a Linux EC2 example.",
+		},
+	} {
+		if err := InsertResource(db, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "privilege escalation linux",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "post-exploit-linux" {
+		t.Fatalf("top result = %v, want post-exploit-linux", resultNames(results))
+	}
+}
+
+func TestRankCandidates_UsesStableResourceIDAsFinalTieBreaker(t *testing.T) {
+	plan, err := PlanQuery("JWT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := []SearchResult{
+		{Resource: Resource{Type: "skill", Name: "jwt-guide", Source: "team", Tags: "jwt"}, Score: -1},
+		{Resource: Resource{Type: "skill", Name: "jwt-guide", Source: "builtin", Tags: "jwt"}, Score: -1},
+	}
+
+	rankCandidates(plan, results)
+
+	if got, want := StableID(results[0].Resource), "absec://builtin/skill/jwt-guide"; got != want {
+		t.Fatalf("top stable ID = %q, want %q", got, want)
+	}
+}
+
+func TestRankCandidates_NormalizesTagSeparatorsForConceptCoverage(t *testing.T) {
+	plan, err := PlanQuery("JWT bypass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := []SearchResult{
+		{Resource: Resource{Type: "skill", Name: "generic-guide", Source: "builtin", Tags: "jwt"}, Score: -1},
+		{Resource: Resource{Type: "skill", Name: "focused-guide", Source: "team", Tags: "jwt,bypass"}, Score: -1},
+	}
+
+	rankCandidates(plan, results)
+
+	if got := results[0].Name; got != "focused-guide" {
+		t.Fatalf("top result = %q, want comma-separated tag coverage to rank focused-guide first", got)
+	}
+}
+
+func resultNames(results []SearchResult) []string {
+	names := make([]string, len(results))
+	for i, result := range results {
+		names[i] = result.Name
+	}
+	return names
 }
 
 func TestSearch_DefaultVisibilityExcludesDisabledResources(t *testing.T) {
@@ -253,6 +661,40 @@ func TestSearch_IncludesVulnWithExplicitType(t *testing.T) {
 	}
 	if results[0].Type != "vuln" {
 		t.Errorf("expected type vuln, got %q", results[0].Type)
+	}
+}
+
+func TestSearch_VulnKeepsLegacyBM25Ordering(t *testing.T) {
+	db := setupTestDB(t)
+	for _, resource := range []Resource{
+		{
+			Type: "vuln", Name: "jwt-vulnerability-guide", Source: "builtin",
+			Tags:        "reference",
+			Description: "General token vulnerability reference.",
+			Body:        strings.Repeat("unrelated background ", 800) + " authentication bypass",
+		},
+		{
+			Type: "vuln", Name: "CVE-2026-0001", Source: "builtin",
+			Tags:        "jwt,authentication,bypass",
+			Description: "JWT authentication bypass",
+			Body:        "JWT authentication bypass",
+		},
+	} {
+		if err := InsertResource(db, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "JWT authentication bypass",
+		Type:  "vuln",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || results[0].Name != "CVE-2026-0001" {
+		t.Fatalf("vuln results = %v, want legacy BM25 to keep CVE-2026-0001 first", resultNames(results))
 	}
 }
 

@@ -77,8 +77,7 @@ func splitSkillBody(content string) (string, string, error) {
 const relevanceCutoff = 0.2
 
 // trimByRelevance drops results whose BM25 score falls below relevanceCutoff
-// of the best (first) result. Results must be pre-sorted by score ascending
-// (most negative first), which is the FTS5 bm25() default order.
+// of the globally best raw score while preserving the canonical rank order.
 func trimByRelevance(results []search.SearchResult) []search.SearchResult {
 	if len(results) <= 1 {
 		return results
@@ -87,13 +86,22 @@ func trimByRelevance(results []search.SearchResult) []search.SearchResult {
 	if best >= 0 {
 		return results // guard: unexpected non-negative scores
 	}
-	threshold := best * relevanceCutoff
-	for i := 1; i < len(results); i++ {
-		if results[i].Score > threshold { // closer to 0 = less relevant
-			return results[:i]
+	for _, result := range results[1:] {
+		if result.Score >= 0 {
+			return results // guard: unexpected non-negative scores
+		}
+		if result.Score < best {
+			best = result.Score
 		}
 	}
-	return results
+	threshold := best * relevanceCutoff
+	trimmed := make([]search.SearchResult, 0, len(results))
+	for _, result := range results {
+		if result.Score <= threshold {
+			trimmed = append(trimmed, result)
+		}
+	}
+	return trimmed
 }
 
 // diversifyByType re-orders results so that no single type dominates the top
@@ -171,11 +179,12 @@ type ResourceSummary struct {
 }
 
 type SearchResult struct {
-	Total  int               `json:"total"`
-	Offset int               `json:"offset"`
-	Limit  int               `json:"limit"`
-	Items  []ResourceSummary `json:"items"`
-	Hint   string            `json:"hint,omitempty"`
+	SearchVersion string            `json:"search_version"`
+	Total         int               `json:"total"`
+	Offset        int               `json:"offset"`
+	Limit         int               `json:"limit"`
+	Items         []ResourceSummary `json:"items"`
+	Hint          string            `json:"hint,omitempty"`
 }
 
 func resourceToSummary(r search.Resource) ResourceSummary {
@@ -245,7 +254,10 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 		if len(results) < in.Limit {
 			total = in.Offset + len(results)
 		}
-		out := &SearchResult{Total: total, Offset: in.Offset, Limit: in.Limit, Items: items}
+		out := &SearchResult{
+			SearchVersion: search.SearchContractVersion,
+			Total:         total, Offset: in.Offset, Limit: in.Limit, Items: items,
+		}
 		if total == 0 {
 			out.Hint = searchHint(in.Query, in.Type)
 		}
@@ -265,7 +277,10 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 	for i, r := range result.Items {
 		items[i] = resourceToSummary(r)
 	}
-	return &SearchResult{Total: result.Total, Offset: in.Offset, Limit: in.Limit, Items: items}, nil
+	return &SearchResult{
+		SearchVersion: search.SearchContractVersion,
+		Total:         result.Total, Offset: in.Offset, Limit: in.Limit, Items: items,
+	}, nil
 }
 
 // --- get ---

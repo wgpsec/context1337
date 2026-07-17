@@ -51,7 +51,8 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"total": total, "items": items, "query_applied": true,
+				"search_version": search.SearchContractVersion,
+				"total":          total, "items": items, "query_applied": true,
 			})
 			return
 		}

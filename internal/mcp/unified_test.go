@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,14 +26,14 @@ func setupUnifiedTest(t *testing.T) *Service {
 	search.InsertResource(db, search.Resource{
 		Type: "skill", Name: "sql-injection", Source: "builtin",
 		FilePath: "skills/sql-injection/SKILL.md", Category: "exploit",
-		Tags: "sqli,owasp,web",
+		Tags:        "sqli,owasp,web",
 		Description: "SQL Injection attack techniques",
 		Body:        "SQL injection is a common web vulnerability",
 	})
 	search.InsertResource(db, search.Resource{
 		Type: "skill", Name: "xss-reflected", Source: "builtin",
 		FilePath: "skills/xss-reflected/SKILL.md", Category: "exploit",
-		Tags: "xss,owasp",
+		Tags:        "xss,owasp",
 		Description: "Reflected XSS attacks",
 		Body:        "Reflected cross-site scripting techniques",
 	})
@@ -69,6 +71,89 @@ func TestSearch_Keyword(t *testing.T) {
 	}
 	if result.Items[0].Type != "skill" {
 		t.Errorf("type = %q, want skill", result.Items[0].Type)
+	}
+}
+
+func TestSearch_ResponseAdvertisesSecurityConceptSearchVersion(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "SQL injection",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"search_version":"security-concepts-v1"`) {
+		t.Fatalf("search response does not advertise the active contract: %s", payload)
+	}
+}
+
+func TestSearch_RelevanceCutoffDoesNotDropStrongResultAfterCanonicalRerank(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	for i := 0; i < 40; i++ {
+		if err := search.InsertResource(svc.DB, search.Resource{
+			Type: "skill", Name: fmt.Sprintf("token-reference-%02d", i), Source: "builtin",
+			FilePath:    fmt.Sprintf("skills/token-reference-%02d/SKILL.md", i),
+			Category:    "general",
+			Tags:        "jwt,token",
+			Description: "JWT token format reference.",
+			Body:        "Header payload signature.",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, resource := range []search.Resource{
+		{
+			Type: "skill", Name: "jwt-attack-methodology", Source: "builtin",
+			FilePath: "skills/jwt-attack-methodology/SKILL.md", Category: "exploit",
+			Tags:        "jwt,authentication,bypass",
+			Description: "JWT authentication bypass methodology.",
+			Body:        "JWT authentication bypass.",
+		},
+		{
+			Type: "skill", Name: "jwt-reference", Source: "builtin",
+			FilePath: "skills/jwt-reference/SKILL.md", Category: "general",
+			Tags:        "jwt",
+			Description: "JWT reference.",
+			Body:        strings.Repeat("unrelated protocol reference ", 1000) + " authentication bypass",
+		},
+		{
+			Type: "skill", Name: "cookie-analysis", Source: "builtin",
+			FilePath: "skills/cookie-analysis/SKILL.md", Category: "exploit",
+			Tags:        "jwt,authentication,bypass",
+			Description: "JWT authentication bypass through cookie analysis.",
+			Body:        "JWT authentication bypass.",
+		},
+	} {
+		if err := search.InsertResource(svc.DB, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "JWT authentication bypass",
+		Type:  "skill",
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	names := make(map[string]bool)
+	for _, item := range result.Items {
+		names[item.Name] = true
+	}
+	for _, expected := range []string{"jwt-attack-methodology", "jwt-reference", "cookie-analysis"} {
+		if !names[expected] {
+			t.Fatalf("%s was dropped after reranking; results=%v", expected, names)
+		}
 	}
 }
 
@@ -511,6 +596,11 @@ func TestTrimByRelevance(t *testing.T) {
 			"trim tail",
 			[]search.SearchResult{mk(-20), mk(-10), mk(-5), mk(-1), mk(-0.5)},
 			3, // -1 is 5% of -20, below 20% cutoff
+		},
+		{
+			"reranked order still keeps later strong result",
+			[]search.SearchResult{mk(-10), mk(-1), mk(-9)},
+			2,
 		},
 		{
 			"only best survives",

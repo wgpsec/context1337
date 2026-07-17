@@ -53,6 +53,21 @@ func TestTokenize_Empty(t *testing.T) {
 	}
 }
 
+func TestTokenize_ASCIIConceptsRequireWordBoundaries(t *testing.T) {
+	tokens := Tokenize("source audit")
+	if contains(tokens, "rce") {
+		t.Fatalf("source must not be split into the RCE security term: %v", tokens)
+	}
+	if !contains(tokens, "source") || !contains(tokens, "audit") {
+		t.Fatalf("ordinary words were not preserved: %v", tokens)
+	}
+
+	rceTokens := Tokenize("RCE source audit")
+	if !contains(rceTokens, "rce") {
+		t.Fatalf("standalone RCE must still be recognized: %v", rceTokens)
+	}
+}
+
 func contains(tokens []string, s string) bool {
 	for _, t := range tokens {
 		if t == s {
