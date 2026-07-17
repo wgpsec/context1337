@@ -69,6 +69,27 @@ func TestSearch_ByKeyword(t *testing.T) {
 	}
 }
 
+func TestSearch_DefaultVisibilityExcludesDisabledResources(t *testing.T) {
+	db := setupTestDB(t)
+	if err := InsertResource(db, Resource{
+		Type: "skill", Name: "disabled-agent-knowledge", Source: "custom",
+		Description: "must remain hidden from agent search",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE resources SET enabled = 0 WHERE name = ?", "disabled-agent-knowledge"); err != nil {
+		t.Fatal(err)
+	}
+
+	results, total, err := Search(db, SearchQuery{Query: "agent", Type: "skill", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 0 || len(results) != 0 {
+		t.Fatalf("disabled resource leaked into default search: total=%d results=%d", total, len(results))
+	}
+}
+
 func TestSearch_WithCategoryFilter(t *testing.T) {
 	db := setupTestDB(t)
 

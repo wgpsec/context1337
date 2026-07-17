@@ -14,6 +14,48 @@ import (
 func handleListResources(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		limit := 100
+		if v, err := strconv.Atoi(q.Get("limit")); err == nil && v > 0 {
+			limit = v
+		}
+		offset := 0
+		if v, err := strconv.Atoi(q.Get("offset")); err == nil && v >= 0 {
+			offset = v
+		}
+
+		if query := strings.TrimSpace(q.Get("q")); query != "" {
+			visibility := search.VisibilityAll
+			switch q.Get("enabled") {
+			case "true":
+				visibility = search.VisibilityEnabledOnly
+			case "false":
+				visibility = search.VisibilityDisabledOnly
+			}
+			results, total, err := search.Search(db, search.SearchQuery{
+				Query: query, Type: q.Get("type"), Category: q.Get("category"), Source: q.Get("source"),
+				Severity:   strings.ToUpper(q.Get("severity")),
+				Visibility: visibility, Offset: offset, Limit: limit,
+			})
+			if err != nil {
+				http.Error(w, `{"error":"query failed"}`, http.StatusInternalServerError)
+				return
+			}
+			items := make([]map[string]interface{}, 0, len(results))
+			for _, result := range results {
+				items = append(items, map[string]interface{}{
+					"id": result.ID, "type": result.Type, "name": result.Name,
+					"category": result.Category, "source": result.Source,
+					"description": result.Description, "tags": result.Tags,
+					"enabled": result.Enabled,
+				})
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"total": total, "items": items, "query_applied": true,
+			})
+			return
+		}
+
 		where := []string{}
 		args := []interface{}{}
 
@@ -43,15 +85,6 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 
 		var total int
 		db.QueryRow("SELECT count(*) FROM resources"+whereClause, args...).Scan(&total)
-
-		limit := 100
-		if v, err := strconv.Atoi(q.Get("limit")); err == nil && v > 0 {
-			limit = v
-		}
-		offset := 0
-		if v, err := strconv.Atoi(q.Get("offset")); err == nil && v >= 0 {
-			offset = v
-		}
 
 		rows, err := db.Query("SELECT id, type, name, category, source, description, tags, enabled FROM resources"+whereClause+" LIMIT ? OFFSET ?", append(args, limit, offset)...)
 		if err != nil {

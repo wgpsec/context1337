@@ -18,17 +18,30 @@ type Resource struct {
 	Description string
 	Body        string
 	Metadata    string
+	Enabled     bool
 }
+
+// ResourceVisibility controls whether a query can see disabled resources.
+// The zero value intentionally preserves the MCP-safe enabled-only behavior.
+type ResourceVisibility uint8
+
+const (
+	VisibilityEnabledOnly ResourceVisibility = iota
+	VisibilityAll
+	VisibilityDisabledOnly
+)
 
 // SearchQuery defines search parameters.
 type SearchQuery struct {
-	Query    string
-	Type     string
-	Category string
-	Severity string // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
-	Product  string // vuln metadata filter: product name
-	Offset   int
-	Limit    int
+	Query      string
+	Type       string
+	Category   string
+	Source     string
+	Severity   string // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
+	Product    string // vuln metadata filter: product name
+	Visibility ResourceVisibility
+	Offset     int
+	Limit      int
 }
 
 // SearchResult is a Resource with a relevance score.
@@ -124,7 +137,13 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 
 	conditions = append(conditions, "resources_fts MATCH ?")
 	args = append(args, ftsQuery)
-	conditions = append(conditions, "r.enabled = 1")
+	switch q.Visibility {
+	case VisibilityAll:
+	case VisibilityDisabledOnly:
+		conditions = append(conditions, "r.enabled = 0")
+	default:
+		conditions = append(conditions, "r.enabled = 1")
+	}
 
 	if q.Type != "" {
 		conditions = append(conditions, "r.type = ?")
@@ -133,6 +152,10 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 	if q.Category != "" {
 		conditions = append(conditions, "LOWER(r.category) = LOWER(?)")
 		args = append(args, q.Category)
+	}
+	if q.Source != "" {
+		conditions = append(conditions, "r.source = ?")
+		args = append(args, q.Source)
 	}
 	// Exclude vuln from default search (no type specified)
 	if q.Type == "" {
@@ -163,7 +186,7 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 	query := fmt.Sprintf(`
 		SELECT r.id, r.type, COALESCE(r.name,''), COALESCE(r.source,''), COALESCE(r.file_path,''),
 		       COALESCE(r.category,''), COALESCE(r.tags,''),
-		       COALESCE(r.description,''), COALESCE(r.body,''), COALESCE(r.metadata,''),
+		       COALESCE(r.description,''), COALESCE(r.body,''), COALESCE(r.metadata,''), r.enabled,
 		       bm25(resources_fts, 10.0, 5.0, 5.0, 2.0, 1.0) AS score
 		FROM resources_fts
 		JOIN resources r ON r.id = resources_fts.rowid
@@ -183,7 +206,7 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 		err := rows.Scan(
 			&sr.ID, &sr.Type, &sr.Name, &sr.Source, &sr.FilePath,
 			&sr.Category, &sr.Tags,
-			&sr.Description, &sr.Body, &sr.Metadata,
+			&sr.Description, &sr.Body, &sr.Metadata, &sr.Enabled,
 			&sr.Score,
 		)
 		if err != nil {

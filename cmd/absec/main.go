@@ -7,15 +7,15 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/cobra"
 	"github.com/wgpsec/context1337/internal/api"
 	"github.com/wgpsec/context1337/internal/config"
 	mcphandler "github.com/wgpsec/context1337/internal/mcp"
 	"github.com/wgpsec/context1337/internal/mcp/benchlog"
 	"github.com/wgpsec/context1337/internal/storage"
-	"github.com/spf13/cobra"
 )
 
-var version = "dev"
+var version = "0.7.3"
 
 func main() {
 	root := &cobra.Command{
