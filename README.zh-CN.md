@@ -241,8 +241,8 @@ curl -X POST http://localhost:1337/api/resources \
 | `ABOUTSECURITY_DATA_DIR` | `./data` | 数据目录根路径 |
 | `ABOUTSECURITY_API_KEY` | （空=无认证） | Bearer 认证密钥 |
 | `ABOUTSECURITY_TOOL_MODE` | `lite` | 工具注册模式：`lite`（3 个工具）或 `full`（12 个工具） |
-| `NUCLEI_TEMPLATES_DIR` | （空=不启用） | nuclei-templates 仓库根目录，启用第二数据源 |
-| `NUCLEI_MIN_SEVERITY` | `high` | nuclei CVE 最低导入级别：`critical`/`high`/`medium`/`low` |
+| `NUCLEI_TEMPLATES_DIR` | 原生运行为空；官方镜像为内置快照路径 | nuclei-templates 仓库根目录，启用第二数据源 |
+| `NUCLEI_MIN_SEVERITY` | `high` | nuclei 漏洞模板最低导入级别：`critical`/`high`/`medium`/`low` |
 
 ## 数据源
 
@@ -250,9 +250,11 @@ curl -X POST http://localhost:1337/api/resources \
 
 服务启动时自动加载 [AboutSecurity](https://github.com/wgpsec/AboutSecurity) 仓库中的 skill、dict、payload、vuln 数据，构建 FTS5 全文搜索索引。这是唯一的必选数据源。
 
-### 第二数据源：nuclei-templates（按需开启）
+### 第二数据源：nuclei-templates
 
-可选接入 [nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) CVE 漏洞库，将模板中的 CVE 情报导入漏洞库，补充 AboutSecurity 的 CVE 覆盖范围。
+可选接入 [nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) 漏洞情报，补充 AboutSecurity 的覆盖范围。Context1337 导入 HTTP 下的 `cves`、`cnvd`、`vulnerabilities`、`misconfiguration` 和 `default-logins` 类别；暴露面/探测、子域接管及非 HTTP 协议模板会明确排除。直接运行原生二进制时，只有设置 `--nuclei-dir` 或 `NUCLEI_TEMPLATES_DIR` 才会启用。
+
+官方 Docker 镜像会打包发布构建时上述支持类别的最新快照，并按最低 `high` 级别默认启用；直接运行原生二进制时仍为按需开启。构建时解析出的上游 commit 会写入镜像 label `org.opencontainers.image.nuclei-templates.revision`，运行中的容器不会联网拉取或自动更新模板。
 
 **启用方式：**
 
@@ -277,7 +279,7 @@ NUCLEI_TEMPLATES_DIR=/path/to/nuclei-templates ./absec serve
 | `--nuclei-dir` | nuclei-templates 仓库根目录路径，不传则不启用 | （空=不启用） |
 | `--nuclei-min-severity` | 最低导入级别：`critical` \| `high` \| `medium` \| `low` | `high` |
 
-默认导入 critical+high 共约 2,300 条 CVE 模板。
+默认导入支持类别中的 critical+high 模板。
 
 **同步行为：** 服务启动时会自动检查 nuclei 配置。首次设置 `--nuclei-dir`、更换目录、调整 severity，都会只重建 `source=nuclei` 的资源，不会删除 runtime DB，也不会影响 `custom` 资源。下次用相同配置启动会直接复用已有 nuclei 索引。
 
@@ -290,7 +292,7 @@ NUCLEI_TEMPLATES_DIR=/path/to/nuclei-templates ./absec serve
 ```
 构建阶段:   AboutSecurity/ → Python+jieba 分词 → builtin.db（FTS5 索引）
 启动阶段:   复制 builtin.db → runtime.db，扫描 team/ → INSERT
-            [可选] 按配置同步 nuclei-templates/http/cves/ → INSERT（source=nuclei）
+            [可选] 按配置同步支持的 nuclei HTTP 类别 → INSERT（source=nuclei）
 运行阶段:   MCP Streamable HTTP + REST API，Go 原生分词器处理新内容
 ```
 

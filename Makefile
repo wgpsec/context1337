@@ -1,4 +1,4 @@
-.PHONY: build test test-integration run docker clean index reindex link-data clean-benchmark
+.PHONY: build test test-integration test-release-image run docker clean index reindex link-data clean-benchmark
 
 # Paths
 ABOUTSECURITY_DIR ?= ../AboutSecurity
@@ -13,6 +13,10 @@ test:
 
 test-integration:
 	go test -tags integration -v .
+
+test-release-image:
+	test -n "$(IMAGE)"
+	CONTEXT1337_RELEASE_IMAGE="$(IMAGE)" python3 -m unittest build.test_release_image -v
 
 # Clone AboutSecurity repo if not present
 $(ABOUTSECURITY_DIR):
@@ -52,7 +56,7 @@ docker:
 	DOCKER_BUILDKIT=1 docker build -t context1337:latest -f build/Dockerfile .
 
 # Build with a specific branch/tag
-ABOUTSECURITY_REF ?= main
+ABOUTSECURITY_REF ?= master
 docker-ref:
 	DOCKER_BUILDKIT=1 docker build -t context1337:latest -f build/Dockerfile \
 		--build-arg ABOUTSECURITY_REF=$(ABOUTSECURITY_REF) .

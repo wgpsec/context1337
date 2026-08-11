@@ -15,7 +15,7 @@ import (
 	"github.com/wgpsec/context1337/internal/storage"
 )
 
-var version = "0.7.4"
+var version = "0.7.5"
 
 func main() {
 	root := &cobra.Command{
@@ -124,7 +124,7 @@ func serveCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&benchmark, "benchmark", false, "Enable MCP tool call logging")
 	cmd.Flags().StringVar(&benchmarkScenario, "benchmark-scenario", "default", "Scenario label for benchmark logs")
 	cmd.Flags().StringVar(&toolMode, "tool-mode", "lite", "Default tool mode when X-Tool-Mode header is absent: lite (3 tools) or full (12 tools). Clients can override per-request via X-Tool-Mode header.")
-	cmd.Flags().StringVar(&nucleiDir, "nuclei-dir", "", "Path to nuclei-templates repo root (enables CVE import when set)")
-	cmd.Flags().StringVar(&nucleiMinSeverity, "nuclei-min-severity", "high", "Minimum severity for nuclei CVE import: critical|high|medium|low")
+	cmd.Flags().StringVar(&nucleiDir, "nuclei-dir", "", "Path to nuclei-templates repo root (enables supported vulnerability templates when set)")
+	cmd.Flags().StringVar(&nucleiMinSeverity, "nuclei-min-severity", "high", "Minimum severity for nuclei vulnerability import: critical|high|medium|low")
 	return cmd
 }

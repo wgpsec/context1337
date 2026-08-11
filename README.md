@@ -236,8 +236,8 @@ Custom resources use `source=custom` (server-enforced) and can be edited or dele
 | `ABOUTSECURITY_DATA_DIR` | `./data` | Data directory root |
 | `ABOUTSECURITY_API_KEY` | (empty=no auth) | API key for Bearer auth |
 | `ABOUTSECURITY_TOOL_MODE` | `lite` | Tool registration mode: `lite` (3 tools) or `full` (12 tools) |
-| `NUCLEI_TEMPLATES_DIR` | (empty=disabled) | Path to nuclei-templates repo root, enables secondary data source |
-| `NUCLEI_MIN_SEVERITY` | `high` | Minimum severity for nuclei CVE import: `critical`/`high`/`medium`/`low` |
+| `NUCLEI_TEMPLATES_DIR` | Native: empty; official image: bundled snapshot | Path to nuclei-templates repo root, enables secondary data source |
+| `NUCLEI_MIN_SEVERITY` | `high` | Minimum severity for nuclei vulnerability import: `critical`/`high`/`medium`/`low` |
 
 ## Data Sources
 
@@ -245,12 +245,14 @@ Custom resources use `source=custom` (server-enforced) and can be edited or dele
 
 On startup, context1337 automatically loads skill, dict, payload, and vuln data from the [AboutSecurity](https://github.com/wgpsec/AboutSecurity) repo and builds an FTS5 full-text search index. This is the only required data source.
 
-### Secondary: nuclei-templates (opt-in)
+### Secondary: nuclei-templates
 
-Optionally ingest CVE intelligence from [nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) to supplement AboutSecurity's CVE coverage. Disabled by default — only activates when `--nuclei-dir` is set.
+Optionally ingest vulnerability intelligence from [nuclei-templates](https://github.com/projectdiscovery/nuclei-templates) to supplement AboutSecurity's coverage. Context1337 imports the HTTP `cves`, `cnvd`, `vulnerabilities`, `misconfiguration`, and `default-logins` template categories. Detection/exposure, takeover, and non-HTTP protocol templates are intentionally excluded. Native binary runs only activate it when `--nuclei-dir` or `NUCLEI_TEMPLATES_DIR` is set.
+
+The official Docker image bundles the latest supported HTTP template categories available at release build time and enables them with minimum severity `high`. Native binary runs remain opt-in. The resolved upstream commit is recorded in the image label `org.opencontainers.image.nuclei-templates.revision`; the running container never pulls or updates templates from the network.
 
 ```bash
-# Enable nuclei CVE data (imports critical + high by default, ~2,300 CVEs)
+# Enable supported nuclei HTTP vulnerability data (critical + high by default)
 ./absec serve --nuclei-dir /path/to/nuclei-templates
 
 # Import only critical severity
@@ -279,7 +281,7 @@ NUCLEI_TEMPLATES_DIR=/path/to/nuclei-templates ./absec serve
 ```
 Build time:   AboutSecurity/ → Python+jieba → builtin.db (FTS5 index)
 Startup:      cp builtin.db → runtime.db, scan team/ → INSERT
-              [optional] sync nuclei-templates/http/cves/ → INSERT (source=nuclei)
+              [optional] sync supported nuclei HTTP categories → INSERT (source=nuclei)
 Runtime:      MCP Streamable HTTP + REST API, pure Go tokenizer for new content
 ```
 

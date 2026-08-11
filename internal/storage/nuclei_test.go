@@ -83,13 +83,13 @@ info:
 	writeFile("panel-detect.yaml", nonCVEYAML)
 	writeFile("CVE-2022-1111.yaml", listTagsYAML)
 
-	t.Run("minSeverity=high returns 2 results (critical+high)", func(t *testing.T) {
+	t.Run("minSeverity=high returns all critical+high templates", func(t *testing.T) {
 		results, err := ScanNucleiVulns(tmpDir, "high")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(results) != 2 {
-			t.Fatalf("expected 2 results, got %d", len(results))
+		if len(results) != 3 {
+			t.Fatalf("expected 3 results, got %d", len(results))
 		}
 		// collect IDs for order-independent checks
 		ids := make(map[string]bool)
@@ -118,23 +118,23 @@ info:
 		}
 	})
 
-	t.Run("minSeverity=medium returns 2 results", func(t *testing.T) {
+	t.Run("minSeverity=medium returns all medium-or-higher templates", func(t *testing.T) {
 		results, err := ScanNucleiVulns(tmpDir, "medium")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(results) != 3 {
-			t.Fatalf("expected 3 results, got %d", len(results))
+		if len(results) != 4 {
+			t.Fatalf("expected 4 results, got %d", len(results))
 		}
 	})
 
-	t.Run("minSeverity=empty defaults to high, returns 2 results", func(t *testing.T) {
+	t.Run("minSeverity=empty defaults to high", func(t *testing.T) {
 		results, err := ScanNucleiVulns(tmpDir, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(results) != 2 {
-			t.Fatalf("expected 2 results (same as high), got %d", len(results))
+		if len(results) != 3 {
+			t.Fatalf("expected 3 results (same as high), got %d", len(results))
 		}
 		ids := make(map[string]bool)
 		for _, v := range results {
@@ -161,4 +161,58 @@ info:
 			t.Errorf("Tags = %q, want webmin,auth-bypass", v.Tags)
 		}
 	})
+}
+
+func TestScanNucleiVulnsUsesSupportedHttpCategoriesOnly(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeTemplate := func(relativePath, content string) {
+		path := filepath.Join(tmpDir, filepath.FromSlash(relativePath))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeTemplate("http/vulnerabilities/panel.yaml", `id: panel-auth-bypass
+info:
+  name: Panel Authentication Bypass
+  severity: high
+  description: A panel authentication bypass.
+`)
+	writeTemplate("http/misconfiguration/exposed.yaml", `id: exposed-admin-console
+info:
+  name: Exposed Admin Console
+  severity: high
+  description: An exposed admin console.
+`)
+	writeTemplate("http/exposed-panels/panel.yaml", `id: panel-detection
+info:
+  name: Panel Detection
+  severity: high
+  description: Detects an exposed panel.
+`)
+
+	results, err := ScanNucleiVulns(tmpDir, "high")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 supported templates, got %d", len(results))
+	}
+
+	byID := make(map[string]VulnData, len(results))
+	for _, result := range results {
+		byID[result.ID] = result
+	}
+	if got := byID["panel-auth-bypass"].Category; got != "nuclei-vulnerability" {
+		t.Errorf("vulnerability category = %q, want nuclei-vulnerability", got)
+	}
+	if got := byID["exposed-admin-console"].Category; got != "nuclei-misconfiguration" {
+		t.Errorf("misconfiguration category = %q, want nuclei-misconfiguration", got)
+	}
+	if _, ok := byID["panel-detection"]; ok {
+		t.Errorf("excluded exposed-panels template was indexed")
+	}
 }

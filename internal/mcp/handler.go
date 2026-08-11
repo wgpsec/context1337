@@ -46,7 +46,7 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 
 	liteServer := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
-		Version: "0.7.4",
+		Version: "0.7.5",
 	}, &gomcp.ServerOptions{
 		Instructions: baseInstructions + "\nWorkflow: search_security to find resources → get_security_detail for skills/vulns → read_security_file for dicts/payloads.",
 	})
@@ -54,7 +54,7 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 
 	fullServer := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
-		Version: "0.7.4",
+		Version: "0.7.5",
 	}, &gomcp.ServerOptions{
 		Instructions: baseInstructions + "\nWorkflow: use search_* or list_* to find resources, then get_* for details.",
 	})

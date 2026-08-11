@@ -28,9 +28,9 @@ func (t *nucleiTagsField) UnmarshalYAML(value *yaml.Node) error {
 type nucleiInfo struct {
 	ID   string `yaml:"id"`
 	Info struct {
-		Name        string         `yaml:"name"`
-		Severity    string         `yaml:"severity"`
-		Description string         `yaml:"description"`
+		Name        string          `yaml:"name"`
+		Severity    string          `yaml:"severity"`
+		Description string          `yaml:"description"`
 		Tags        nucleiTagsField `yaml:"tags"`
 		Metadata    struct {
 			Vendor  string `yaml:"vendor"`
@@ -54,7 +54,25 @@ func severityRank(s string) int {
 	}
 }
 
-// ScanNucleiVulns walks nucleiDir/http/cves/ and returns CVE entries at or above minSeverity.
+type nucleiTemplateRoot struct {
+	directory string
+	category  string
+}
+
+// Keep the secondary source focused on vulnerability intelligence. Detection,
+// exposure, takeover, and non-HTTP protocol templates are intentionally not
+// part of the Context1337 knowledge source.
+var supportedNucleiTemplateRoots = []nucleiTemplateRoot{
+	{directory: "http/cves", category: "nuclei-cve"},
+	{directory: "http/cnvd", category: "nuclei-cnvd"},
+	{directory: "http/vulnerabilities", category: "nuclei-vulnerability"},
+	{directory: "http/misconfiguration", category: "nuclei-misconfiguration"},
+	{directory: "http/default-logins", category: "nuclei-default-login"},
+}
+
+// ScanNucleiVulns walks the supported nuclei HTTP vulnerability roots and
+// returns entries at or above minSeverity. Missing roots are ignored so a
+// native installation can provide only a subset of the supported snapshot.
 // If minSeverity is empty, it defaults to "high".
 func ScanNucleiVulns(nucleiDir, minSeverity string) ([]VulnData, error) {
 	if minSeverity == "" {
@@ -62,46 +80,57 @@ func ScanNucleiVulns(nucleiDir, minSeverity string) ([]VulnData, error) {
 	}
 	minRank := severityRank(minSeverity)
 
-	cvesDir := filepath.Join(nucleiDir, "http", "cves")
 	var vulns []VulnData
 
-	err := filepath.WalkDir(cvesDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
+	for _, root := range supportedNucleiTemplateRoots {
+		rootPath := filepath.Join(nucleiDir, filepath.FromSlash(root.directory))
+		if _, err := os.Stat(rootPath); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return nil, err
 		}
-		name := d.Name()
-		if !strings.HasPrefix(name, "CVE-") || !strings.HasSuffix(name, ".yaml") {
+
+		err := filepath.WalkDir(rootPath, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			ext := strings.ToLower(filepath.Ext(d.Name()))
+			if ext != ".yaml" && ext != ".yml" {
+				return nil
+			}
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil // skip unreadable files
+			}
+
+			var tmpl nucleiInfo
+			if err := yaml.Unmarshal(data, &tmpl); err != nil || tmpl.ID == "" {
+				return nil // skip unparseable or empty-ID templates
+			}
+
+			if severityRank(tmpl.Info.Severity) < minRank {
+				return nil
+			}
+
+			vulns = append(vulns, VulnData{
+				ID:          tmpl.ID,
+				Title:       tmpl.Info.Name,
+				Description: tmpl.Info.Description,
+				Severity:    strings.ToUpper(tmpl.Info.Severity),
+				Tags:        string(tmpl.Info.Tags),
+				Vendor:      tmpl.Info.Metadata.Vendor,
+				Product:     tmpl.Info.Metadata.Product,
+				Category:    root.category,
+				Body:        tmpl.Info.Description, // nuclei templates have no separate body; description doubles as body
+				FilePath:    path,
+			})
 			return nil
-		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil // skip unreadable files
-		}
-
-		var tmpl nucleiInfo
-		if err := yaml.Unmarshal(data, &tmpl); err != nil || tmpl.ID == "" {
-			return nil // skip unparseable or empty-ID templates
-		}
-
-		if severityRank(tmpl.Info.Severity) < minRank {
-			return nil
-		}
-
-		vulns = append(vulns, VulnData{
-			ID:          tmpl.ID,
-			Title:       tmpl.Info.Name,
-			Description: tmpl.Info.Description,
-			Severity:    strings.ToUpper(tmpl.Info.Severity),
-			Tags:        string(tmpl.Info.Tags),
-			Vendor:      tmpl.Info.Metadata.Vendor,
-			Product:     tmpl.Info.Metadata.Product,
-			Category:    "nuclei-cve",
-			Body:        tmpl.Info.Description, // nuclei templates have no separate body; description doubles as body
-			FilePath:    path,
 		})
-		return nil
-	})
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	return vulns, err
+	return vulns, nil
 }

@@ -29,6 +29,18 @@ jobs:
           git -C /tmp/AboutSecurity fetch --depth 1 origin "${ABOUTSECURITY_COMMIT}"
           git -C /tmp/AboutSecurity checkout --detach "${ABOUTSECURITY_COMMIT}"
 
+      - name: Clone latest nuclei-templates
+        id: nuclei
+        run: |
+          git clone --depth 1 --branch main --filter=blob:none --sparse https://github.com/projectdiscovery/nuclei-templates.git /tmp/nuclei-templates
+          git -C /tmp/nuclei-templates sparse-checkout set --no-cone \
+            '/http/cves/**' \
+            '/http/cnvd/**' \
+            '/http/vulnerabilities/**' \
+            '/http/misconfiguration/**' \
+            '/http/default-logins/**'
+          echo "revision=$(git -C /tmp/nuclei-templates rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Log in to ghcr.io
         uses: docker/login-action@v3
         with:
@@ -53,6 +65,29 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=latest
 
+      - name: Build release candidate
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: build/Dockerfile
+          build-contexts: |
+            aboutsecurity=/tmp/AboutSecurity
+            nuclei-templates=/tmp/nuclei-templates
+          build-args: |
+            NUCLEI_TEMPLATES_REVISION=${{ steps.nuclei.outputs.revision }}
+          load: true
+          push: false
+          tags: context1337:release-test
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Verify release image contract
+        env:
+          CONTEXT1337_RELEASE_IMAGE: context1337:release-test
+        run: python3 -m unittest build.test_release_image -v
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -60,11 +95,13 @@ jobs:
           file: build/Dockerfile
           build-contexts: |
             aboutsecurity=/tmp/AboutSecurity
+            nuclei-templates=/tmp/nuclei-templates
+          build-args: |
+            NUCLEI_TEMPLATES_REVISION=${{ steps.nuclei.outputs.revision }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
           provenance: false   # disable SLSA attestation to keep a single manifest digest
                               # without this, :latest resolves to an image index digest
                               # which breaks the CronJob digest comparison
