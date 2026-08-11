@@ -13,9 +13,10 @@ import (
 	mcphandler "github.com/wgpsec/context1337/internal/mcp"
 	"github.com/wgpsec/context1337/internal/mcp/benchlog"
 	"github.com/wgpsec/context1337/internal/storage"
+	"github.com/wgpsec/context1337/internal/usage"
 )
 
-var version = "0.7.5"
+var version = "0.7.6"
 
 func main() {
 	root := &cobra.Command{
@@ -104,8 +105,12 @@ func serveCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			mcpHandler := mcphandler.NewMCPServer(db, cfg.DataDir, mcphandler.ToolMode(toolMode))
-			handler := api.NewRouter(db, cfg.DataDir, cfg.APIKey, mcpHandler)
+			usageCollector := usage.NewCollector()
+			mcpHandler := mcphandler.NewMCPServer(db, cfg.DataDir, mcphandler.ToolMode(toolMode), usageCollector)
+			handler := api.NewRouter(db, cfg.DataDir, cfg.APIKey, mcpHandler, api.UsageEndpoint{
+				Token:     cfg.UsageToken,
+				Collector: usageCollector,
+			})
 
 			addr := fmt.Sprintf(":%d", cfg.Port)
 			counts := storage.CountByType(db)
@@ -114,6 +119,9 @@ func serveCmd() *cobra.Command {
 				counts["skill"], counts["dict"], counts["payload"], counts["vuln"])
 			if cfg.NucleiDir != "" {
 				log.Printf("nuclei-templates: %s (min-severity: %s)", cfg.NucleiDir, cfg.NucleiMinSeverity)
+			}
+			if cfg.UsageToken != "" {
+				log.Printf("usage analytics: enabled at GET /api/usage")
 			}
 			return http.ListenAndServe(addr, handler)
 		},

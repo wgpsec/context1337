@@ -11,12 +11,14 @@ import (
 
 	"github.com/wgpsec/context1337/internal/search"
 	"github.com/wgpsec/context1337/internal/storage"
+	"github.com/wgpsec/context1337/internal/usage"
 )
 
 // Service holds shared dependencies for all MCP handlers.
 type Service struct {
 	DB      *sql.DB
 	DataDir string
+	Usage   *usage.Collector
 }
 
 // SkillReference represents a named reference file bundled with a skill.
@@ -213,7 +215,24 @@ func searchHint(query, typ string) string {
 	return fmt.Sprintf("no results for %q; try broader or alternative keywords", query)
 }
 
-func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, error) {
+func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult, err error) {
+	if strings.TrimSpace(in.Query) != "" {
+		defer func() {
+			resultCount := 0
+			if out != nil {
+				resultCount = out.Total
+			}
+			s.Usage.RecordSearch(usage.SearchObservation{
+				Query:        in.Query,
+				ResourceType: in.Type,
+				Category:     in.Category,
+				Severity:     in.Severity,
+				Product:      in.Product,
+				ResultCount:  resultCount,
+				Failed:       err != nil,
+			})
+		}()
+	}
 	if in.Limit <= 0 {
 		if in.Type == "vuln" {
 			in.Limit = 50
@@ -254,7 +273,7 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (*SearchResult, er
 		if len(results) < in.Limit {
 			total = in.Offset + len(results)
 		}
-		out := &SearchResult{
+		out = &SearchResult{
 			SearchVersion: search.SearchContractVersion,
 			Total:         total, Offset: in.Offset, Limit: in.Limit, Items: items,
 		}

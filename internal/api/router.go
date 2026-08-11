@@ -1,15 +1,24 @@
 package api
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+
+	"github.com/wgpsec/context1337/internal/usage"
 )
+
+type UsageEndpoint struct {
+	Token     string
+	Collector *usage.Collector
+}
 
 // NewRouter creates the HTTP mux with REST endpoints.
 // mcpHandler is optional -- if non-nil, it's mounted at /mcp/.
-func NewRouter(db *sql.DB, dataDir, apiKey string, mcpHandler http.Handler) http.Handler {
+func NewRouter(db *sql.DB, dataDir, apiKey string, mcpHandler http.Handler, usageEndpoints ...UsageEndpoint) http.Handler {
 	mux := http.NewServeMux()
 
 	// MCP endpoint — Streamable HTTP handler mounted at /mcp
@@ -33,8 +42,38 @@ func NewRouter(db *sql.DB, dataDir, apiKey string, mcpHandler http.Handler) http
 	mux.HandleFunc("DELETE /api/resources/{id}", handleDeleteResource(db))
 	mux.HandleFunc("PUT /api/resources/{id}/toggle", handleToggleResource(db))
 
-	// Apply auth middleware
-	return AuthMiddleware(apiKey)(mux)
+	// Usage metrics use a separate token and route tree so the ordinary API
+	// token can neither grant nor block access to this endpoint.
+	apiHandler := AuthMiddleware(apiKey)(mux)
+	root := http.NewServeMux()
+	if len(usageEndpoints) > 0 && usageEndpoints[0].Token != "" && usageEndpoints[0].Collector != nil {
+		root.Handle("GET /api/usage", handleUsage(usageEndpoints[0]))
+	} else {
+		root.HandleFunc("GET /api/usage", http.NotFound)
+	}
+	root.Handle("/", apiHandler)
+	return root
+}
+
+func handleUsage(endpoint UsageEndpoint) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		const bearerPrefix = "Bearer "
+		w.Header().Set("Cache-Control", "no-store")
+		authorization := r.Header.Get("Authorization")
+		candidate := ""
+		if strings.HasPrefix(authorization, bearerPrefix) {
+			candidate = strings.TrimPrefix(authorization, bearerPrefix)
+		}
+		if len(candidate) != len(endpoint.Token) || subtle.ConstantTimeCompare([]byte(candidate), []byte(endpoint.Token)) != 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(endpoint.Collector.Snapshot())
+	})
 }
 
 func handleHealth(db *sql.DB) http.HandlerFunc {

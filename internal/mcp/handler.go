@@ -10,6 +10,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/wgpsec/context1337/internal/mcp/benchlog"
+	"github.com/wgpsec/context1337/internal/usage"
 )
 
 // BenchLogger is an optional benchmark logger. When non-nil every tool call
@@ -27,8 +28,12 @@ const (
 )
 
 // NewService creates a new MCP service with all handlers.
-func NewService(db *sql.DB, dataDir string) *Service {
-	return &Service{DB: db, DataDir: dataDir}
+func NewService(db *sql.DB, dataDir string, collectors ...*usage.Collector) *Service {
+	service := &Service{DB: db, DataDir: dataDir}
+	if len(collectors) > 0 {
+		service.Usage = collectors[0]
+	}
+	return service
 }
 
 // NewMCPServer creates an MCP server and returns an HTTP handler.
@@ -36,8 +41,12 @@ func NewService(db *sql.DB, dataDir string) *Service {
 // request header is absent. Clients can override per-request:
 //   - "full"  → 12 per-type tools
 //   - "lite"  → 3 core tools
-func NewMCPServer(db *sql.DB, dataDir string, mode ToolMode) http.Handler {
-	svc := NewService(db, dataDir)
+func NewMCPServer(db *sql.DB, dataDir string, mode ToolMode, collectors ...*usage.Collector) http.Handler {
+	var collector *usage.Collector
+	if len(collectors) > 0 {
+		collector = collectors[0]
+	}
+	svc := NewService(db, dataDir, collector)
 
 	baseInstructions := `Penetration testing and offensive security knowledge base.
 Use when: exploit techniques, post-exploitation tactics, cloud security assessment, password/bruteforce wordlists, attack payloads, vulnerability PoCs.
@@ -46,7 +55,7 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 
 	liteServer := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
-		Version: "0.7.5",
+		Version: "0.7.6",
 	}, &gomcp.ServerOptions{
 		Instructions: baseInstructions + "\nWorkflow: search_security to find resources → get_security_detail for skills/vulns → read_security_file for dicts/payloads.",
 	})
@@ -54,7 +63,7 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 
 	fullServer := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
-		Version: "0.7.5",
+		Version: "0.7.6",
 	}, &gomcp.ServerOptions{
 		Instructions: baseInstructions + "\nWorkflow: use search_* or list_* to find resources, then get_* for details.",
 	})
@@ -65,7 +74,7 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 		defaultServer = fullServer
 	}
 
-	return gomcp.NewStreamableHTTPHandler(func(r *http.Request) *gomcp.Server {
+	handler := gomcp.NewStreamableHTTPHandler(func(r *http.Request) *gomcp.Server {
 		switch r.Header.Get("X-Tool-Mode") {
 		case "full":
 			return fullServer
@@ -75,6 +84,20 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 			return defaultServer
 		}
 	}, nil)
+	if collector == nil {
+		return handler
+	}
+	collector.SetActiveSessionsProvider(func() int64 {
+		var count int64
+		for range liteServer.Sessions() {
+			count++
+		}
+		for range fullServer.Sessions() {
+			count++
+		}
+		return count
+	})
+	return collector.WrapMCP(handler)
 }
 
 // registerLiteTools registers the 3 core tools: search, detail, and file read.
@@ -108,6 +131,12 @@ const maxResponseBytes = 150_000
 func wrapHandler[In any, Out any](fn func(context.Context, In) (Out, error)) gomcp.ToolHandlerFor[In, any] {
 	return func(ctx context.Context, req *gomcp.CallToolRequest, input In) (*gomcp.CallToolResult, any, error) {
 		start := time.Now()
+		collector := usage.FromContext(ctx)
+		success := false
+		responseBytes := 0
+		defer func() {
+			collector.RecordTool(req.Params.Name, success, time.Since(start), responseBytes)
+		}()
 
 		out, err := fn(ctx, input)
 		if err != nil {
@@ -117,6 +146,7 @@ func wrapHandler[In any, Out any](fn func(context.Context, In) (Out, error)) gom
 		if err != nil {
 			return nil, nil, err
 		}
+		responseBytes = len(data)
 
 		if len(data) > maxResponseBytes {
 			return nil, nil, fmt.Errorf(
@@ -137,6 +167,7 @@ func wrapHandler[In any, Out any](fn func(context.Context, In) (Out, error)) gom
 			})
 		}
 
+		success = true
 		return &gomcp.CallToolResult{
 			Content: []gomcp.Content{
 				&gomcp.TextContent{Text: string(data)},

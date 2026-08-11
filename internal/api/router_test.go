@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wgpsec/context1337/internal/search"
 	"github.com/wgpsec/context1337/internal/storage"
+	"github.com/wgpsec/context1337/internal/usage"
 )
 
 func setupTestRouter(t *testing.T) http.Handler {
@@ -28,6 +30,71 @@ func setupTestRouter(t *testing.T) http.Handler {
 	})
 
 	return NewRouter(db, dir, "", nil)
+}
+
+func TestUsageEndpointRequiresIndependentToken(t *testing.T) {
+	dir := t.TempDir()
+	db, err := storage.OpenDB(filepath.Join(dir, "usage.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	collector := usage.NewCollector()
+	collector.RecordTool("search_security", true, 5*time.Millisecond, 128)
+	router := NewRouter(db, dir, "ordinary-api-token", nil, UsageEndpoint{
+		Token:     "usage-only-token",
+		Collector: collector,
+	})
+
+	for _, token := range []string{"", "ordinary-api-token", "wrong-token"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/usage", nil)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Errorf("token %q: status = %d, want 401", token, recorder.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/usage", nil)
+	req.Header.Set("Authorization", "Bearer usage-only-token")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
+	}
+	var snapshot usage.Snapshot
+	if err := json.NewDecoder(recorder.Body).Decode(&snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Tools.CallsTotal != 1 {
+		t.Errorf("tool calls = %d, want 1", snapshot.Tools.CallsTotal)
+	}
+}
+
+func TestUsageEndpointIsDisabledWithoutToken(t *testing.T) {
+	dir := t.TempDir()
+	db, err := storage.OpenDB(filepath.Join(dir, "usage-disabled.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	router := NewRouter(db, dir, "ordinary-api-token", nil, UsageEndpoint{
+		Collector: usage.NewCollector(),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/usage", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 when usage token is empty", recorder.Code)
+	}
 }
 
 func TestHealthEndpoint(t *testing.T) {

@@ -196,6 +196,7 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 |------|------|
 | `GET /api/health` | 健康检查 + 已启用资源计数 |
 | `GET /api/stats` | 按类型/来源统计已启用资源 |
+| `GET /api/usage` | MCP 使用与搜索关键词聚合（由 `ABOUTSECURITY_USAGE_TOKEN` 独立启用和保护） |
 | `GET /api/resources` | 分页列表（含 enabled 状态，管理用） |
 | `POST /api/resources` | 创建自定义资源（source 强制为 custom） |
 | `PUT /api/resources/{id}` | 编辑自定义资源（仅 source=custom，否则 403） |
@@ -240,6 +241,7 @@ curl -X POST http://localhost:1337/api/resources \
 | `ABOUTSECURITY_PORT` | `1337` | HTTP 监听端口 |
 | `ABOUTSECURITY_DATA_DIR` | `./data` | 数据目录根路径 |
 | `ABOUTSECURITY_API_KEY` | （空=无认证） | Bearer 认证密钥 |
+| `ABOUTSECURITY_USAGE_TOKEN` | （空=关闭） | `GET /api/usage` 使用的独立 Bearer token |
 | `ABOUTSECURITY_TOOL_MODE` | `lite` | 工具注册模式：`lite`（3 个工具）或 `full`（12 个工具） |
 | `NUCLEI_TEMPLATES_DIR` | 原生运行为空；官方镜像为内置快照路径 | nuclei-templates 仓库根目录，启用第二数据源 |
 | `NUCLEI_MIN_SEVERITY` | `high` | nuclei 漏洞模板最低导入级别：`critical`/`high`/`medium`/`low` |

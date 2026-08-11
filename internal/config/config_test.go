@@ -44,3 +44,14 @@ func TestLoad_InvalidPort(t *testing.T) {
 		t.Error("expected error for invalid port")
 	}
 }
+
+func TestLoad_UsageToken(t *testing.T) {
+	t.Setenv("ABOUTSECURITY_USAGE_TOKEN", "usage-secret")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.UsageToken != "usage-secret" {
+		t.Fatalf("UsageToken = %q, want usage-secret", cfg.UsageToken)
+	}
+}
