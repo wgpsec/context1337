@@ -41,11 +41,13 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN mkdir -p /artifacts && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /artifacts/absec ./cmd/absec/
+COPY --from=indexer /artifacts/builtin.db /artifacts/builtin.db
+RUN /artifacts/absec finalize-index --db /artifacts/builtin.db
 
 # ---- Stage 3: Minimal runtime ----
 FROM gcr.io/distroless/static-debian12
 ARG NUCLEI_TEMPLATES_REVISION=dev
-COPY --from=indexer /artifacts/builtin.db /app/data/builtin.db
+COPY --from=builder /artifacts/builtin.db /app/data/builtin.db
 COPY --from=aboutsecurity /skills/ /app/data/skills/
 COPY --from=aboutsecurity /Dic/ /app/data/Dic/
 COPY --from=aboutsecurity /Payload/ /app/data/Payload/

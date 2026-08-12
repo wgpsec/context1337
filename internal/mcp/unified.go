@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -181,12 +182,19 @@ type ResourceSummary struct {
 }
 
 type SearchResult struct {
-	SearchVersion string            `json:"search_version"`
-	Total         int               `json:"total"`
-	Offset        int               `json:"offset"`
-	Limit         int               `json:"limit"`
-	Items         []ResourceSummary `json:"items"`
-	Hint          string            `json:"hint,omitempty"`
+	SearchVersion string             `json:"search_version"`
+	Status        string             `json:"status"`
+	Total         int                `json:"total"`
+	Offset        int                `json:"offset"`
+	Limit         int                `json:"limit"`
+	Items         []ResourceSummary  `json:"items"`
+	Hint          string             `json:"hint,omitempty"`
+	RetryQueries  []SearchRetryQuery `json:"retry_queries,omitempty"`
+}
+
+type SearchRetryQuery struct {
+	Query string `json:"query"`
+	Type  string `json:"type,omitempty"`
 }
 
 func resourceToSummary(r search.Resource) ResourceSummary {
@@ -212,24 +220,30 @@ func searchHint(query, typ string) string {
 			query, typ,
 		)
 	}
-	return fmt.Sprintf("no results for %q; try broader or alternative keywords", query)
+	return fmt.Sprintf(
+		"no results for %q; try broader or alternative keywords. Vulnerabilities are excluded by default; retry with type=\"vuln\" for CVE, product vulnerability, endpoint, or PoC searches",
+		query,
+	)
 }
 
 func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult, err error) {
 	if strings.TrimSpace(in.Query) != "" {
 		defer func() {
 			resultCount := 0
+			rejectedComplexity := false
 			if out != nil {
 				resultCount = out.Total
+				rejectedComplexity = out.Status == "query_too_complex"
 			}
 			s.Usage.RecordSearch(usage.SearchObservation{
-				Query:        in.Query,
-				ResourceType: in.Type,
-				Category:     in.Category,
-				Severity:     in.Severity,
-				Product:      in.Product,
-				ResultCount:  resultCount,
-				Failed:       err != nil,
+				Query:              in.Query,
+				ResourceType:       in.Type,
+				Category:           in.Category,
+				Severity:           in.Severity,
+				Product:            in.Product,
+				ResultCount:        resultCount,
+				Failed:             err != nil,
+				RejectedComplexity: rejectedComplexity,
 			})
 		}()
 	}
@@ -255,6 +269,23 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 			Offset: in.Offset, Limit: fetchLimit,
 		})
 		if err != nil {
+			var complexityError *search.QueryComplexityError
+			if errors.As(err, &complexityError) {
+				retries := search.BuildFocusedRetryQueries(complexityError.Groups, in.Type)
+				responseRetries := make([]SearchRetryQuery, len(retries))
+				for index, retry := range retries {
+					responseRetries[index] = SearchRetryQuery{Query: retry.Query, Type: retry.Type}
+				}
+				return &SearchResult{
+					SearchVersion: search.SearchContractVersion,
+					Status:        "query_too_complex",
+					Offset:        in.Offset,
+					Limit:         in.Limit,
+					Items:         []ResourceSummary{},
+					Hint:          complexityError.Error() + "; split the request into focused searches",
+					RetryQueries:  responseRetries,
+				}, nil
+			}
 			return nil, err
 		}
 		results = trimByRelevance(results)
@@ -275,10 +306,23 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 		}
 		out = &SearchResult{
 			SearchVersion: search.SearchContractVersion,
+			Status:        "matched",
 			Total:         total, Offset: in.Offset, Limit: in.Limit, Items: items,
 		}
 		if total == 0 {
+			out.Status = "no_match"
 			out.Hint = searchHint(in.Query, in.Type)
+			plan, planErr := search.PlanQuery(in.Query)
+			if planErr == nil {
+				retries := search.BuildMultiTopicRetryQueries(plan.Groups, in.Type)
+				if len(retries) > 0 {
+					out.RetryQueries = make([]SearchRetryQuery, len(retries))
+					for index, retry := range retries {
+						out.RetryQueries[index] = SearchRetryQuery{Query: retry.Query, Type: retry.Type}
+					}
+					out.Hint += "; split this multi-topic request into the focused retry queries"
+				}
+			}
 		}
 		return out, nil
 	}
@@ -296,8 +340,13 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 	for i, r := range result.Items {
 		items[i] = resourceToSummary(r)
 	}
+	status := "matched"
+	if result.Total == 0 {
+		status = "no_match"
+	}
 	return &SearchResult{
 		SearchVersion: search.SearchContractVersion,
+		Status:        status,
 		Total:         result.Total, Offset: in.Offset, Limit: in.Limit, Items: items,
 	}, nil
 }

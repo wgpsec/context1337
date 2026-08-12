@@ -3,7 +3,9 @@
 import json
 import os
 import re
+import sqlite3
 import subprocess
+import tempfile
 import time
 import unittest
 import urllib.error
@@ -151,6 +153,27 @@ class ReleaseImageContractTest(unittest.TestCase):
                 f"{urllib.parse.quote(category)}&limit=1"
             )
             self.assertGreater(payload.get("total", 0), 0, (category, payload))
+
+    def test_builtin_database_uses_current_fts_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = os.path.join(directory, "builtin.db")
+            subprocess.run(
+                [
+                    "docker",
+                    "cp",
+                    f"{self.container}:/app/data/builtin.db",
+                    database_path,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            with sqlite3.connect(database_path) as database:
+                row = database.execute(
+                    "SELECT value FROM meta WHERE key='fts_contract_version'"
+                ).fetchone()
+
+        self.assertEqual(row, ("go-security-tokenizer-v3",))
 
     def test_image_records_the_resolved_nuclei_revision(self):
         result = subprocess.run(

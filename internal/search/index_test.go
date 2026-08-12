@@ -70,6 +70,97 @@ func TestSearch_ByKeyword(t *testing.T) {
 	}
 }
 
+func TestSearch_ChinesePhraseOnlyInNameUsesTheQueryTokenizer(t *testing.T) {
+	db := setupTestDB(t)
+	if err := InsertResource(db, Resource{
+		Type:     "skill",
+		Name:     "深蓝平台",
+		Source:   "builtin",
+		Category: "reference",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "深蓝平台",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resultNames(results); len(got) != 1 || got[0] != "深蓝平台" {
+		t.Fatalf("results = %v, want name-only Chinese resource", got)
+	}
+}
+
+func TestSearch_ChinesePhraseOnlyInCategoryUsesTheQueryTokenizer(t *testing.T) {
+	db := setupTestDB(t)
+	if err := InsertResource(db, Resource{
+		Type:     "skill",
+		Name:     "category-only-resource",
+		Source:   "builtin",
+		Category: "身份鉴别",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "身份鉴别",
+		Type:  "skill",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resultNames(results); len(got) != 1 || got[0] != "category-only-resource" {
+		t.Fatalf("results = %v, want category-only Chinese resource", got)
+	}
+}
+
+func TestReindexFTS_MakesRawChineseContentSearchableWithTheQueryTokenizer(t *testing.T) {
+	db := setupTestDB(t)
+	result, err := db.Exec(`
+		INSERT INTO resources
+			(type, name, source, file_path, category, tags, description, body, metadata)
+		VALUES
+			('vuln', 'CVE-2023-1454', 'builtin', 'Vuln/CVE-2023-1454.md',
+			 'middleware', 'sqli', 'JeecgBoot 积木报表 SQL 注入漏洞', '', '{}')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resourceID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO resources_fts(rowid, name, description, tags, category, body)
+		VALUES (?, 'CVE-2023-1454', 'JeecgBoot 积木 报表 SQL 注入 漏洞', 'sqli', 'middleware', '')`,
+		resourceID); err != nil {
+		t.Fatal(err)
+	}
+
+	before, _, err := Search(db, SearchQuery{Query: "积木报表", Type: "vuln", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 0 {
+		t.Fatalf("precondition failed: legacy jieba-shaped index unexpectedly matched %v", resultNames(before))
+	}
+
+	if err := ReindexFTS(db); err != nil {
+		t.Fatal(err)
+	}
+
+	after, _, err := Search(db, SearchQuery{Query: "积木报表", Type: "vuln", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resultNames(after); len(got) != 1 || got[0] != "CVE-2023-1454" {
+		t.Fatalf("results after reindex = %v, want CVE-2023-1454", got)
+	}
+}
+
 func TestSearch_ReturnsLightweightCandidatesWithoutLoadingBody(t *testing.T) {
 	db := setupTestDB(t)
 	if err := InsertResource(db, Resource{
@@ -227,6 +318,78 @@ func TestPlanQuery_RejectsOversizedRawQueryAndExposesContractVersion(t *testing.
 	}
 	if plan.Version != SearchContractVersion {
 		t.Fatalf("plan version = %q, want %q", plan.Version, SearchContractVersion)
+	}
+}
+
+func TestSecurityConceptRegistryRejectsMoreThanSixAliases(t *testing.T) {
+	_, err := buildConceptAliasIndex([]SecurityConcept{{
+		ID:      "oversized",
+		Aliases: []string{"one", "two", "three", "four", "five", "six", "seven"},
+		Role:    ConceptRoleIdentity,
+	}})
+	if err == nil || !strings.Contains(err.Error(), "at most 6 aliases") {
+		t.Fatalf("registry error = %v, want alias limit rejection", err)
+	}
+}
+
+func TestSecurityConceptRegistryRejectsAliasesSharedByDifferentConcepts(t *testing.T) {
+	_, err := buildConceptAliasIndex([]SecurityConcept{
+		{ID: "first", Aliases: []string{"shared alias"}, Role: ConceptRoleIdentity},
+		{ID: "second", Aliases: []string{" SHARED  ALIAS "}, Role: ConceptRoleTopic},
+	})
+	if err == nil || !strings.Contains(err.Error(), "shared by concepts") {
+		t.Fatalf("registry error = %v, want cross-concept alias rejection", err)
+	}
+}
+
+func TestPlanQuery_PreservesProductIdentityWithoutCountingCJKIndexAtomsAsGroups(t *testing.T) {
+	plan, err := PlanQuery("asp.net mvc 通用权限管理系统 systemmanage sql注入")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Groups) > maxQueryGroups {
+		t.Fatalf("semantic groups = %d, want at most %d: %#v", len(plan.Groups), maxQueryGroups, plan.Groups)
+	}
+
+	groups := make(map[string]QueryGroup, len(plan.Groups))
+	for _, group := range plan.Groups {
+		groups[group.Original] = group
+	}
+	if _, ok := groups["systemmanage"]; !ok {
+		t.Fatalf("SystemManage product identity missing from plan: %#v", plan.Groups)
+	}
+	if _, ok := groups["通用权限管理系统"]; !ok {
+		t.Fatalf("Chinese product description was split into index atoms: %#v", plan.Groups)
+	}
+	foundSQLInjection := false
+	for _, group := range plan.Groups {
+		if group.ConceptID == "sql_injection" {
+			foundSQLInjection = true
+			break
+		}
+	}
+	if !foundSQLInjection {
+		t.Fatalf("SQL injection concept missing from plan: %#v", plan.Groups)
+	}
+}
+
+func TestPlanQuery_MergesRepeatedProductAliasesIntoOneSemanticGroup(t *testing.T) {
+	plan, err := PlanQuery("learun 力软 通用权限管理系统")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Groups) != 2 {
+		t.Fatalf("semantic groups = %#v, want Learun identity plus product description", plan.Groups)
+	}
+	product := plan.Groups[0]
+	if product.ConceptID != "learun" || !product.Anchor {
+		t.Fatalf("product group = %#v, want anchored Learun concept", product)
+	}
+	if !contains(product.Alternatives, "learun") || !contains(product.Alternatives, "力软") {
+		t.Fatalf("Learun aliases = %v, want learun and 力软", product.Alternatives)
+	}
+	if plan.Groups[1].Original != "通用权限管理系统" {
+		t.Fatalf("remaining group = %#v, want complete Chinese product description", plan.Groups[1])
 	}
 }
 

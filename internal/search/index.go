@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"github.com/wgpsec/context1337/internal/fts"
 )
 
 // Resource represents a row in the resources table.
@@ -66,6 +68,12 @@ type ListResult struct {
 	Items []Resource
 }
 
+// ReindexFTS rebuilds the full-text index from the raw resources table using
+// the same tokenizer used to plan queries.
+func ReindexFTS(db *sql.DB) error {
+	return fts.Reindex(db)
+}
+
 // InsertResource inserts a resource into the resources table (raw text) and
 // populates the self-contained FTS index with tokenized text.
 func InsertResource(db *sql.DB, r Resource) error {
@@ -86,20 +94,12 @@ func InsertResource(db *sql.DB, r Resource) error {
 	return IndexFTS(db, id, r.Name, r.Description, r.Tags, r.Category, r.Body)
 }
 
-// IndexFTS (re)populates the FTS row for a resource id. description/tags/body
-// are tokenized for CJK matching; name/category indexed as-is.
+// IndexFTS (re)populates the FTS row for a resource id. Every searchable field
+// uses the shared tokenizer so indexing and query planning follow one contract.
 func IndexFTS(db *sql.DB, id int64, name, description, tags, category, body string) error {
-	if _, err := db.Exec("DELETE FROM resources_fts WHERE rowid = ?", id); err != nil {
-		return err
-	}
-	_, err := db.Exec(`
-		INSERT INTO resources_fts(rowid, name, description, tags, category, body)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		id, name,
-		Tokenize2String(description), Tokenize2String(tags),
-		category, Tokenize2String(body),
-	)
-	return err
+	return fts.Replace(db, id, fts.Fields{
+		Name: name, Description: description, Tags: tags, Category: category, Body: body,
+	})
 }
 
 // DeleteResource removes a resource by type, name, and source.
@@ -129,11 +129,7 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 	}
 	ftsQuery := plan.FTSExpression
 	if q.Type == "vuln" {
-		exactGroups := make([]string, 0, len(plan.Groups))
-		for _, group := range plan.Groups {
-			exactGroups = append(exactGroups, quoteFTSToken(group.Original))
-		}
-		ftsQuery = strings.Join(exactGroups, " AND ")
+		ftsQuery = plan.ExactFTSExpression
 	}
 
 	var conditions []string

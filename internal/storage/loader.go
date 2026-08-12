@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wgpsec/context1337/internal/tokenize"
+	"github.com/wgpsec/context1337/internal/fts"
 )
 
 // LoaderConfig defines paths for the startup loader.
@@ -87,6 +87,19 @@ func InitRuntime(cfg LoaderConfig) (*sql.DB, error) {
 		return nil, fmt.Errorf("sync nuclei data: %w", err)
 	}
 
+	contractVersion, err := GetMeta(db, fts.ContractMetaKey)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read FTS contract version: %w", err)
+	}
+	if contractVersion != fts.ContractVersion {
+		log.Printf("loader: migrating FTS contract from %q to %q", contractVersion, fts.ContractVersion)
+		if err := fts.Reindex(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("migrate FTS contract: %w", err)
+		}
+	}
+
 	return db, nil
 }
 
@@ -117,22 +130,12 @@ func insertResourceWithMeta(db *sql.DB, typ, name, source, filePath, category, t
 }
 
 // indexResourceFTS (re)populates the self-contained FTS row for a resource.
-// description/tags/body are tokenized for CJK matching; name/category are
-// indexed as-is. rowid is aligned with resources.id.
+// Every searchable field uses the shared tokenizer so indexing and query
+// planning follow one contract. rowid is aligned with resources.id.
 func indexResourceFTS(db *sql.DB, id int64, name, description, tags, category, body string) error {
-	if _, err := db.Exec("DELETE FROM resources_fts WHERE rowid = ?", id); err != nil {
-		return err
-	}
-	_, err := db.Exec(`
-		INSERT INTO resources_fts(rowid, name, description, tags, category, body)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		id, name,
-		tokenize.TokenizeToString(description),
-		tokenize.TokenizeToString(tags),
-		category,
-		tokenize.TokenizeToString(body),
-	)
-	return err
+	return fts.Replace(db, id, fts.Fields{
+		Name: name, Description: description, Tags: tags, Category: category, Body: body,
+	})
 }
 
 func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {

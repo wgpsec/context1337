@@ -11,6 +11,7 @@ import (
 
 	"github.com/wgpsec/context1337/internal/search"
 	"github.com/wgpsec/context1337/internal/storage"
+	"github.com/wgpsec/context1337/internal/usage"
 )
 
 func setupUnifiedTest(t *testing.T) *Service {
@@ -89,7 +90,7 @@ func TestSearch_ResponseAdvertisesSecurityConceptSearchVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(payload), `"search_version":"security-concepts-v1"`) {
+	if !strings.Contains(string(payload), `"search_version":"security-concepts-v2"`) {
 		t.Fatalf("search response does not advertise the active contract: %s", payload)
 	}
 }
@@ -197,6 +198,210 @@ func TestSearch_EmptyQuery_TypeFilter(t *testing.T) {
 		if item.Type != "skill" {
 			t.Errorf("item %q has type %q, want skill", item.Name, item.Type)
 		}
+	}
+}
+
+func TestSearch_ReturnsStructuredQueryComplexityOutcome(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "alpha bravo charlie delta echo foxtrot golf hotel india",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatalf("Search returned execution error: %v", err)
+	}
+	if result.Status != "query_too_complex" {
+		t.Fatalf("status = %q, want query_too_complex", result.Status)
+	}
+	if result.Total != 0 || len(result.Items) != 0 {
+		t.Fatalf("complexity result returned resources: %#v", result)
+	}
+	if !strings.Contains(result.Hint, "9") || !strings.Contains(result.Hint, "8") {
+		t.Fatalf("hint = %q, want actual and maximum semantic group counts", result.Hint)
+	}
+}
+
+func TestSearch_ComplexityRetriesPreserveProductIdentity(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "learun 力软 alpha bravo charlie delta echo foxtrot golf hotel india",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatalf("Search returned execution error: %v", err)
+	}
+	if result.Status != "query_too_complex" || len(result.RetryQueries) == 0 {
+		t.Fatalf("complexity result = %#v, want focused retries", result)
+	}
+	for _, retry := range result.RetryQueries {
+		if !strings.Contains(strings.ToLower(retry.Query), "learun") {
+			t.Fatalf("retry dropped Learun product identity: %#v", retry)
+		}
+		if retry.Type != "skill" {
+			t.Fatalf("retry type = %q, want skill", retry.Type)
+		}
+		if _, err := search.PlanQuery(retry.Query); err != nil {
+			t.Fatalf("retry query %q is not executable: %v", retry.Query, err)
+		}
+	}
+}
+
+func TestSearch_MultiTopicNoMatchReturnsFocusedRetries(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "php sql注入 提权",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatalf("Search returned execution error: %v", err)
+	}
+	if result.Status != "no_match" {
+		t.Fatalf("status = %q, want no_match", result.Status)
+	}
+	if len(result.RetryQueries) != 2 {
+		t.Fatalf("retry queries = %#v, want one retry per security topic", result.RetryQueries)
+	}
+	queries := []string{result.RetryQueries[0].Query, result.RetryQueries[1].Query}
+	if queries[0] != "php sql注入" || queries[1] != "php 提权" {
+		t.Fatalf("retry queries = %v, want deterministic identity + topic retries", queries)
+	}
+	for _, retry := range result.RetryQueries {
+		if retry.Type != "skill" {
+			t.Fatalf("retry type = %q, want skill", retry.Type)
+		}
+		if _, err := search.PlanQuery(retry.Query); err != nil {
+			t.Fatalf("retry query %q is not executable: %v", retry.Query, err)
+		}
+	}
+}
+
+func TestSearch_MultiTopicMatchDoesNotReturnFocusedRetries(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	if err := search.InsertResource(svc.DB, search.Resource{
+		Type:        "skill",
+		Name:        "php-database-escalation-chain",
+		Source:      "builtin",
+		Tags:        "php,sql注入,提权",
+		Description: "PHP SQL 注入后执行权限提升的组合攻击链。",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "php sql注入 提权",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "matched" || len(result.Items) == 0 {
+		t.Fatalf("result = %#v, want matching combined skill", result)
+	}
+	if len(result.RetryQueries) != 0 {
+		t.Fatalf("matched combined skill returned retries: %#v", result.RetryQueries)
+	}
+}
+
+func TestSearch_PHPAttackChainNoMatchReturnsOneRetryPerTopic(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "php 反序列化 文件包含 日志投毒",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"php 反序列化", "php 文件包含", "php 日志投毒"}
+	got := make([]string, len(result.RetryQueries))
+	for index, retry := range result.RetryQueries {
+		got[index] = retry.Query
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("retry queries = %v, want %v", got, want)
+	}
+}
+
+func TestSearch_YiiAttackChainNoMatchReturnsOneRetryPerTopic(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "yii 反序列化 csrf 伪造",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"yii 反序列化", "yii csrf", "yii 伪造"}
+	got := make([]string, len(result.RetryQueries))
+	for index, retry := range result.RetryQueries {
+		got[index] = retry.Query
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("retry queries = %v, want %v", got, want)
+	}
+}
+
+func TestSearch_MultiTopicNoMatchWithoutIdentityStillReturnsSafeRetries(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "sql注入 提权",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"sql注入", "提权"}
+	got := make([]string, len(result.RetryQueries))
+	for index, retry := range result.RetryQueries {
+		got[index] = retry.Query
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("retry queries = %v, want %v", got, want)
+	}
+}
+
+func TestSearch_MultiTopicNoMatchDoesNotReturnRetriesThatWouldDropIdentity(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "php java linux jwt sql注入 提权",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.RetryQueries) != 0 {
+		t.Fatalf("unsafe retries = %#v, want no suggestion when identities fill all focused-query slots", result.RetryQueries)
+	}
+}
+
+func TestSearch_ComplexityOutcomeHasDedicatedUsageAccounting(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	collector := usage.NewCollector()
+	svc.Usage = collector
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "alpha bravo charlie delta echo foxtrot golf hotel india",
+		Type:  "skill",
+	})
+	if err != nil || result.Status != "query_too_complex" {
+		t.Fatalf("complexity search result=%#v err=%v", result, err)
+	}
+
+	metrics := collector.Snapshot().Search
+	if metrics.RejectedComplexityTotal != 1 {
+		t.Fatalf("rejected_complexity_total = %d, want 1", metrics.RejectedComplexityTotal)
+	}
+	if metrics.ZeroResultTotal != 0 || metrics.ErrorTotal != 0 || metrics.MatchedTotal != 0 {
+		t.Fatalf("complexity outcome polluted another usage bucket: %#v", metrics)
+	}
+	if len(metrics.Queries) != 1 || metrics.Queries[0].RejectedComplexity != 1 {
+		t.Fatalf("query metrics = %#v, want one complexity rejection", metrics.Queries)
 	}
 }
 
@@ -320,6 +525,21 @@ func TestSearch_ZeroResults_HintWithoutType(t *testing.T) {
 	}
 	if !strings.Contains(result.Hint, "broader") {
 		t.Errorf("hint should suggest broader keywords, got: %s", result.Hint)
+	}
+}
+
+func TestSearch_DefaultVulnExclusionReturnsActionableTypeHint(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{Query: "JNDI", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "no_match" || result.Total != 0 {
+		t.Fatalf("default search unexpectedly returned vuln content: %#v", result)
+	}
+	if !strings.Contains(result.Hint, `type="vuln"`) {
+		t.Fatalf("hint = %q, want an explicit type=vuln retry", result.Hint)
 	}
 }
 

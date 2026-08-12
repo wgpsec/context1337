@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wgpsec/context1337/internal/api"
 	"github.com/wgpsec/context1337/internal/config"
+	"github.com/wgpsec/context1337/internal/fts"
 	mcphandler "github.com/wgpsec/context1337/internal/mcp"
 	"github.com/wgpsec/context1337/internal/mcp/benchlog"
 	"github.com/wgpsec/context1337/internal/storage"
@@ -19,18 +20,49 @@ import (
 var version = "0.7.6"
 
 func main() {
+	root := newRootCmd()
+	if err := root.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:     "absec",
 		Short:   "AboutSecurity MCP Server — pentest knowledge base",
 		Version: version,
 	}
 
-	root.AddCommand(serveCmd())
+	root.AddCommand(serveCmd(), finalizeIndexCmd())
+	return root
+}
 
-	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+func finalizeIndexCmd() *cobra.Command {
+	var dbPath string
+	cmd := &cobra.Command{
+		Use:   "finalize-index",
+		Short: "Rebuild a resource database with the current FTS contract",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dbPath == "" {
+				return fmt.Errorf("--db is required")
+			}
+			if _, err := os.Stat(dbPath); err != nil {
+				return fmt.Errorf("open index database: %w", err)
+			}
+			db, err := storage.OpenDB(dbPath)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			if err := fts.Reindex(db); err != nil {
+				return fmt.Errorf("finalize index: %w", err)
+			}
+			return nil
+		},
 	}
+	cmd.Flags().StringVar(&dbPath, "db", "", "Path to the resource SQLite database")
+	return cmd
 }
 
 func serveCmd() *cobra.Command {

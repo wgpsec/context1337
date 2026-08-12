@@ -64,39 +64,42 @@ type ToolMetrics struct {
 }
 
 type SearchMetrics struct {
-	QueriesTotal        uint64              `json:"queries_total"`
-	MatchedTotal        uint64              `json:"matched_total"`
-	ZeroResultTotal     uint64              `json:"zero_result_total"`
-	ErrorTotal          uint64              `json:"error_total"`
-	ResultCount         map[string]uint64   `json:"result_count"`
-	QueryCapacity       int                 `json:"query_capacity"`
-	TrackedQueries      int                 `json:"tracked_queries"`
-	DroppedQueriesTotal uint64              `json:"dropped_queries_total"`
-	Queries             []SearchQueryMetric `json:"queries"`
-	ZeroResultQueries   []SearchQueryMetric `json:"zero_result_queries"`
+	QueriesTotal            uint64              `json:"queries_total"`
+	MatchedTotal            uint64              `json:"matched_total"`
+	ZeroResultTotal         uint64              `json:"zero_result_total"`
+	RejectedComplexityTotal uint64              `json:"rejected_complexity_total"`
+	ErrorTotal              uint64              `json:"error_total"`
+	ResultCount             map[string]uint64   `json:"result_count"`
+	QueryCapacity           int                 `json:"query_capacity"`
+	TrackedQueries          int                 `json:"tracked_queries"`
+	DroppedQueriesTotal     uint64              `json:"dropped_queries_total"`
+	Queries                 []SearchQueryMetric `json:"queries"`
+	ZeroResultQueries       []SearchQueryMetric `json:"zero_result_queries"`
 }
 
 type SearchQueryMetric struct {
-	Query        string `json:"query"`
-	ResourceType string `json:"resource_type,omitempty"`
-	Category     string `json:"category,omitempty"`
-	Severity     string `json:"severity,omitempty"`
-	Product      string `json:"product,omitempty"`
-	Calls        uint64 `json:"calls"`
-	Matched      uint64 `json:"matched"`
-	ZeroResults  uint64 `json:"zero_results"`
-	Errors       uint64 `json:"errors"`
-	ResultsTotal uint64 `json:"results_total"`
+	Query              string `json:"query"`
+	ResourceType       string `json:"resource_type,omitempty"`
+	Category           string `json:"category,omitempty"`
+	Severity           string `json:"severity,omitempty"`
+	Product            string `json:"product,omitempty"`
+	Calls              uint64 `json:"calls"`
+	Matched            uint64 `json:"matched"`
+	ZeroResults        uint64 `json:"zero_results"`
+	RejectedComplexity uint64 `json:"rejected_complexity"`
+	Errors             uint64 `json:"errors"`
+	ResultsTotal       uint64 `json:"results_total"`
 }
 
 type SearchObservation struct {
-	Query        string
-	ResourceType string
-	Category     string
-	Severity     string
-	Product      string
-	ResultCount  int
-	Failed       bool
+	Query              string
+	ResourceType       string
+	Category           string
+	Severity           string
+	Product            string
+	ResultCount        int
+	Failed             bool
+	RejectedComplexity bool
 }
 
 type searchQueryKey struct {
@@ -108,13 +111,14 @@ type searchQueryKey struct {
 }
 
 type searchCounters struct {
-	queriesTotal        uint64
-	matchedTotal        uint64
-	zeroResultTotal     uint64
-	errorTotal          uint64
-	resultCount         map[string]uint64
-	droppedQueriesTotal uint64
-	queries             map[searchQueryKey]*SearchQueryMetric
+	queriesTotal            uint64
+	matchedTotal            uint64
+	zeroResultTotal         uint64
+	rejectedComplexityTotal uint64
+	errorTotal              uint64
+	resultCount             map[string]uint64
+	droppedQueriesTotal     uint64
+	queries                 map[searchQueryKey]*SearchQueryMetric
 }
 
 type Collector struct {
@@ -168,6 +172,8 @@ func (c *Collector) RecordSearch(observation SearchObservation) {
 	c.searchMetrics.queriesTotal++
 	if observation.Failed {
 		c.searchMetrics.errorTotal++
+	} else if observation.RejectedComplexity {
+		c.searchMetrics.rejectedComplexityTotal++
 	} else if observation.ResultCount <= 0 {
 		c.searchMetrics.zeroResultTotal++
 		c.searchMetrics.resultCount["zero"]++
@@ -194,6 +200,8 @@ func (c *Collector) RecordSearch(observation SearchObservation) {
 	query.Calls++
 	if observation.Failed {
 		query.Errors++
+	} else if observation.RejectedComplexity {
+		query.RejectedComplexity++
 	} else if observation.ResultCount <= 0 {
 		query.ZeroResults++
 	} else {
@@ -384,16 +392,17 @@ func copySearchMetrics(metrics searchCounters) SearchMetrics {
 		}
 	}
 	return SearchMetrics{
-		QueriesTotal:        metrics.queriesTotal,
-		MatchedTotal:        metrics.matchedTotal,
-		ZeroResultTotal:     metrics.zeroResultTotal,
-		ErrorTotal:          metrics.errorTotal,
-		ResultCount:         copyMap(metrics.resultCount),
-		QueryCapacity:       SearchQueryCapacity,
-		TrackedQueries:      len(metrics.queries),
-		DroppedQueriesTotal: metrics.droppedQueriesTotal,
-		Queries:             queries,
-		ZeroResultQueries:   zeroResultQueries,
+		QueriesTotal:            metrics.queriesTotal,
+		MatchedTotal:            metrics.matchedTotal,
+		ZeroResultTotal:         metrics.zeroResultTotal,
+		RejectedComplexityTotal: metrics.rejectedComplexityTotal,
+		ErrorTotal:              metrics.errorTotal,
+		ResultCount:             copyMap(metrics.resultCount),
+		QueryCapacity:           SearchQueryCapacity,
+		TrackedQueries:          len(metrics.queries),
+		DroppedQueriesTotal:     metrics.droppedQueriesTotal,
+		Queries:                 queries,
+		ZeroResultQueries:       zeroResultQueries,
 	}
 }
 
