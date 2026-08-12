@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wgpsec/context1337/internal/api"
+	"github.com/wgpsec/context1337/internal/buildinfo"
 	"github.com/wgpsec/context1337/internal/config"
 	"github.com/wgpsec/context1337/internal/fts"
 	mcphandler "github.com/wgpsec/context1337/internal/mcp"
@@ -16,8 +17,6 @@ import (
 	"github.com/wgpsec/context1337/internal/storage"
 	"github.com/wgpsec/context1337/internal/usage"
 )
-
-var version = "0.7.7"
 
 func main() {
 	root := newRootCmd()
@@ -31,7 +30,7 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:     "absec",
 		Short:   "AboutSecurity MCP Server — pentest knowledge base",
-		Version: version,
+		Version: buildinfo.Version,
 	}
 
 	root.AddCommand(serveCmd(), finalizeIndexCmd())

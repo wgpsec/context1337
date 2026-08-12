@@ -9,6 +9,7 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/wgpsec/context1337/internal/buildinfo"
 	"github.com/wgpsec/context1337/internal/mcp/benchlog"
 	"github.com/wgpsec/context1337/internal/usage"
 )
@@ -55,7 +56,7 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 
 	liteServer := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
-		Version: "0.7.6",
+		Version: buildinfo.Version,
 	}, &gomcp.ServerOptions{
 		Instructions: baseInstructions + "\nWorkflow: search_security to find resources → get_security_detail for skills/vulns → read_security_file for dicts/payloads.",
 	})
@@ -63,7 +64,7 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 
 	fullServer := gomcp.NewServer(&gomcp.Implementation{
 		Name:    "aboutsecurity",
-		Version: "0.7.6",
+		Version: buildinfo.Version,
 	}, &gomcp.ServerOptions{
 		Instructions: baseInstructions + "\nWorkflow: use search_* or list_* to find resources, then get_* for details.",
 	})

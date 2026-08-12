@@ -1,12 +1,26 @@
 package main
 
 import (
+	"bytes"
 	"path/filepath"
 	"testing"
 
 	"github.com/wgpsec/context1337/internal/search"
 	"github.com/wgpsec/context1337/internal/storage"
 )
+
+func TestRootCommandReportsReleaseVersion(t *testing.T) {
+	command := newRootCmd()
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetArgs([]string{"--version"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); got != "absec version 0.7.8\n" {
+		t.Fatalf("version output = %q", got)
+	}
+}
 
 func TestFinalizeIndexCommandBuildsTheShippedFTSContract(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "builtin.db")

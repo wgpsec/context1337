@@ -129,6 +129,48 @@ class ReleaseImageContractTest(unittest.TestCase):
             raise AssertionError(f"MCP response did not contain an SSE data event: {body[:500]}")
         return json.loads(data_lines[-1]), response_headers
 
+    @classmethod
+    def _initialize_mcp(cls):
+        payload, headers = cls._post_mcp(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "release-contract-test", "version": "1"},
+                },
+            }
+        )
+        session_id = headers.get("Mcp-Session-Id")
+        if not session_id:
+            raise AssertionError(f"MCP initialize omitted session ID: {headers}")
+        return payload, session_id
+
+    @classmethod
+    def _search_security(cls, query, resource_type=None):
+        initialize, session_id = cls._initialize_mcp()
+        arguments = {"query": query}
+        if resource_type:
+            arguments["type"] = resource_type
+        response, _ = cls._post_mcp(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_security",
+                    "arguments": arguments,
+                },
+            },
+            session_id,
+        )
+        content = response["result"]["content"]
+        if not content or content[0].get("type") != "text":
+            raise AssertionError(f"search response omitted text content: {response}")
+        return initialize, json.loads(content[0]["text"])
+
     def test_default_image_exposes_nuclei_as_a_secondary_vulnerability_source(self):
         payload = self._get_json("/api/stats")
         nuclei_rows = [
@@ -234,6 +276,46 @@ class ReleaseImageContractTest(unittest.TestCase):
 
         self.assertIn("# Nuclei Template", json.dumps(detail))
         self.assertIn("```yaml", json.dumps(detail))
+
+    def test_release_reports_v078_and_security_concepts_v3(self):
+        initialize, result = self._search_security("360", "vuln")
+
+        self.assertEqual(initialize["result"]["serverInfo"]["version"], "0.7.8")
+        self.assertEqual(result["search_version"], "security-concepts-v3")
+
+    def test_chinese_product_query_uses_pinyin_fallback(self):
+        _, result = self._search_security("天擎 360 sqli", "vuln")
+
+        self.assertEqual(result["status"], "matched", result)
+        self.assertEqual(result["items"][0]["id"], "absec://nuclei/vuln/CNVD-2021-32799")
+        self.assertEqual(result["resolution"]["mode"], "transliterated")
+        self.assertEqual(result["resolution"]["effective_query"], "tianqing 360 sqli")
+        self.assertEqual(
+            result["resolution"]["transliterations"],
+            [{"from": "天擎", "to": "tianqing"}],
+        )
+        self.assertEqual(result["attempted_strategies"], ["exact", "pinyin"])
+
+    def test_overconstrained_pinyin_query_returns_guidance_without_dropping_terms(self):
+        _, result = self._search_security(
+            "getsimilarlist 360 天擎 sqli", "vuln"
+        )
+
+        self.assertEqual(result["status"], "no_match", result)
+        self.assertEqual(result["items"], [])
+        self.assertEqual(result["attempted_strategies"], ["exact", "pinyin"])
+        self.assertEqual(
+            [item["action"] for item in result["retry_guidance"]],
+            ["translate_to_english", "reduce_keywords"],
+        )
+        self.assertNotIn("resolution", result)
+
+    def test_pinyin_fallback_does_not_bypass_default_vulnerability_exclusion(self):
+        _, result = self._search_security("天擎 360 sqli")
+
+        self.assertEqual(result["status"], "no_match", result)
+        self.assertEqual(result["items"], [])
+        self.assertIn('type="vuln"', result["hint"])
 
 
 if __name__ == "__main__":

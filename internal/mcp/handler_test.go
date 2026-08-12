@@ -124,3 +124,20 @@ func TestNewMCPServer_HeaderDispatch(t *testing.T) {
 		})
 	}
 }
+
+func TestNewMCPServer_InitializeReportsReleaseVersion(t *testing.T) {
+	db := setupUnifiedTest(t).DB
+	h := NewMCPServer(db, t.TempDir(), ToolModeLite)
+	initBody := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(initBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("initialize status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"version":"0.7.8"`) {
+		t.Fatalf("initialize response does not report 0.7.8: %s", rec.Body.String())
+	}
+}
