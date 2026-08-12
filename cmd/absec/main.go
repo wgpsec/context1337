@@ -17,7 +17,7 @@ import (
 	"github.com/wgpsec/context1337/internal/usage"
 )
 
-var version = "0.7.6"
+var version = "0.7.7"
 
 func main() {
 	root := newRootCmd()
