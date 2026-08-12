@@ -13,7 +13,6 @@ type Config struct {
 	RuntimeDB         string
 	TeamDir           string
 	APIKey            string
-	UsageToken        string
 	NucleiDir         string
 	NucleiMinSeverity string
 }
@@ -39,7 +38,6 @@ func Load() (*Config, error) {
 		RuntimeDB:         dataDir + "/runtime/runtime.db",
 		TeamDir:           dataDir + "/team",
 		APIKey:            os.Getenv("ABOUTSECURITY_API_KEY"),
-		UsageToken:        os.Getenv("ABOUTSECURITY_USAGE_TOKEN"),
 		NucleiDir:         nucleiDir,
 		NucleiMinSeverity: nucleiMinSeverity,
 	}, nil

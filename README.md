@@ -191,7 +191,7 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools
 |----------|-------------|
 | `GET /api/health` | Health check + enabled resource count |
 | `GET /api/stats` | Resource statistics by type/source (enabled only) |
-| `GET /api/usage` | MCP usage and search-query aggregates (enabled and protected by `ABOUTSECURITY_USAGE_TOKEN`) |
+| `GET /api/usage` | MCP usage and search-query aggregates (protected by `ABOUTSECURITY_API_KEY`; disabled when the key is empty) |
 | `GET /api/resources` | List all resources with pagination and filters (admin management) |
 | `POST /api/resources` | Create custom resource (source forced to "custom") |
 | `PUT /api/resources/{id}` | Update custom resource (source=custom only, 403 otherwise) |
@@ -235,8 +235,7 @@ Custom resources use `source=custom` (server-enforced) and can be edited or dele
 |----------|---------|-------------|
 | `ABOUTSECURITY_PORT` | `1337` | HTTP listen port |
 | `ABOUTSECURITY_DATA_DIR` | `./data` | Data directory root |
-| `ABOUTSECURITY_API_KEY` | (empty=no auth) | API key for Bearer auth |
-| `ABOUTSECURITY_USAGE_TOKEN` | (empty=disabled) | Independent Bearer token for `GET /api/usage` |
+| `ABOUTSECURITY_API_KEY` | (empty=no auth) | Shared Bearer key for MCP, REST APIs, and `GET /api/usage`; usage analytics are disabled when empty |
 | `ABOUTSECURITY_TOOL_MODE` | `lite` | Tool registration mode: `lite` (3 tools) or `full` (12 tools) |
 | `NUCLEI_TEMPLATES_DIR` | Native: empty; official image: bundled snapshot | Path to nuclei-templates repo root, enables secondary data source |
 | `NUCLEI_MIN_SEVERITY` | `high` | Minimum severity for nuclei vulnerability import: `critical`/`high`/`medium`/`low` |

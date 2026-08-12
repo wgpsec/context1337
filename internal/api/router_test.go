@@ -32,7 +32,7 @@ func setupTestRouter(t *testing.T) http.Handler {
 	return NewRouter(db, dir, "", nil)
 }
 
-func TestUsageEndpointRequiresIndependentToken(t *testing.T) {
+func TestUsageEndpointUsesMCPAPIKey(t *testing.T) {
 	dir := t.TempDir()
 	db, err := storage.OpenDB(filepath.Join(dir, "usage.db"))
 	if err != nil {
@@ -42,12 +42,9 @@ func TestUsageEndpointRequiresIndependentToken(t *testing.T) {
 
 	collector := usage.NewCollector()
 	collector.RecordTool("search_security", true, 5*time.Millisecond, 128)
-	router := NewRouter(db, dir, "ordinary-api-token", nil, UsageEndpoint{
-		Token:     "usage-only-token",
-		Collector: collector,
-	})
+	router := NewRouter(db, dir, "mcp-api-key", nil, UsageEndpoint{Collector: collector})
 
-	for _, token := range []string{"", "ordinary-api-token", "wrong-token"} {
+	for _, token := range []string{"", "wrong-token"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/usage", nil)
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
@@ -60,7 +57,7 @@ func TestUsageEndpointRequiresIndependentToken(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/usage", nil)
-	req.Header.Set("Authorization", "Bearer usage-only-token")
+	req.Header.Set("Authorization", "Bearer mcp-api-key")
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusOK {
@@ -78,7 +75,7 @@ func TestUsageEndpointRequiresIndependentToken(t *testing.T) {
 	}
 }
 
-func TestUsageEndpointIsDisabledWithoutToken(t *testing.T) {
+func TestUsageEndpointIsDisabledWithoutMCPAPIKey(t *testing.T) {
 	dir := t.TempDir()
 	db, err := storage.OpenDB(filepath.Join(dir, "usage-disabled.db"))
 	if err != nil {
@@ -86,14 +83,14 @@ func TestUsageEndpointIsDisabledWithoutToken(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	router := NewRouter(db, dir, "ordinary-api-token", nil, UsageEndpoint{
+	router := NewRouter(db, dir, "", nil, UsageEndpoint{
 		Collector: usage.NewCollector(),
 	})
 	req := httptest.NewRequest(http.MethodGet, "/api/usage", nil)
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404 when usage token is empty", recorder.Code)
+		t.Fatalf("status = %d, want 404 when MCP API key is empty", recorder.Code)
 	}
 }
 

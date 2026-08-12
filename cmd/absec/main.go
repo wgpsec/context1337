@@ -140,7 +140,6 @@ func serveCmd() *cobra.Command {
 			usageCollector := usage.NewCollector()
 			mcpHandler := mcphandler.NewMCPServer(db, cfg.DataDir, mcphandler.ToolMode(toolMode), usageCollector)
 			handler := api.NewRouter(db, cfg.DataDir, cfg.APIKey, mcpHandler, api.UsageEndpoint{
-				Token:     cfg.UsageToken,
 				Collector: usageCollector,
 			})
 
@@ -152,7 +151,7 @@ func serveCmd() *cobra.Command {
 			if cfg.NucleiDir != "" {
 				log.Printf("nuclei-templates: %s (min-severity: %s)", cfg.NucleiDir, cfg.NucleiMinSeverity)
 			}
-			if cfg.UsageToken != "" {
+			if cfg.APIKey != "" {
 				log.Printf("usage analytics: enabled at GET /api/usage")
 			}
 			return http.ListenAndServe(addr, handler)

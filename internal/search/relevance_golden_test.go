@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -54,6 +55,10 @@ func TestRuntimeCorpusCanonicalSkillGoldenRanking(t *testing.T) {
 }
 
 func TestRuntimeCorpusCanonicalSearchP95(t *testing.T) {
+	if raceEnabled {
+		t.Skip("wall-clock performance threshold is not meaningful with race instrumentation")
+	}
+
 	dbPath := filepath.Join("..", "..", "data", "runtime", "runtime.db")
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Skipf("runtime corpus is not available: %v", err)
@@ -93,5 +98,316 @@ func TestRuntimeCorpusCanonicalSearchP95(t *testing.T) {
 	t.Logf("canonical search p95=%s", p95)
 	if p95 > 20*time.Millisecond {
 		t.Fatalf("canonical search p95 = %s, want <= 20ms", p95)
+	}
+}
+
+func TestRuntimeCorpusChineseAliasGoldenRecall(t *testing.T) {
+	dbPath := filepath.Join("..", "..", "data", "runtime", "runtime.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Skipf("runtime corpus is not available: %v", err)
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	vulns, _, err := Search(db, SearchQuery{
+		Query: "积木报表",
+		Type:  "vuln",
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(resultNames(vulns), "CVE-2023-1454") {
+		t.Fatalf("积木报表 results = %v, want CVE-2023-1454", resultNames(vulns))
+	}
+
+	dicts, _, err := Search(db, SearchQuery{
+		Query: "密码字典 弱口令 常用密码",
+		Type:  "dict",
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dicts) == 0 || !strings.HasPrefix(dicts[0].Name, "auth/password/") {
+		t.Fatalf("password dictionary results = %v, want auth/password canonical result", resultNames(dicts))
+	}
+}
+
+func TestCandidateCorpusSystemManageAssessmentGoldenRecall(t *testing.T) {
+	dbPath := os.Getenv("CONTEXT1337_CORPUS_DB")
+	if dbPath == "" {
+		t.Skip("CONTEXT1337_CORPUS_DB is not set")
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "systemmanage sql注入",
+		Type:  "skill",
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "aspnet-mvc-admin-assessment" {
+		t.Fatalf("systemmanage results = %v, want aspnet-mvc-admin-assessment first", resultNames(results))
+	}
+}
+
+func TestCandidateCorpusJeecgJmreportAssessmentGoldenRecall(t *testing.T) {
+	dbPath := os.Getenv("CONTEXT1337_CORPUS_DB")
+	if dbPath == "" {
+		t.Skip("CONTEXT1337_CORPUS_DB is not set")
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "jeecg-boot jmreport 未授权",
+		Type:  "skill",
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "jeecg-jmreport-assessment" {
+		t.Fatalf("jeecg jmreport results = %v, want jeecg-jmreport-assessment first", resultNames(results))
+	}
+}
+
+func TestCandidateCorpusNROSGSIAssessmentGoldenRecall(t *testing.T) {
+	dbPath := os.Getenv("CONTEXT1337_CORPUS_DB")
+	if dbPath == "" {
+		t.Skip("CONTEXT1337_CORPUS_DB is not set")
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "久其 nros gsi 未授权",
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "nros-gsi-assessment" {
+		t.Fatalf("NROS GSI results = %v, want nros-gsi-assessment first", resultNames(results))
+	}
+}
+
+func TestCandidateCorpusPHPCMSAssessmentGoldenRecall(t *testing.T) {
+	dbPath := os.Getenv("CONTEXT1337_CORPUS_DB")
+	if dbPath == "" {
+		t.Skip("CONTEXT1337_CORPUS_DB is not set")
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	results, _, err := Search(db, SearchQuery{Query: "phpcms", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "phpcms-assessment" {
+		t.Fatalf("PHPCMS results = %v, want phpcms-assessment first", resultNames(results))
+	}
+}
+
+func TestCandidateCorpusPHPAttackChainGoldenRecall(t *testing.T) {
+	dbPath := os.Getenv("CONTEXT1337_CORPUS_DB")
+	if dbPath == "" {
+		t.Skip("CONTEXT1337_CORPUS_DB is not set")
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "php 反序列化 文件包含 日志投毒",
+		Type:  "skill",
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "php-attack-chain-assessment" {
+		t.Fatalf("PHP attack-chain results = %v, want php-attack-chain-assessment first", resultNames(results))
+	}
+}
+
+func TestCandidateCorpusYiiRequestForgeryGoldenRecall(t *testing.T) {
+	dbPath := os.Getenv("CONTEXT1337_CORPUS_DB")
+	if dbPath == "" {
+		t.Skip("CONTEXT1337_CORPUS_DB is not set")
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "yii 反序列化 csrf 伪造",
+		Type:  "skill",
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "yii-request-forgery-assessment" {
+		t.Fatalf("Yii request-forgery results = %v, want yii-request-forgery-assessment first", resultNames(results))
+	}
+}
+
+func TestCandidateCorpusWangshenEndpointAssessmentGoldenRecall(t *testing.T) {
+	dbPath := os.Getenv("CONTEXT1337_CORPUS_DB")
+	if dbPath == "" {
+		t.Skip("CONTEXT1337_CORPUS_DB is not set")
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "网神 终端安全 反序列化",
+		Type:  "skill",
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "wangshen-endpoint-security-assessment" {
+		t.Fatalf("Wangshen endpoint results = %v, want wangshen-endpoint-security-assessment first", resultNames(results))
+	}
+}
+
+func TestCandidateCorpusChineseUsernameDictionaryGoldenRecall(t *testing.T) {
+	dbPath := os.Getenv("CONTEXT1337_CORPUS_DB")
+	if dbPath == "" {
+		t.Skip("CONTEXT1337_CORPUS_DB is not set")
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "chinese china",
+		Type:  "dict",
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "auth/username/cn-email.txt" {
+		t.Fatalf("Chinese username dictionary results = %v, want auth/username/cn-email.txt first", resultNames(results))
+	}
+}
+
+func TestCandidateCorpusJmreportPrivilegeEscalationGoldenRecall(t *testing.T) {
+	dbPath := os.Getenv("CONTEXT1337_CORPUS_DB")
+	if dbPath == "" {
+		t.Skip("CONTEXT1337_CORPUS_DB is not set")
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	results, _, err := Search(db, SearchQuery{
+		Query: "cve-2024-44893 jmreport",
+		Type:  "vuln",
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) == 0 || results[0].Name != "CVE-2024-44893" {
+		t.Fatalf("JimuReport CVE results = %v, want CVE-2024-44893 first", resultNames(results))
+	}
+}
+
+func TestCandidateCorpusVulnerabilityAliasesStayExcludedWithoutType(t *testing.T) {
+	dbPath := os.Getenv("CONTEXT1337_CORPUS_DB")
+	if dbPath == "" {
+		t.Skip("CONTEXT1337_CORPUS_DB is not set")
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	for _, query := range []string{"queryfieldbysql", "积木报表"} {
+		results, _, err := Search(db, SearchQuery{Query: query, Limit: 20})
+		if err != nil {
+			t.Fatalf("query %q: %v", query, err)
+		}
+		if len(results) != 0 {
+			t.Fatalf("query %q returned %v without type=vuln", query, resultNames(results))
+		}
+	}
+}
+
+func TestCandidateCorpusUnsupportedVulnerabilityAndDictionaryQueriesStayEmpty(t *testing.T) {
+	dbPath := os.Getenv("CONTEXT1337_CORPUS_DB")
+	if dbPath == "" {
+		t.Skip("CONTEXT1337_CORPUS_DB is not set")
+	}
+
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	for _, query := range []struct {
+		query string
+		typ   string
+	}{
+		{"nfine 快速开发平台 getgridjson", "vuln"},
+		{"phpcms 9.6.0", "vuln"},
+		{"trs wcm 拓尔思", "vuln"},
+		{"政府 默认口令", "dict"},
+	} {
+		results, _, err := Search(db, SearchQuery{Query: query.query, Type: query.typ, Limit: 20})
+		if err != nil {
+			t.Fatalf("query %q type=%s: %v", query.query, query.typ, err)
+		}
+		if len(results) != 0 {
+			t.Fatalf("query %q type=%s returned %v; unsupported content must stay empty", query.query, query.typ, resultNames(results))
+		}
 	}
 }

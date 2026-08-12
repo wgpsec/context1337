@@ -29,6 +29,7 @@ data/builtin.db: build/build_index.py build/security_dict.txt | $(ABOUTSECURITY_
 		--input $(ABOUTSECURITY_DIR) \
 		--dict build/security_dict.txt \
 		--output data/builtin.db
+	go run ./cmd/absec finalize-index --db data/builtin.db
 
 # Symlink AboutSecurity content directories into data/ for local development
 link-data: | $(ABOUTSECURITY_DIR)

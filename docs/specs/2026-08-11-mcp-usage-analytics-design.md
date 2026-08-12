@@ -101,18 +101,18 @@ metrics 模块不得依赖或复用 `internal/mcp/benchlog`。
 
 ```text
 GET /api/usage
-Authorization: Bearer <ABOUTSECURITY_USAGE_TOKEN>
+Authorization: Bearer <ABOUTSECURITY_API_KEY>
 ```
 
 约束：
 
-1. 使用独立环境变量 `ABOUTSECURITY_USAGE_TOKEN`，不复用 `ABOUTSECURITY_API_KEY`。
-2. token 为空时不注册 `/api/usage`，默认关闭。
-3. endpoint 使用独立 Bearer 鉴权，即使普通 REST API 鉴权为空也不能公开访问。
-4. 缺失或错误 token 返回统一的 `401`，不泄露配置状态。
-5. 响应设置 `Cache-Control: no-store`。
+1. `/api/usage` 复用 MCP 与 REST API 的 `ABOUTSECURITY_API_KEY`，不维护第二把密钥。
+2. API key 为空时不注册 `/api/usage`，避免无鉴权暴露使用数据。
+3. 缺失或错误 API key 返回统一的 `401`，不泄露配置状态。
+4. 响应设置 `Cache-Control: no-store`。
 
-独立 token 是必要约束：当前生产 `ABOUTSECURITY_API_KEY` 可以为空，直接复用会导致 usage 数据暴露到公网。
+此约束由 2026-08-12 的产品决策覆盖原独立 Usage Token 设计。认证关闭时普通 MCP/REST
+仍保持原行为，但 usage endpoint 单独关闭并返回 `404`。
 
 ### 生命周期和持久化
 
@@ -140,10 +140,10 @@ internal/mcp/handler.go
   MCP HTTP handler records client/status/duration/response size
 
 internal/api/router.go
-  independently protected GET /api/usage
+  GET /api/usage protected by the shared MCP API key
 
 internal/config/config.go
-  ABOUTSECURITY_USAGE_TOKEN
+  ABOUTSECURITY_API_KEY
 
 cmd/absec/main.go
   creates one collector shared by MCP and usage endpoint
@@ -176,8 +176,8 @@ lt_1k, lt_10k, lt_100k, gte_100k
 7. 搜索查询容量固定为 10,000，超限有显式 dropped 计数。
 8. 非搜索 tool arguments、HTTP query、User-Agent 原文不会进入快照。
 9. tool 执行错误计入 `error`，不计入 `success`。
-10. usage token 为空时 endpoint 为 `404`；缺失或错误 token 为 `401`；正确 token 为 `200`。
-11. 普通 `ABOUTSECURITY_API_KEY` 不能替代 usage token。
+10. MCP API key 为空时 endpoint 为 `404`；缺失或错误 key 为 `401`；正确 key 为 `200`。
+11. `/mcp` 与 `/api/usage` 接受同一把 `ABOUTSECURITY_API_KEY`。
 12. race test 不报告并发读写问题。
 13. 全量 Go test、`go vet` 和真实本地 HTTP smoke test 通过。
 
@@ -201,7 +201,7 @@ PoJun 集成需另行设计和决策，至少包括：
 - tool wrapper 统计真实 tool 名称、success/error、耗时和响应体积。
 - `Service.Search` 统计完整规范化查询、过滤条件、最终结果总数、零结果和搜索错误；不记录其他 tool 输入或响应内容。
 - active sessions 直接读取 MCP SDK 的 lite/full server session 集合。
-- 新增独立保护的 `GET /api/usage`；`ABOUTSECURITY_USAGE_TOKEN` 为空时稳定返回 `404`。
+- 新增受 MCP API key 保护的 `GET /api/usage`；`ABOUTSECURITY_API_KEY` 为空时稳定返回 `404`。
 - 保持现有 `NewRouter`、`NewMCPServer` 调用向后兼容，未修改 tool schema 或 MCP 响应。
 - 本地真实服务验证了 initialize、tool call、client family、session 和鉴权指标。
 - PoJun、生产配置和生产容器均未修改。

@@ -45,13 +45,13 @@ func TestLoad_InvalidPort(t *testing.T) {
 	}
 }
 
-func TestLoad_UsageToken(t *testing.T) {
-	t.Setenv("ABOUTSECURITY_USAGE_TOKEN", "usage-secret")
+func TestLoad_APIKey(t *testing.T) {
+	t.Setenv("ABOUTSECURITY_API_KEY", "mcp-api-key")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.UsageToken != "usage-secret" {
-		t.Fatalf("UsageToken = %q, want usage-secret", cfg.UsageToken)
+	if cfg.APIKey != "mcp-api-key" {
+		t.Fatalf("APIKey = %q, want mcp-api-key", cfg.APIKey)
 	}
 }

@@ -26,7 +26,10 @@ import sys
 
 sys.modules["jieba"] = _fake_jieba
 
-import build_index  # noqa: E402
+if __package__:
+    from build import build_index  # noqa: E402
+else:
+    import build_index  # noqa: E402
 
 
 def _create_db():
