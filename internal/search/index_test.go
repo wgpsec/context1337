@@ -393,6 +393,35 @@ func TestPlanQuery_MergesRepeatedProductAliasesIntoOneSemanticGroup(t *testing.T
 	}
 }
 
+func TestBuildPinyinFallbackTransliteratesOnlyUnknownHanContext(t *testing.T) {
+	plan, err := PlanQuery("天擎 sql注入")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallback, ok := BuildPinyinFallback(plan)
+	if !ok {
+		t.Fatal("expected a pinyin fallback")
+	}
+	if fallback.Query != "tianqing sql注入" {
+		t.Fatalf("fallback query = %q", fallback.Query)
+	}
+	if len(fallback.Transliterations) != 1 || fallback.Transliterations[0].From != "天擎" || fallback.Transliterations[0].To != "tianqing" {
+		t.Fatalf("transliterations = %#v", fallback.Transliterations)
+	}
+}
+
+func TestBuildPinyinFallbackRejectsProtectedAndMixedGroups(t *testing.T) {
+	for _, query := range []string{"CVE-2021-32799", "v2.0 天擎/api", "天"} {
+		plan, err := PlanQuery(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := BuildPinyinFallback(plan); ok {
+			t.Fatalf("query %q unexpectedly produced a pinyin fallback", query)
+		}
+	}
+}
+
 func TestSearch_JWTAuthenticationBypassRanksCanonicalSkillFirst(t *testing.T) {
 	db := setupTestDB(t)
 

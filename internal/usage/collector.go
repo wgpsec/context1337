@@ -68,6 +68,7 @@ type SearchMetrics struct {
 	MatchedTotal            uint64              `json:"matched_total"`
 	ZeroResultTotal         uint64              `json:"zero_result_total"`
 	RejectedComplexityTotal uint64              `json:"rejected_complexity_total"`
+	TransliteratedTotal     uint64              `json:"transliterated_total"`
 	ErrorTotal              uint64              `json:"error_total"`
 	ResultCount             map[string]uint64   `json:"result_count"`
 	QueryCapacity           int                 `json:"query_capacity"`
@@ -78,17 +79,24 @@ type SearchMetrics struct {
 }
 
 type SearchQueryMetric struct {
-	Query              string `json:"query"`
-	ResourceType       string `json:"resource_type,omitempty"`
-	Category           string `json:"category,omitempty"`
-	Severity           string `json:"severity,omitempty"`
-	Product            string `json:"product,omitempty"`
-	Calls              uint64 `json:"calls"`
-	Matched            uint64 `json:"matched"`
-	ZeroResults        uint64 `json:"zero_results"`
-	RejectedComplexity uint64 `json:"rejected_complexity"`
-	Errors             uint64 `json:"errors"`
-	ResultsTotal       uint64 `json:"results_total"`
+	Query              string                  `json:"query"`
+	ResourceType       string                  `json:"resource_type,omitempty"`
+	Category           string                  `json:"category,omitempty"`
+	Severity           string                  `json:"severity,omitempty"`
+	Product            string                  `json:"product,omitempty"`
+	Calls              uint64                  `json:"calls"`
+	Matched            uint64                  `json:"matched"`
+	ZeroResults        uint64                  `json:"zero_results"`
+	RejectedComplexity uint64                  `json:"rejected_complexity"`
+	Transliterated     uint64                  `json:"transliterated"`
+	Transliterations   []SearchTransliteration `json:"transliterations,omitempty"`
+	Errors             uint64                  `json:"errors"`
+	ResultsTotal       uint64                  `json:"results_total"`
+}
+
+type SearchTransliteration struct {
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 type SearchObservation struct {
@@ -100,6 +108,8 @@ type SearchObservation struct {
 	ResultCount        int
 	Failed             bool
 	RejectedComplexity bool
+	Transliterated     bool
+	Transliterations   []SearchTransliteration
 }
 
 type searchQueryKey struct {
@@ -115,6 +125,7 @@ type searchCounters struct {
 	matchedTotal            uint64
 	zeroResultTotal         uint64
 	rejectedComplexityTotal uint64
+	transliteratedTotal     uint64
 	errorTotal              uint64
 	resultCount             map[string]uint64
 	droppedQueriesTotal     uint64
@@ -179,6 +190,9 @@ func (c *Collector) RecordSearch(observation SearchObservation) {
 		c.searchMetrics.resultCount["zero"]++
 	} else {
 		c.searchMetrics.matchedTotal++
+		if observation.Transliterated {
+			c.searchMetrics.transliteratedTotal++
+		}
 		c.searchMetrics.resultCount[resultCountBucket(observation.ResultCount)]++
 	}
 
@@ -206,8 +220,28 @@ func (c *Collector) RecordSearch(observation SearchObservation) {
 		query.ZeroResults++
 	} else {
 		query.Matched++
+		if observation.Transliterated {
+			query.Transliterated++
+			query.Transliterations = appendUniqueTransliterations(query.Transliterations, observation.Transliterations)
+		}
 		query.ResultsTotal += uint64(observation.ResultCount)
 	}
+}
+
+func appendUniqueTransliterations(existing, additions []SearchTransliteration) []SearchTransliteration {
+	for _, addition := range additions {
+		found := false
+		for _, current := range existing {
+			if current == addition {
+				found = true
+				break
+			}
+		}
+		if !found {
+			existing = append(existing, addition)
+		}
+	}
+	return existing
 }
 
 func (c *Collector) beginHTTPRequest() {
@@ -386,6 +420,7 @@ func copySearchMetrics(metrics searchCounters) SearchMetrics {
 	zeroResultQueries := make([]SearchQueryMetric, 0)
 	for _, query := range metrics.queries {
 		copy := *query
+		copy.Transliterations = append([]SearchTransliteration(nil), query.Transliterations...)
 		queries = append(queries, copy)
 		if copy.ZeroResults > 0 {
 			zeroResultQueries = append(zeroResultQueries, copy)
@@ -396,6 +431,7 @@ func copySearchMetrics(metrics searchCounters) SearchMetrics {
 		MatchedTotal:            metrics.matchedTotal,
 		ZeroResultTotal:         metrics.zeroResultTotal,
 		RejectedComplexityTotal: metrics.rejectedComplexityTotal,
+		TransliteratedTotal:     metrics.transliteratedTotal,
 		ErrorTotal:              metrics.errorTotal,
 		ResultCount:             copyMap(metrics.resultCount),
 		QueryCapacity:           SearchQueryCapacity,

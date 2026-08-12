@@ -4,6 +4,7 @@ go 1.25.1
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.5.0
+	github.com/mozillazg/go-pinyin v0.21.0
 	github.com/ncruces/go-sqlite3 v0.33.3
 	github.com/spf13/cobra v1.8.1
 	gopkg.in/yaml.v3 v3.0.1

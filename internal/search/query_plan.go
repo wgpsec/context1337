@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/wgpsec/context1337/internal/transliterate"
 )
 
 const (
@@ -14,7 +16,7 @@ const (
 	maxQueryAtoms    = 48
 )
 
-const SearchContractVersion = "security-concepts-v2"
+const SearchContractVersion = "security-concepts-v3"
 
 type SecurityConcept struct {
 	ID      string
@@ -44,6 +46,16 @@ type QueryPlan struct {
 	FTSExpression      string
 	ExactFTSExpression string
 	Version            string
+}
+
+type QueryTransliteration struct {
+	From string
+	To   string
+}
+
+type PinyinFallback struct {
+	Query            string
+	Transliterations []QueryTransliteration
 }
 
 type QueryComplexityError struct {
@@ -160,6 +172,32 @@ func PlanQuery(raw string) (QueryPlan, error) {
 		ExactFTSExpression: strings.Join(exactExpressions, " AND "),
 		Version:            SearchContractVersion,
 	}, nil
+}
+
+// BuildPinyinFallback returns one deterministic candidate. It transliterates
+// only unknown Han-only context groups and preserves every other query group.
+func BuildPinyinFallback(plan QueryPlan) (PinyinFallback, bool) {
+	const maxTransliteratedGroups = 3
+
+	parts := make([]string, 0, len(plan.Groups))
+	mappings := make([]QueryTransliteration, 0, maxTransliteratedGroups)
+	for _, group := range plan.Groups {
+		part := group.Original
+		if group.Role == ConceptRoleContext && group.ConceptID == "" && len(mappings) < maxTransliteratedGroups {
+			if converted, ok := transliterate.Pinyin(group.Original); ok {
+				part = converted
+				mappings = append(mappings, QueryTransliteration{From: group.Original, To: converted})
+			}
+		}
+		parts = append(parts, part)
+	}
+	if len(mappings) == 0 {
+		return PinyinFallback{}, false
+	}
+	return PinyinFallback{
+		Query:            strings.Join(parts, " "),
+		Transliterations: mappings,
+	}, true
 }
 
 type FocusedRetryQuery struct {

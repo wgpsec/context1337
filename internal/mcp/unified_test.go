@@ -75,6 +75,157 @@ func TestSearch_Keyword(t *testing.T) {
 	}
 }
 
+func TestSearch_TransliteratesUnknownChineseContextAfterExactNoMatch(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	if err := search.InsertResource(svc.DB, search.Resource{
+		Type:        "vuln",
+		Name:        "CNVD-2021-32799",
+		Source:      "nuclei",
+		FilePath:    "http/cnvd/2021/CNVD-2021-32799.yaml",
+		Category:    "nuclei-cnvd",
+		Tags:        "cnvd2021,cnvd,360,xintianqing,sqli,vuln",
+		Description: "Tianqing Terminal Security Management System SQL injection",
+		Metadata:    `{"severity":"HIGH"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "天擎 360 sqli",
+		Type:  "vuln",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "matched" || len(result.Items) != 1 {
+		t.Fatalf("result = %#v, want one transliterated match", result)
+	}
+	if result.Items[0].ID != "absec://nuclei/vuln/CNVD-2021-32799" {
+		t.Fatalf("stable ID = %q", result.Items[0].ID)
+	}
+	if result.Resolution == nil || result.Resolution.Mode != "transliterated" {
+		t.Fatalf("resolution = %#v, want transliterated", result.Resolution)
+	}
+	if result.Resolution.OriginalQuery != "天擎 360 sqli" || result.Resolution.EffectiveQuery != "tianqing 360 sqli" {
+		t.Fatalf("resolution query mapping = %#v", result.Resolution)
+	}
+	if len(result.Resolution.Transliterations) != 1 ||
+		result.Resolution.Transliterations[0].From != "天擎" ||
+		result.Resolution.Transliterations[0].To != "tianqing" {
+		t.Fatalf("transliterations = %#v", result.Resolution.Transliterations)
+	}
+	if fmt.Sprint(result.AttemptedStrategies) != "[exact pinyin]" {
+		t.Fatalf("attempted strategies = %v", result.AttemptedStrategies)
+	}
+}
+
+func TestSearch_PinyinNoMatchReturnsLLMGuidanceWithoutDroppingKeywords(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	if err := search.InsertResource(svc.DB, search.Resource{
+		Type:        "vuln",
+		Name:        "CNVD-2021-32799",
+		Source:      "nuclei",
+		Tags:        "360,xintianqing,sqli,vuln",
+		Description: "Tianqing Terminal Security Management System SQL injection",
+		Metadata:    `{"severity":"HIGH"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "getsimilarlist 360 天擎 sqli",
+		Type:  "vuln",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "no_match" || result.Total != 0 || len(result.Items) != 0 {
+		t.Fatalf("result = %#v, want no_match without broadened results", result)
+	}
+	if fmt.Sprint(result.AttemptedStrategies) != "[exact pinyin]" {
+		t.Fatalf("attempted strategies = %v", result.AttemptedStrategies)
+	}
+	wantActions := []string{"translate_to_english", "reduce_keywords"}
+	gotActions := make([]string, len(result.RetryGuidance))
+	for index, guidance := range result.RetryGuidance {
+		gotActions[index] = guidance.Action
+	}
+	if fmt.Sprint(gotActions) != fmt.Sprint(wantActions) {
+		t.Fatalf("guidance actions = %v, want %v", gotActions, wantActions)
+	}
+	if !strings.Contains(result.Hint, "Exact and pinyin searches returned no results") {
+		t.Fatalf("hint = %q, want attempted-strategy guidance", result.Hint)
+	}
+	if result.Resolution != nil {
+		t.Fatalf("unresolved query returned a matched resolution: %#v", result.Resolution)
+	}
+}
+
+func TestSearch_ExactChineseMatchDoesNotAdvertiseFallback(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	if err := search.InsertResource(svc.DB, search.Resource{
+		Type: "vuln", Name: "exact-chinese-product", Source: "nuclei",
+		Tags: "天擎,sqli", Description: "天擎 SQL 注入", Metadata: `{"severity":"HIGH"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.Search(context.Background(), SearchInput{Query: "天擎 sqli", Type: "vuln"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "matched" || len(result.Items) != 1 {
+		t.Fatalf("result = %#v, want exact match", result)
+	}
+	if result.Resolution != nil || len(result.AttemptedStrategies) != 0 || len(result.RetryGuidance) != 0 {
+		t.Fatalf("exact match exposed fallback metadata: %#v", result)
+	}
+}
+
+func TestSearch_PinyinFallbackDoesNotBypassDefaultVulnerabilityExclusion(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	if err := search.InsertResource(svc.DB, search.Resource{
+		Type: "vuln", Name: "CNVD-2021-32799", Source: "nuclei",
+		Tags: "360,tianqing,sqli", Description: "Tianqing SQL injection",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.Search(context.Background(), SearchInput{Query: "天擎 360 sqli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "no_match" || len(result.Items) != 0 {
+		t.Fatalf("default search exposed vuln through fallback: %#v", result)
+	}
+	if !strings.Contains(result.Hint, `type="vuln"`) {
+		t.Fatalf("hint = %q, want explicit vuln filter guidance", result.Hint)
+	}
+}
+
+func TestSearch_PinyinFallbackIsDisabledForLaterPages(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	if err := search.InsertResource(svc.DB, search.Resource{
+		Type: "vuln", Name: "CNVD-2021-32799", Source: "nuclei",
+		Tags: "360,tianqing,sqli", Description: "Tianqing SQL injection",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "天擎 360 sqli", Type: "vuln", Offset: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "matched" || result.Total != 1 || len(result.Items) != 0 {
+		t.Fatalf("later page changed existing pagination semantics: %#v", result)
+	}
+	if result.Resolution != nil || len(result.AttemptedStrategies) != 0 || len(result.RetryGuidance) != 0 {
+		t.Fatalf("later page attempted fallback: %#v", result)
+	}
+}
+
 func TestSearch_ResponseAdvertisesSecurityConceptSearchVersion(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	result, err := svc.Search(context.Background(), SearchInput{
@@ -90,7 +241,7 @@ func TestSearch_ResponseAdvertisesSecurityConceptSearchVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(payload), `"search_version":"security-concepts-v2"`) {
+	if !strings.Contains(string(payload), `"search_version":"security-concepts-v3"`) {
 		t.Fatalf("search response does not advertise the active contract: %s", payload)
 	}
 }

@@ -182,14 +182,35 @@ type ResourceSummary struct {
 }
 
 type SearchResult struct {
-	SearchVersion string             `json:"search_version"`
-	Status        string             `json:"status"`
-	Total         int                `json:"total"`
-	Offset        int                `json:"offset"`
-	Limit         int                `json:"limit"`
-	Items         []ResourceSummary  `json:"items"`
-	Hint          string             `json:"hint,omitempty"`
-	RetryQueries  []SearchRetryQuery `json:"retry_queries,omitempty"`
+	SearchVersion       string             `json:"search_version"`
+	Status              string             `json:"status"`
+	Total               int                `json:"total"`
+	Offset              int                `json:"offset"`
+	Limit               int                `json:"limit"`
+	Items               []ResourceSummary  `json:"items"`
+	Hint                string             `json:"hint,omitempty"`
+	RetryQueries        []SearchRetryQuery `json:"retry_queries,omitempty"`
+	Resolution          *SearchResolution  `json:"resolution,omitempty"`
+	AttemptedStrategies []string           `json:"attempted_strategies,omitempty"`
+	RetryGuidance       []SearchGuidance   `json:"retry_guidance,omitempty"`
+}
+
+type SearchGuidance struct {
+	Action string `json:"action"`
+	Reason string `json:"reason"`
+}
+
+type SearchTransliteration struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+type SearchResolution struct {
+	Mode             string                  `json:"mode"`
+	OriginalQuery    string                  `json:"original_query"`
+	EffectiveQuery   string                  `json:"effective_query"`
+	Transliterations []SearchTransliteration `json:"transliterations"`
+	Reason           string                  `json:"reason"`
 }
 
 type SearchRetryQuery struct {
@@ -231,9 +252,18 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 		defer func() {
 			resultCount := 0
 			rejectedComplexity := false
+			transliterated := false
+			var transliterations []usage.SearchTransliteration
 			if out != nil {
 				resultCount = out.Total
 				rejectedComplexity = out.Status == "query_too_complex"
+				transliterated = out.Resolution != nil && out.Resolution.Mode == "transliterated"
+				if transliterated {
+					transliterations = make([]usage.SearchTransliteration, len(out.Resolution.Transliterations))
+					for index, mapping := range out.Resolution.Transliterations {
+						transliterations[index] = usage.SearchTransliteration{From: mapping.From, To: mapping.To}
+					}
+				}
 			}
 			s.Usage.RecordSearch(usage.SearchObservation{
 				Query:              in.Query,
@@ -244,6 +274,8 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 				ResultCount:        resultCount,
 				Failed:             err != nil,
 				RejectedComplexity: rejectedComplexity,
+				Transliterated:     transliterated,
+				Transliterations:   transliterations,
 			})
 		}()
 	}
@@ -310,8 +342,60 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 			Total:         total, Offset: in.Offset, Limit: in.Limit, Items: items,
 		}
 		if total == 0 {
+			attemptedPinyin := false
+			if in.Offset == 0 {
+				plan, planErr := search.PlanQuery(in.Query)
+				if planErr == nil {
+					if fallback, ok := search.BuildPinyinFallback(plan); ok {
+						attemptedPinyin = true
+						fallbackResults, fallbackTotal, fallbackErr := search.Search(s.DB, search.SearchQuery{
+							Query: fallback.Query, Type: in.Type, Category: in.Category,
+							Severity: in.Severity, Product: in.Product,
+							Offset: in.Offset, Limit: fetchLimit,
+						})
+						if fallbackErr == nil && fallbackTotal > 0 {
+							fallbackResults = trimByRelevance(fallbackResults)
+							if in.Type == "" {
+								fallbackResults = diversifyByType(fallbackResults)
+							}
+							if len(fallbackResults) > in.Limit {
+								fallbackResults = fallbackResults[:in.Limit]
+							}
+							fallbackItems := make([]ResourceSummary, len(fallbackResults))
+							for index, result := range fallbackResults {
+								fallbackItems[index] = resourceToSummary(result.Resource)
+							}
+							mappings := make([]SearchTransliteration, len(fallback.Transliterations))
+							for index, mapping := range fallback.Transliterations {
+								mappings[index] = SearchTransliteration{From: mapping.From, To: mapping.To}
+							}
+							out.Status = "matched"
+							out.Total = fallbackTotal
+							out.Items = fallbackItems
+							out.Resolution = &SearchResolution{
+								Mode: "transliterated", OriginalQuery: in.Query, EffectiveQuery: fallback.Query,
+								Transliterations: mappings, Reason: "chinese_context_transliteration",
+							}
+							out.AttemptedStrategies = []string{"exact", "pinyin"}
+							out.Hint = "Exact query returned no results. Showing results after deterministic Chinese-to-pinyin transliteration."
+							return out, nil
+						}
+					}
+				}
+			}
 			out.Status = "no_match"
 			out.Hint = searchHint(in.Query, in.Type)
+			out.AttemptedStrategies = []string{"exact"}
+			if attemptedPinyin {
+				out.AttemptedStrategies = append(out.AttemptedStrategies, "pinyin")
+				out.Hint = "Exact and pinyin searches returned no results. Translate Chinese product or component terms to English, or remove non-essential keywords and retry. " + out.Hint
+				out.RetryGuidance = append(out.RetryGuidance, SearchGuidance{
+					Action: "translate_to_english", Reason: "chinese_context_not_found",
+				})
+			}
+			out.RetryGuidance = append(out.RetryGuidance, SearchGuidance{
+				Action: "reduce_keywords", Reason: "focused_query_returned_no_results",
+			})
 			plan, planErr := search.PlanQuery(in.Query)
 			if planErr == nil {
 				retries := search.BuildMultiTopicRetryQueries(plan.Groups, in.Type)

@@ -83,6 +83,26 @@ func TestCollectorRecordsExactSearchQueriesAndZeroResults(t *testing.T) {
 	}
 }
 
+func TestCollectorCountsTransliteratedMatchesWithoutZeroResult(t *testing.T) {
+	collector := NewCollector()
+	collector.RecordSearch(SearchObservation{
+		Query: "天擎 360 sqli", ResourceType: "vuln", ResultCount: 1, Transliterated: true,
+		Transliterations: []SearchTransliteration{{From: "天擎", To: "tianqing"}},
+	})
+
+	snapshot := collector.Snapshot()
+	if snapshot.Search.MatchedTotal != 1 || snapshot.Search.TransliteratedTotal != 1 || snapshot.Search.ZeroResultTotal != 0 {
+		t.Fatalf("search totals = %#v", snapshot.Search)
+	}
+	query := findSearchQuery(t, snapshot.Search.Queries, "天擎 360 sqli", "vuln")
+	if query.Matched != 1 || query.Transliterated != 1 || query.ZeroResults != 0 {
+		t.Fatalf("query metrics = %#v", query)
+	}
+	if len(query.Transliterations) != 1 || query.Transliterations[0].From != "天擎" || query.Transliterations[0].To != "tianqing" {
+		t.Fatalf("query transliterations = %#v", query.Transliterations)
+	}
+}
+
 func TestCollectorBoundsDistinctSearchQueriesAndReportsDrops(t *testing.T) {
 	collector := NewCollector()
 	for i := 0; i <= SearchQueryCapacity; i++ {
