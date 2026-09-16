@@ -31,7 +31,7 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 			case "false":
 				visibility = search.VisibilityDisabledOnly
 			}
-			results, total, err := search.Search(db, search.SearchQuery{
+			results, total, fallback, err := search.SearchWithFallback(db, search.SearchQuery{
 				Query: query, Type: q.Get("type"), Category: q.Get("category"), Source: q.Get("source"),
 				Severity:   strings.ToUpper(q.Get("severity")),
 				Visibility: visibility, Offset: offset, Limit: limit,
@@ -49,11 +49,25 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 					"enabled": result.Enabled,
 				})
 			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			payload := map[string]interface{}{
 				"search_version": search.SearchContractVersion,
 				"total":          total, "items": items, "query_applied": true,
-			})
+			}
+			if fallback.Used {
+				mappings := make([]map[string]string, 0, len(fallback.Transliterations))
+				for _, mapping := range fallback.Transliterations {
+					mappings = append(mappings, map[string]string{"from": mapping.From, "to": mapping.To})
+				}
+				payload["resolution"] = map[string]interface{}{
+					"mode":             "transliterated",
+					"original_query":   query,
+					"effective_query":  fallback.Query,
+					"transliterations": mappings,
+					"reason":           "chinese_context_transliteration",
+				}
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(payload)
 			return
 		}
 

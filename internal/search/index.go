@@ -223,6 +223,44 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 	return results, total, nil
 }
 
+// FallbackSearch reports whether SearchWithFallback attempted or used pinyin.
+type FallbackSearch struct {
+	Attempted        bool
+	Used             bool
+	Query            string
+	Transliterations []QueryTransliteration
+}
+
+// SearchWithFallback runs the exact query first. If that returns zero rows at
+// offset 0, it retries once with deterministic Han-to-pinyin context rewrite.
+func SearchWithFallback(db *sql.DB, q SearchQuery) ([]SearchResult, int, FallbackSearch, error) {
+	results, total, err := Search(db, q)
+	if err != nil || total > 0 || q.Offset != 0 {
+		return results, total, FallbackSearch{}, err
+	}
+	plan, planErr := PlanQuery(q.Query)
+	if planErr != nil {
+		return results, total, FallbackSearch{}, nil
+	}
+	fallback, ok := BuildPinyinFallback(plan)
+	if !ok {
+		return results, total, FallbackSearch{}, nil
+	}
+	info := FallbackSearch{
+		Attempted:        true,
+		Query:            fallback.Query,
+		Transliterations: fallback.Transliterations,
+	}
+	fallbackQuery := q
+	fallbackQuery.Query = fallback.Query
+	fallbackResults, fallbackTotal, fallbackErr := Search(db, fallbackQuery)
+	if fallbackErr != nil || fallbackTotal == 0 {
+		return results, total, info, nil
+	}
+	info.Used = true
+	return fallbackResults, fallbackTotal, info, nil
+}
+
 // ListByType returns resources of a given type with pagination and total count.
 func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 	if q.Limit <= 0 {

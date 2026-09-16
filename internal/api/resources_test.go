@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"testing"
 
@@ -127,5 +128,97 @@ func TestListResourcesQueryIncludesDisabledResourcesForManagement(t *testing.T) 
 	}
 	if enabledBody.Total != 0 {
 		t.Fatalf("disabled resource leaked through enabled=true search: total=%d", enabledBody.Total)
+	}
+}
+
+func TestListResourcesAppliesPinyinFallbackForUnknownHanContext(t *testing.T) {
+	db, err := storage.OpenDB(filepath.Join(t.TempDir(), "resources.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := search.InsertResource(db, search.Resource{
+		Type: "vuln", Name: "CNVD-2021-32799", Source: "nuclei",
+		Tags:        "cnvd2021,cnvd,360,xintianqing,sqli,vuln",
+		Description: "Tianqing Terminal Security Management System SQL injection",
+		Metadata:    `{"severity":"HIGH"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources?type=vuln&q="+url.QueryEscape("天擎 360 sqli"), nil)
+	rec := httptest.NewRecorder()
+	NewRouter(db, t.TempDir(), "", nil).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Total int `json:"total"`
+		Items []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+		Resolution *struct {
+			Mode             string `json:"mode"`
+			OriginalQuery    string `json:"original_query"`
+			EffectiveQuery   string `json:"effective_query"`
+			Transliterations []struct {
+				From string `json:"from"`
+				To   string `json:"to"`
+			} `json:"transliterations"`
+		} `json:"resolution"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Total != 1 || len(body.Items) != 1 || body.Items[0].Name != "CNVD-2021-32799" {
+		t.Fatalf("REST pinyin fallback missed resource: %+v", body)
+	}
+	if body.Resolution == nil || body.Resolution.Mode != "transliterated" ||
+		body.Resolution.OriginalQuery != "天擎 360 sqli" ||
+		body.Resolution.EffectiveQuery != "tianqing 360 sqli" {
+		t.Fatalf("resolution = %+v, want transliterated tianqing mapping", body.Resolution)
+	}
+	if len(body.Resolution.Transliterations) != 1 ||
+		body.Resolution.Transliterations[0].From != "天擎" ||
+		body.Resolution.Transliterations[0].To != "tianqing" {
+		t.Fatalf("transliterations = %+v", body.Resolution.Transliterations)
+	}
+}
+
+func TestListResourcesExactChineseMatchOmitsFallbackResolution(t *testing.T) {
+	db, err := storage.OpenDB(filepath.Join(t.TempDir(), "resources.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := search.InsertResource(db, search.Resource{
+		Type: "vuln", Name: "exact-chinese-product", Source: "nuclei",
+		Tags: "天擎,sqli", Description: "天擎 SQL 注入", Metadata: `{"severity":"HIGH"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources?type=vuln&q="+url.QueryEscape("天擎 sqli"), nil)
+	rec := httptest.NewRecorder()
+	NewRouter(db, t.TempDir(), "", nil).ServeHTTP(rec, req)
+
+	var body struct {
+		Total int `json:"total"`
+		Items []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+		Resolution *struct {
+			Mode string `json:"mode"`
+		} `json:"resolution"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Total != 1 || len(body.Items) != 1 || body.Items[0].Name != "exact-chinese-product" {
+		t.Fatalf("exact match missing: %+v", body)
+	}
+	if body.Resolution != nil {
+		t.Fatalf("exact match advertised fallback: %+v", body.Resolution)
 	}
 }

@@ -295,7 +295,7 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 		if in.Type == "" {
 			fetchLimit = in.Limit * 3
 		}
-		results, total, err := search.Search(s.DB, search.SearchQuery{
+		results, total, fallback, err := search.SearchWithFallback(s.DB, search.SearchQuery{
 			Query: in.Query, Type: in.Type, Category: in.Category,
 			Severity: in.Severity, Product: in.Product,
 			Offset: in.Offset, Limit: fetchLimit,
@@ -320,17 +320,45 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 			}
 			return nil, err
 		}
-		results = trimByRelevance(results)
-		if in.Type == "" {
-			results = diversifyByType(results)
+		present := func(inResults []search.SearchResult) []search.SearchResult {
+			inResults = trimByRelevance(inResults)
+			if in.Type == "" {
+				inResults = diversifyByType(inResults)
+			}
+			if len(inResults) > in.Limit {
+				inResults = inResults[:in.Limit]
+			}
+			return inResults
 		}
-		if len(results) > in.Limit {
-			results = results[:in.Limit]
+		summarize := func(inResults []search.SearchResult) []ResourceSummary {
+			items := make([]ResourceSummary, len(inResults))
+			for i, result := range inResults {
+				items[i] = resourceToSummary(result.Resource)
+			}
+			return items
 		}
-		items := make([]ResourceSummary, len(results))
-		for i, r := range results {
-			items[i] = resourceToSummary(r.Resource)
+		if fallback.Used {
+			mappings := make([]SearchTransliteration, len(fallback.Transliterations))
+			for index, mapping := range fallback.Transliterations {
+				mappings[index] = SearchTransliteration{From: mapping.From, To: mapping.To}
+			}
+			return &SearchResult{
+				SearchVersion: search.SearchContractVersion,
+				Status:        "matched",
+				Total:         total,
+				Offset:        in.Offset,
+				Limit:         in.Limit,
+				Items:         summarize(present(results)),
+				Hint:          "Exact query returned no results. Showing results after deterministic Chinese-to-pinyin transliteration.",
+				Resolution: &SearchResolution{
+					Mode: "transliterated", OriginalQuery: in.Query, EffectiveQuery: fallback.Query,
+					Transliterations: mappings, Reason: "chinese_context_transliteration",
+				},
+				AttemptedStrategies: []string{"exact", "pinyin"},
+			}, nil
 		}
+		results = present(results)
+		items := summarize(results)
 		// If cutoff reduced this page, cap total so the caller does not
 		// paginate into low-relevance results.
 		if len(results) < in.Limit {
@@ -342,51 +370,10 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 			Total:         total, Offset: in.Offset, Limit: in.Limit, Items: items,
 		}
 		if total == 0 {
-			attemptedPinyin := false
-			if in.Offset == 0 {
-				plan, planErr := search.PlanQuery(in.Query)
-				if planErr == nil {
-					if fallback, ok := search.BuildPinyinFallback(plan); ok {
-						attemptedPinyin = true
-						fallbackResults, fallbackTotal, fallbackErr := search.Search(s.DB, search.SearchQuery{
-							Query: fallback.Query, Type: in.Type, Category: in.Category,
-							Severity: in.Severity, Product: in.Product,
-							Offset: in.Offset, Limit: fetchLimit,
-						})
-						if fallbackErr == nil && fallbackTotal > 0 {
-							fallbackResults = trimByRelevance(fallbackResults)
-							if in.Type == "" {
-								fallbackResults = diversifyByType(fallbackResults)
-							}
-							if len(fallbackResults) > in.Limit {
-								fallbackResults = fallbackResults[:in.Limit]
-							}
-							fallbackItems := make([]ResourceSummary, len(fallbackResults))
-							for index, result := range fallbackResults {
-								fallbackItems[index] = resourceToSummary(result.Resource)
-							}
-							mappings := make([]SearchTransliteration, len(fallback.Transliterations))
-							for index, mapping := range fallback.Transliterations {
-								mappings[index] = SearchTransliteration{From: mapping.From, To: mapping.To}
-							}
-							out.Status = "matched"
-							out.Total = fallbackTotal
-							out.Items = fallbackItems
-							out.Resolution = &SearchResolution{
-								Mode: "transliterated", OriginalQuery: in.Query, EffectiveQuery: fallback.Query,
-								Transliterations: mappings, Reason: "chinese_context_transliteration",
-							}
-							out.AttemptedStrategies = []string{"exact", "pinyin"}
-							out.Hint = "Exact query returned no results. Showing results after deterministic Chinese-to-pinyin transliteration."
-							return out, nil
-						}
-					}
-				}
-			}
 			out.Status = "no_match"
 			out.Hint = searchHint(in.Query, in.Type)
 			out.AttemptedStrategies = []string{"exact"}
-			if attemptedPinyin {
+			if fallback.Attempted {
 				out.AttemptedStrategies = append(out.AttemptedStrategies, "pinyin")
 				out.Hint = "Exact and pinyin searches returned no results. Translate Chinese product or component terms to English, or remove non-essential keywords and retry. " + out.Hint
 				out.RetryGuidance = append(out.RetryGuidance, SearchGuidance{

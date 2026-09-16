@@ -423,6 +423,38 @@ func TestBuildPinyinFallbackRejectsProtectedAndMixedGroups(t *testing.T) {
 	}
 }
 
+func TestSearchWithFallbackTransliteratesUnknownHanContext(t *testing.T) {
+	db := setupTestDB(t)
+	if err := InsertResource(db, Resource{
+		Type: "vuln", Name: "CNVD-2021-32799", Source: "nuclei",
+		Tags:        "cnvd2021,cnvd,360,xintianqing,sqli,vuln",
+		Description: "Tianqing Terminal Security Management System SQL injection",
+		Metadata:    `{"severity":"HIGH"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	query := SearchQuery{Query: "天擎 360 sqli", Type: "vuln", Limit: 5}
+	exact, exactTotal, err := Search(db, query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exactTotal != 0 || len(exact) != 0 {
+		t.Fatalf("exact search = total=%d results=%v, want zero", exactTotal, exact)
+	}
+
+	results, total, fallback, err := SearchWithFallback(db, query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fallback.Used || fallback.Query != "tianqing 360 sqli" {
+		t.Fatalf("fallback = %#v, want used tianqing query", fallback)
+	}
+	if total != 1 || len(results) != 1 || results[0].Name != "CNVD-2021-32799" {
+		t.Fatalf("fallback search = total=%d results=%v, want CNVD-2021-32799", total, results)
+	}
+}
+
 func TestSearch_JWTAuthenticationBypassRanksCanonicalSkillFirst(t *testing.T) {
 	db := setupTestDB(t)
 
