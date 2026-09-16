@@ -40,7 +40,7 @@ docker run -p 1337:1337 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
 
 ### 本地开发（推荐首次使用者）
 
-仅需安装 Go 1.25+（gotip）和 Python 3。
+需要 Go 1.25+（gotip）、用于 CGo sqlite（`mattn/go-sqlite3`）的 C 编译器，以及 Python 3。`make build` / `make test` 会启用 FTS5 和 JSON。
 
 ```bash
 git clone https://github.com/wgpsec/context1337.git

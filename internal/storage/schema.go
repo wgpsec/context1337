@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
 const schemaVersion = 1
@@ -60,10 +58,9 @@ func OpenDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("mkdir: %w", err)
 	}
 
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", path)
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := openSQLite(path, false)
 	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
+		return nil, err
 	}
 
 	if _, err := db.Exec(ddl); err != nil {

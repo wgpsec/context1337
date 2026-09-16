@@ -339,7 +339,7 @@ func readBuiltinVersion(path string) (string, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return "", nil
 	}
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", path))
+	db, err := openSQLite(path, true)
 	if err != nil {
 		return "", err
 	}
@@ -348,7 +348,7 @@ func readBuiltinVersion(path string) (string, error) {
 }
 
 func readRuntimeVersion(path string) (string, error) {
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", path))
+	db, err := openSQLite(path, true)
 	if err != nil {
 		return "", err
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/wgpsec/context1337/internal/storage"
@@ -984,5 +985,47 @@ func TestListByType_VulnWithSeverityFilter(t *testing.T) {
 	}
 	if result.Items[0].Name != "CVE-2021-44228" {
 		t.Errorf("expected CVE-2021-44228, got %q", result.Items[0].Name)
+	}
+}
+
+func TestSearch_ConcurrentReaders(t *testing.T) {
+	db := setupTestDB(t)
+	for i := 0; i < 8; i++ {
+		if err := InsertResource(db, Resource{
+			Type:        "skill",
+			Name:        fmt.Sprintf("skill-%d", i),
+			Source:      "builtin",
+			Description: "SQL injection concurrent search",
+			Body:        "SQL injection concurrent search body",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	const workers = 16
+	errCh := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results, _, err := Search(db, SearchQuery{
+				Query: "SQL injection",
+				Type:  "skill",
+				Limit: 10,
+			})
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if len(results) == 0 {
+				errCh <- fmt.Errorf("expected search results")
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
 	}
 }

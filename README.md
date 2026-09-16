@@ -40,7 +40,7 @@ docker run -p 1337:1337 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
 
 ### Local Development (recommended for first-time users)
 
-Only requires Go 1.25+ (gotip) and Python 3 installed on your machine.
+Requires Go 1.25+ (gotip), a C compiler for CGo sqlite (`mattn/go-sqlite3`), and Python 3. `make build` / `make test` enable FTS5 and JSON.
 
 ```bash
 git clone https://github.com/wgpsec/context1337.git

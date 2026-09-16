@@ -3,16 +3,17 @@
 # Paths
 ABOUTSECURITY_DIR ?= ../AboutSecurity
 ABOUTSECURITY_REPO = https://github.com/wgpsec/AboutSecurity.git
+GO_TAGS ?= fts5 sqlite_json
 
 # Local development
 build:
-	go build -o absec ./cmd/absec/
+	CGO_ENABLED=1 go build -tags "$(GO_TAGS)" -o absec ./cmd/absec/
 
 test:
-	go test ./...
+	CGO_ENABLED=1 go test -tags "$(GO_TAGS)" ./...
 
 test-integration:
-	go test -tags integration -v .
+	CGO_ENABLED=1 go test -tags "integration $(GO_TAGS)" -v .
 
 test-release-image:
 	test -n "$(IMAGE)"
@@ -29,7 +30,7 @@ data/builtin.db: build/build_index.py build/security_dict.txt | $(ABOUTSECURITY_
 		--input $(ABOUTSECURITY_DIR) \
 		--dict build/security_dict.txt \
 		--output data/builtin.db
-	go run ./cmd/absec finalize-index --db data/builtin.db
+	CGO_ENABLED=1 go run -tags "$(GO_TAGS)" ./cmd/absec finalize-index --db data/builtin.db
 
 # Symlink AboutSecurity content directories into data/ for local development
 link-data: | $(ABOUTSECURITY_DIR)

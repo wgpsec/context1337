@@ -35,17 +35,17 @@ RUN mkdir -p /artifacts && python /src/build/build_index.py \
     --output /artifacts/builtin.db
 
 # ---- Stage 2: Build Go binary ----
-FROM golang:1.25 AS builder
+FROM golang:1.25-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN mkdir -p /artifacts && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /artifacts/absec ./cmd/absec/
+RUN mkdir -p /artifacts && CGO_ENABLED=1 GOOS=linux go build -tags "fts5 sqlite_json" -ldflags="-s -w" -o /artifacts/absec ./cmd/absec/
 COPY --from=indexer /artifacts/builtin.db /artifacts/builtin.db
 RUN /artifacts/absec finalize-index --db /artifacts/builtin.db
 
 # ---- Stage 3: Minimal runtime ----
-FROM gcr.io/distroless/static-debian12
+FROM gcr.io/distroless/base-debian12
 ARG NUCLEI_TEMPLATES_REVISION=dev
 COPY --from=builder /artifacts/builtin.db /app/data/builtin.db
 COPY --from=aboutsecurity /skills/ /app/data/skills/
