@@ -25,6 +25,7 @@ __pycache__/
 .env
 *.env
 
+docs/specs/
 docs/superpowers/
 .worktrees/
 .codegraph
