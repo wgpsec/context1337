@@ -13,7 +13,14 @@ import (
 
 func handleListResources(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireRead(w, r) {
+			return
+		}
 		q := r.URL.Query()
+		principal := principalOf(r)
+		if !requireRequestedSource(w, r, q.Get("source")) {
+			return
+		}
 		limit := 100
 		if v, err := strconv.Atoi(q.Get("limit")); err == nil && v > 0 {
 			limit = v
@@ -33,6 +40,7 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 			}
 			results, total, fallback, err := search.SearchWithFallback(db, search.SearchQuery{
 				Query: query, Type: q.Get("type"), Category: q.Get("category"), Source: q.Get("source"),
+				Sources:    principal.Sources,
 				Severity:   strings.ToUpper(q.Get("severity")),
 				Visibility: visibility, Offset: offset, Limit: limit,
 			})
@@ -86,6 +94,7 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 			where = append(where, "source = ?")
 			args = append(args, v)
 		}
+		where, args = appendSourceAllowlist(where, args, "source", principal)
 		switch q.Get("enabled") {
 		case "true":
 			where = append(where, "enabled = 1")
@@ -101,7 +110,7 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 		var total int
 		db.QueryRow("SELECT count(*) FROM resources"+whereClause, args...).Scan(&total)
 
-		rows, err := db.Query("SELECT id, type, name, category, source, description, tags, enabled FROM resources"+whereClause+" LIMIT ? OFFSET ?", append(args, limit, offset)...)
+		rows, err := db.Query("SELECT id, type, name, category, source, description, tags, enabled FROM resources"+whereClause+" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
 		if err != nil {
 			http.Error(w, `{"error":"query failed"}`, 500)
 			return
@@ -125,14 +134,53 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+func handleGetResource(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireRead(w, r) {
+			return
+		}
+		id := r.PathValue("id")
+		var (
+			itemID, enabled                                                int
+			typ, name, category, source, description, tags, body, metadata string
+		)
+		err := db.QueryRow(
+			"SELECT id, type, COALESCE(name,''), COALESCE(category,''), COALESCE(source,''), COALESCE(description,''), COALESCE(tags,''), COALESCE(body,''), COALESCE(metadata,''), enabled FROM resources WHERE id = ?",
+			id,
+		).Scan(&itemID, &typ, &name, &category, &source, &description, &tags, &body, &metadata, &enabled)
+		if err != nil || !principalOf(r).AllowsSource(source) {
+			http.Error(w, `{"error":"not found"}`, 404)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": itemID, "type": typ, "name": name, "category": category,
+			"source": source, "description": description, "tags": tags,
+			"body": body, "metadata": metadata, "enabled": enabled == 1,
+		})
+	}
+}
+
 func handleToggleResource(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireWrite(w, r) {
+			return
+		}
 		id := r.PathValue("id")
 		var body struct {
 			Enabled bool `json:"enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, `{"error":"invalid body"}`, 400)
+			return
+		}
+		var source string
+		if err := db.QueryRow("SELECT source FROM resources WHERE id = ?", id).Scan(&source); err != nil {
+			http.Error(w, `{"error":"not found"}`, 404)
+			return
+		}
+		if !principalOf(r).AllowsToggle(source) {
+			http.Error(w, `{"error":"not found"}`, 404)
 			return
 		}
 		val := 0
@@ -155,6 +203,9 @@ func handleToggleResource(db *sql.DB) http.HandlerFunc {
 
 func handleBatchToggle(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireWrite(w, r) {
+			return
+		}
 		var body struct {
 			Enabled bool `json:"enabled"`
 			Filter  struct {
@@ -183,6 +234,9 @@ func handleBatchToggle(db *sql.DB) http.HandlerFunc {
 			args = append(args, body.Filter.Category)
 		}
 		if body.Filter.Source != "" {
+			if !requireRequestedSource(w, r, body.Filter.Source) {
+				return
+			}
 			where = append(where, "source = ?")
 			args = append(args, body.Filter.Source)
 		}
@@ -190,6 +244,7 @@ func handleBatchToggle(db *sql.DB) http.HandlerFunc {
 			http.Error(w, `{"error":"filter requires at least one condition"}`, 400)
 			return
 		}
+		where, args = appendSourceAllowlist(where, args, "source", principalOf(r))
 		query := "UPDATE resources SET enabled = ? WHERE " + strings.Join(where, " AND ")
 		res, _ := db.Exec(query, args...)
 		n, _ := res.RowsAffected()
@@ -200,6 +255,9 @@ func handleBatchToggle(db *sql.DB) http.HandlerFunc {
 
 func handleCreateResource(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireCustomWrite(w, r) {
+			return
+		}
 		var body struct {
 			Type        string `json:"type"`
 			Name        string `json:"name"`
@@ -244,6 +302,9 @@ func handleCreateResource(db *sql.DB) http.HandlerFunc {
 
 func handleUpdateResource(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireWrite(w, r) {
+			return
+		}
 		id := r.PathValue("id")
 		var source string
 		err := db.QueryRow("SELECT source FROM resources WHERE id = ?", id).Scan(&source)
@@ -253,6 +314,9 @@ func handleUpdateResource(db *sql.DB) http.HandlerFunc {
 		}
 		if source != "custom" {
 			http.Error(w, `{"error":"only custom resources can be updated"}`, 403)
+			return
+		}
+		if !requireCustomWrite(w, r) {
 			return
 		}
 		var body struct {
@@ -310,6 +374,9 @@ func handleUpdateResource(db *sql.DB) http.HandlerFunc {
 
 func handleDeleteResource(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireWrite(w, r) {
+			return
+		}
 		id := r.PathValue("id")
 		var source string
 		err := db.QueryRow("SELECT source FROM resources WHERE id = ?", id).Scan(&source)
@@ -319,6 +386,9 @@ func handleDeleteResource(db *sql.DB) http.HandlerFunc {
 		}
 		if source != "custom" {
 			http.Error(w, `{"error":"only custom resources can be deleted"}`, 403)
+			return
+		}
+		if !requireCustomWrite(w, r) {
 			return
 		}
 		db.Exec("DELETE FROM resources WHERE id = ?", id)

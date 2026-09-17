@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/wgpsec/context1337/internal/api"
+	"github.com/wgpsec/context1337/internal/auth"
 	"github.com/wgpsec/context1337/internal/buildinfo"
 	"github.com/wgpsec/context1337/internal/config"
 	"github.com/wgpsec/context1337/internal/fts"
@@ -136,9 +138,23 @@ func serveCmd() *cobra.Command {
 			}
 			defer db.Close()
 
+			keysFile := strings.TrimSpace(cfg.APIKeysFile)
+			optionalKeysFile := false
+			if keysFile == "" {
+				keysFile = filepath.Join(cfg.DataDir, "runtime", "api-keys.json")
+				optionalKeysFile = true
+			}
+			store, err := auth.Open(cfg.APIKey, keysFile, optionalKeysFile)
+			if err != nil {
+				return fmt.Errorf("load api keys: %w", err)
+			}
+
 			usageCollector := usage.NewCollector()
 			mcpHandler := mcphandler.NewMCPServer(db, cfg.DataDir, mcphandler.ToolMode(toolMode), usageCollector)
-			handler := api.NewRouter(db, cfg.DataDir, cfg.APIKey, mcpHandler, api.UsageEndpoint{
+			if err := auth.RequireIndependentAdminKey(store, cfg.AdminKey); err != nil {
+				return err
+			}
+			handler := api.NewRouter(db, cfg.DataDir, store, mcpHandler, cfg.AdminKey, api.UsageEndpoint{
 				Collector: usageCollector,
 			})
 
@@ -150,8 +166,17 @@ func serveCmd() *cobra.Command {
 			if cfg.NucleiDir != "" {
 				log.Printf("nuclei-templates: %s (min-severity: %s)", cfg.NucleiDir, cfg.NucleiMinSeverity)
 			}
-			if cfg.APIKey != "" {
-				log.Printf("usage analytics: enabled at GET /api/usage")
+			log.Printf("api keys file: %s", keysFile)
+			if store.Enabled() {
+				log.Printf("auth: %d principal(s) loaded (%s)", store.Count(), strings.Join(store.IDs(), ", "))
+				log.Printf("usage analytics: enabled at GET /api/usage for write keys")
+			} else {
+				log.Printf("auth: disabled (development mode)")
+			}
+			if strings.TrimSpace(cfg.AdminKey) != "" {
+				log.Printf("admin console: enabled at /admin")
+			} else {
+				log.Printf("admin console: disabled")
 			}
 			return http.ListenAndServe(addr, handler)
 		},

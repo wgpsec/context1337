@@ -36,6 +36,13 @@ make docker-ref ABOUTSECURITY_REF=dev
 
 ```bash
 docker run -p 1337:1337 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
+
+# Optional: enable /admin and persist managed keys + custom resources
+docker run -p 1337:1337 \
+  -e ABOUTSECURITY_API_KEY=your-key \
+  -e ABOUTSECURITY_ADMIN_KEY=your-admin-key \
+  -v context1337-runtime:/app/data/runtime \
+  context1337:latest
 ```
 
 ### Local Development (recommended for first-time users)
@@ -189,19 +196,21 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/health` | Health check + enabled resource count |
-| `GET /api/stats` | Resource statistics by type/source (enabled only) |
-| `GET /api/usage` | MCP usage and search-query aggregates (protected by `ABOUTSECURITY_API_KEY`; disabled when the key is empty) |
-| `GET /api/resources` | List all resources with pagination and filters (admin management) |
-| `POST /api/resources` | Create custom resource (source forced to "custom") |
-| `PUT /api/resources/{id}` | Update custom resource (source=custom only, 403 otherwise) |
-| `DELETE /api/resources/{id}` | Delete custom resource (source=custom only, 403 otherwise) |
-| `PUT /api/resources/{id}/toggle` | Toggle resource enabled/disabled |
-| `PUT /api/resources/batch-toggle` | Batch toggle by type/category/source filter |
+| `GET /health` | Liveness probe. Unauthenticated; no source counts |
+| `GET /admin` | Admin console (independent `ABOUTSECURITY_ADMIN_KEY`; disabled when unset) |
+| `GET /api/health` | Authenticated health + enabled resource counts for granted sources |
+| `GET /api/stats` | Enabled resource statistics by type/source (granted sources only) |
+| `GET /api/usage` | MCP usage and search-query aggregates (write keys only; disabled when auth is off) |
+| `GET /api/resources` | List resources with pagination and filters (granted sources; includes disabled) |
+| `POST /api/resources` | Create custom resource (write + `custom`; source forced to "custom") |
+| `PUT /api/resources/{id}` | Update custom resource (write + `custom`; 403 otherwise) |
+| `DELETE /api/resources/{id}` | Delete custom resource (write + `custom`; 403 otherwise) |
+| `PUT /api/resources/{id}/toggle` | Toggle enabled/disabled (write; granted sources only) |
+| `PUT /api/resources/batch-toggle` | Batch toggle by type/category/source filter (write; granted sources only) |
 
 ### Resource Management
 
-Resources have an `enabled` field (default: `1`). Disabled resources are excluded from all MCP tool queries (search, list, get) but remain visible in the management API (`GET /api/resources`).
+Resources have an `enabled` field (default: `1`). Disabled resources are excluded from MCP tool queries (search, list, get) but remain visible to `GET /api/resources`. List/search/get require `read`; create/update/delete/toggle require `write`.
 
 **Toggle single resource:**
 ```bash
@@ -235,10 +244,32 @@ Custom resources use `source=custom` (server-enforced) and can be edited or dele
 |----------|---------|-------------|
 | `ABOUTSECURITY_PORT` | `1337` | HTTP listen port |
 | `ABOUTSECURITY_DATA_DIR` | `./data` | Data directory root |
-| `ABOUTSECURITY_API_KEY` | (empty=no auth) | Shared Bearer key for MCP, REST APIs, and `GET /api/usage`; usage analytics are disabled when empty |
+| `ABOUTSECURITY_API_KEY` | (empty=no auth) | Bootstrap admin Bearer key: all sources (`builtin`/`nuclei`, `team`, `custom`) and write access. Empty disables auth and `GET /api/usage` |
+| `ABOUTSECURITY_API_KEYS_FILE` | `{dataDir}/runtime/api-keys.json` | Extra API keys with source/access RBAC. Missing file means no extra keys. Admin console creates and writes this file. Mount a persistent runtime volume; do not bake into the image or team zip |
+| `ABOUTSECURITY_ADMIN_KEY` | (unset) | Independent super-admin key for `/admin` only. Must not equal any MCP/REST key. Empty disables the console |
 | `ABOUTSECURITY_TOOL_MODE` | `lite` | Tool registration mode: `lite` (3 tools) or `full` (12 tools) |
 | `NUCLEI_TEMPLATES_DIR` | Native: empty; official image: bundled snapshot | Path to nuclei-templates repo root, enables secondary data source |
 | `NUCLEI_MIN_SEVERITY` | `high` | Minimum severity for nuclei vulnerability import: `critical`/`high`/`medium`/`low` |
+
+## API Key RBAC
+
+Keys have two axes: **sources** (`builtin`, `team`, `custom`) and **access** (`read` and/or `write`, independently). Granting `builtin` also includes `nuclei`. `ABOUTSECURITY_API_KEY` remains a backward-compatible admin key. Extra keys come from `ABOUTSECURITY_API_KEYS_FILE`:
+
+```json
+[
+  {"id": "public-mcp", "key": "replace-me", "sources": ["builtin"], "access": ["read"]},
+  {"id": "pojun-agent", "key": "replace-me", "sources": ["builtin", "team"], "access": ["read"]},
+  {"id": "ops", "key": "replace-me", "sources": ["builtin", "team", "custom"], "access": ["read", "write"]}
+]
+```
+
+Unscoped search/list/MCP results are silently limited to granted sources. An explicit unauthorized `source=` filter returns 403. Fetching a hidden source by id returns the same not-found error as a missing resource. `read` is required for MCP/REST queries; `write` is required for custom CRUD, toggle, and `GET /api/usage`. They can be granted together or separately. Toggle only affects granted sources. `/health` stays unauthenticated and does not include source counts. A legacy string `"access": "write"` still means read+write.
+
+## Admin Console
+
+Open `/admin` and sign in with `ABOUTSECURITY_ADMIN_KEY`. This key is independent of MCP/REST keys: it cannot call `/mcp` or `/api/*`, and MCP/REST keys cannot open the console. Empty admin key leaves `/admin` as 404.
+
+The console manages MCP/REST keys: create, change `sources`/`access`, rotate, and delete. Plaintext is shown only once on create/rotate. The env bootstrap key is read-only. Managed keys persist to `ABOUTSECURITY_API_KEYS_FILE` or `data/runtime/api-keys.json` and take effect immediately. Resource search/toggle and usage remain available as extra views.
 
 ## Data Sources
 

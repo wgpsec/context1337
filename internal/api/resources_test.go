@@ -61,7 +61,7 @@ func TestListResourcesUsesVersionedCanonicalSearchOrdering(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/resources?type=skill&q=JWT+algorithm+confusion&enabled=true", nil)
 	rec := httptest.NewRecorder()
-	NewRouter(db, t.TempDir(), "", nil).ServeHTTP(rec, req)
+	NewRouter(db, t.TempDir(), nil, nil, "").ServeHTTP(rec, req)
 
 	var body struct {
 		SearchVersion string `json:"search_version"`
@@ -98,7 +98,7 @@ func TestListResourcesQueryIncludesDisabledResourcesForManagement(t *testing.T) 
 
 	req := httptest.NewRequest(http.MethodGet, "/api/resources?type=skill&q=management", nil)
 	rec := httptest.NewRecorder()
-	NewRouter(db, t.TempDir(), "", nil).ServeHTTP(rec, req)
+	NewRouter(db, t.TempDir(), nil, nil, "").ServeHTTP(rec, req)
 
 	var body struct {
 		Total int `json:"total"`
@@ -119,7 +119,7 @@ func TestListResourcesQueryIncludesDisabledResourcesForManagement(t *testing.T) 
 
 	enabledReq := httptest.NewRequest(http.MethodGet, "/api/resources?type=skill&q=management&enabled=true", nil)
 	enabledRec := httptest.NewRecorder()
-	NewRouter(db, t.TempDir(), "", nil).ServeHTTP(enabledRec, enabledReq)
+	NewRouter(db, t.TempDir(), nil, nil, "").ServeHTTP(enabledRec, enabledReq)
 	var enabledBody struct {
 		Total int `json:"total"`
 	}
@@ -148,7 +148,7 @@ func TestListResourcesAppliesPinyinFallbackForUnknownHanContext(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/resources?type=vuln&q="+url.QueryEscape("天擎 360 sqli"), nil)
 	rec := httptest.NewRecorder()
-	NewRouter(db, t.TempDir(), "", nil).ServeHTTP(rec, req)
+	NewRouter(db, t.TempDir(), nil, nil, "").ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
@@ -201,7 +201,7 @@ func TestListResourcesExactChineseMatchOmitsFallbackResolution(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/resources?type=vuln&q="+url.QueryEscape("天擎 sqli"), nil)
 	rec := httptest.NewRecorder()
-	NewRouter(db, t.TempDir(), "", nil).ServeHTTP(rec, req)
+	NewRouter(db, t.TempDir(), nil, nil, "").ServeHTTP(rec, req)
 
 	var body struct {
 		Total int `json:"total"`
@@ -220,5 +220,37 @@ func TestListResourcesExactChineseMatchOmitsFallbackResolution(t *testing.T) {
 	}
 	if body.Resolution != nil {
 		t.Fatalf("exact match advertised fallback: %+v", body.Resolution)
+	}
+}
+
+func TestListResourcesOrdersByIDDescending(t *testing.T) {
+	db, err := storage.OpenDB(filepath.Join(t.TempDir(), "resources.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, name := range []string{"older-skill", "newer-skill"} {
+		if err := search.InsertResource(db, search.Resource{
+			Type: "skill", Name: name, Source: "builtin",
+			Description: name,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resources?type=skill", nil)
+	rec := httptest.NewRecorder()
+	NewRouter(db, t.TempDir(), nil, nil, "").ServeHTTP(rec, req)
+
+	var body struct {
+		Items []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) < 2 || body.Items[0].Name != "newer-skill" || body.Items[1].Name != "older-skill" {
+		t.Fatalf("items = %+v, want newer-skill then older-skill", body.Items)
 	}
 }

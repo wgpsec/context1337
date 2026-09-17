@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/wgpsec/context1337/internal/api"
+	"github.com/wgpsec/context1337/internal/auth"
 	"github.com/wgpsec/context1337/internal/search"
 	"github.com/wgpsec/context1337/internal/storage"
 )
@@ -28,7 +29,7 @@ func TestIntegration_FullStack(t *testing.T) {
 	search.InsertResource(db, search.Resource{
 		Type: "skill", Name: "sql-injection", Source: "builtin",
 		FilePath: "skills/sql-injection/SKILL.md", Category: "exploit",
-		Tags: "sqli,owasp,web",
+		Tags:        "sqli,owasp,web",
 		Description: "SQL Injection attack techniques",
 		Body:        "SQL注入攻击是一种常见的Web安全漏洞",
 	})
@@ -39,7 +40,11 @@ func TestIntegration_FullStack(t *testing.T) {
 	})
 
 	// Build router with nil mcpHandler
-	handler := api.NewRouter(db, dir, "test-key", nil)
+	store, err := auth.Load("test-key", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := api.NewRouter(db, dir, store, nil, "")
 	server := httptest.NewServer(handler)
 	defer server.Close()
 

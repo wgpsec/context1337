@@ -137,7 +137,7 @@ func TestNewMCPServer_InitializeReportsReleaseVersion(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("initialize status = %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), `"version":"0.7.11"`) {
-		t.Fatalf("initialize response does not report 0.7.11: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"version":"0.7.13"`) {
+		t.Fatalf("initialize response does not report 0.7.13: %s", rec.Body.String())
 	}
 }

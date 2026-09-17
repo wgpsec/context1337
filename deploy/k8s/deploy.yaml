@@ -57,7 +57,7 @@ spec:
             successThreshold: 1
       volumes:
         - name: runtime-data
-          emptyDir: {} # replace with a PersistentVolumeClaim for persistent storage
+          emptyDir: {} # replace with a PersistentVolumeClaim so api-keys.json and custom resources survive restarts
         - name: team-data
           emptyDir: {} # replace with a PersistentVolumeClaim for persistent storage
 ---

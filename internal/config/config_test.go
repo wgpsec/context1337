@@ -55,3 +55,25 @@ func TestLoad_APIKey(t *testing.T) {
 		t.Fatalf("APIKey = %q, want mcp-api-key", cfg.APIKey)
 	}
 }
+
+func TestLoad_APIKeysFile(t *testing.T) {
+	t.Setenv("ABOUTSECURITY_API_KEYS_FILE", "/runtime/api-keys.json")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.APIKeysFile != "/runtime/api-keys.json" {
+		t.Fatalf("APIKeysFile = %q", cfg.APIKeysFile)
+	}
+}
+
+func TestLoad_AdminKey(t *testing.T) {
+	t.Setenv("ABOUTSECURITY_ADMIN_KEY", "console-key")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AdminKey != "console-key" {
+		t.Fatalf("AdminKey = %q", cfg.AdminKey)
+	}
+}

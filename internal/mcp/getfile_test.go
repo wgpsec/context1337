@@ -286,11 +286,8 @@ func TestGetFile_WithStableID_RejectsUnsupportedFileSource(t *testing.T) {
 	}
 
 	_, err := svc.GetFile(context.Background(), GetFileInput{ID: "absec://external/dict/External%2Fwords.txt"})
-	if err == nil {
-		t.Fatal("expected unsupported source error")
-	}
-	if !strings.Contains(err.Error(), "unsupported file source") || !strings.Contains(err.Error(), "external") {
-		t.Fatalf("error = %q, want unsupported external source", err.Error())
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("error = %v, want not found", err)
 	}
 }
 

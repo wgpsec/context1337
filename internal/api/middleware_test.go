@@ -4,10 +4,21 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/wgpsec/context1337/internal/auth"
 )
 
+func testAuthStore(t *testing.T, key string) *auth.Store {
+	t.Helper()
+	store, err := auth.Load(key, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
 func TestAuthMiddleware_ValidKey(t *testing.T) {
-	handler := AuthMiddleware("test-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(testAuthStore(t, "test-key"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/", nil)
@@ -20,7 +31,7 @@ func TestAuthMiddleware_ValidKey(t *testing.T) {
 }
 
 func TestAuthMiddleware_InvalidKey(t *testing.T) {
-	handler := AuthMiddleware("test-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(testAuthStore(t, "test-key"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/", nil)
@@ -33,7 +44,7 @@ func TestAuthMiddleware_InvalidKey(t *testing.T) {
 }
 
 func TestAuthMiddleware_NoKey_PassThrough(t *testing.T) {
-	handler := AuthMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(testAuthStore(t, ""))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/", nil)
@@ -45,7 +56,7 @@ func TestAuthMiddleware_NoKey_PassThrough(t *testing.T) {
 }
 
 func TestAuthMiddleware_MCP_BearerHeader(t *testing.T) {
-	handler := AuthMiddleware("test-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(testAuthStore(t, "test-key"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/mcp/sse", nil)
@@ -58,7 +69,7 @@ func TestAuthMiddleware_MCP_BearerHeader(t *testing.T) {
 }
 
 func TestAuthMiddleware_MCP_QueryParam(t *testing.T) {
-	handler := AuthMiddleware("test-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(testAuthStore(t, "test-key"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/mcp/sse?api_key=test-key", nil)
@@ -70,7 +81,7 @@ func TestAuthMiddleware_MCP_QueryParam(t *testing.T) {
 }
 
 func TestAuthMiddleware_MCP_NoAuth(t *testing.T) {
-	handler := AuthMiddleware("test-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(testAuthStore(t, "test-key"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/mcp/sse", nil)
@@ -82,7 +93,7 @@ func TestAuthMiddleware_MCP_NoAuth(t *testing.T) {
 }
 
 func TestAuthMiddleware_MCP_WrongKey(t *testing.T) {
-	handler := AuthMiddleware("test-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(testAuthStore(t, "test-key"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/mcp/sse?api_key=wrong", nil)
@@ -94,7 +105,7 @@ func TestAuthMiddleware_MCP_WrongKey(t *testing.T) {
 }
 
 func TestAuthMiddleware_NonMCP_MissingHeader(t *testing.T) {
-	handler := AuthMiddleware("test-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(testAuthStore(t, "test-key"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/api/health", nil)
@@ -106,7 +117,7 @@ func TestAuthMiddleware_NonMCP_MissingHeader(t *testing.T) {
 }
 
 func TestAuthMiddleware_Health_NoAuth(t *testing.T) {
-	handler := AuthMiddleware("test-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(testAuthStore(t, "test-key"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -118,7 +129,7 @@ func TestAuthMiddleware_Health_NoAuth(t *testing.T) {
 }
 
 func TestAuthMiddleware_Health_WithBadToken_StillOK(t *testing.T) {
-	handler := AuthMiddleware("test-key")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(testAuthStore(t, "test-key"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -127,5 +138,35 @@ func TestAuthMiddleware_Health_WithBadToken_StillOK(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200 (/health is exempt regardless of token)", rec.Code)
+	}
+}
+
+func TestAuthMiddleware_PrincipalOnContext(t *testing.T) {
+	handler := AuthMiddleware(testAuthStore(t, "test-key"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal := auth.FromContext(r.Context())
+		if principal.ID != auth.BootstrapID || !principal.AllowsWrite() {
+			http.Error(w, "missing principal", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/api/health", nil)
+	req.Header.Set("Authorization", "Bearer test-key")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestAuthMiddleware_Admin_NoAuth(t *testing.T) {
+	handler := AuthMiddleware(testAuthStore(t, "test-key"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/admin", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (/admin must be exempt from REST API keys)", rec.Code)
 	}
 }

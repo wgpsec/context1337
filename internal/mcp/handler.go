@@ -9,6 +9,7 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/wgpsec/context1337/internal/auth"
 	"github.com/wgpsec/context1337/internal/buildinfo"
 	"github.com/wgpsec/context1337/internal/mcp/benchlog"
 	"github.com/wgpsec/context1337/internal/usage"
@@ -139,6 +140,9 @@ func wrapHandler[In any, Out any](fn func(context.Context, In) (Out, error)) gom
 			collector.RecordTool(req.Params.Name, success, time.Since(start), responseBytes)
 		}()
 
+		if !auth.FromContext(ctx).AllowsRead() {
+			return nil, nil, fmt.Errorf("forbidden")
+		}
 		out, err := fn(ctx, input)
 		if err != nil {
 			return nil, nil, err

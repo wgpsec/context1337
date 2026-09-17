@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wgpsec/context1337/internal/auth"
 	"github.com/wgpsec/context1337/internal/search"
 	"github.com/wgpsec/context1337/internal/storage"
 )
@@ -30,7 +31,7 @@ type GetFileResult struct {
 }
 
 func (s *Service) GetFile(ctx context.Context, in GetFileInput) (*GetFileResult, error) {
-	id, typ, path, absPath, err := s.resolveFileResource(in)
+	id, typ, path, absPath, err := s.resolveFileResource(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -63,8 +64,12 @@ func fileBaseDir(typ string) (string, error) {
 	}
 }
 
-func (s *Service) resolveFileResource(in GetFileInput) (id, typ, path, absPath string, err error) {
+func (s *Service) resolveFileResource(ctx context.Context, in GetFileInput) (id, typ, path, absPath string, err error) {
+	principal := auth.FromContext(ctx)
 	if in.ID == "" {
+		if !principal.AllowsSource(auth.SourceBuiltin) {
+			return "", "", "", "", fmt.Errorf("%s %q not found", in.Type, in.Path)
+		}
 		baseDir, err := fileBaseDir(in.Type)
 		if err != nil {
 			return "", "", "", "", err
@@ -80,7 +85,7 @@ func (s *Service) resolveFileResource(in GetFileInput) (id, typ, path, absPath s
 	if err != nil {
 		return "", "", "", "", err
 	}
-	if r == nil {
+	if r == nil || !principal.AllowsSource(r.Source) {
 		return "", "", "", "", fmt.Errorf("resource id %q not found", in.ID)
 	}
 	if r.Type != "dict" && r.Type != "payload" {

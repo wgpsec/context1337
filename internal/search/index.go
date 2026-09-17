@@ -39,8 +39,9 @@ type SearchQuery struct {
 	Type       string
 	Category   string
 	Source     string
-	Severity   string // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
-	Product    string // vuln metadata filter: product name
+	Sources    []string // optional allowlist; empty means unrestricted
+	Severity   string   // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
+	Product    string   // vuln metadata filter: product name
 	Visibility ResourceVisibility
 	Offset     int
 	Limit      int
@@ -56,8 +57,10 @@ type SearchResult struct {
 type ListQuery struct {
 	Type     string
 	Category string
-	Severity string // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
-	Product  string // vuln metadata filter: product name
+	Source   string
+	Sources  []string // optional allowlist; empty means unrestricted
+	Severity string   // vuln metadata filter: CRITICAL|HIGH|MEDIUM|LOW
+	Product  string   // vuln metadata filter: product name
 	Offset   int
 	Limit    int
 }
@@ -153,10 +156,7 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 		conditions = append(conditions, "LOWER(r.category) = LOWER(?)")
 		args = append(args, q.Category)
 	}
-	if q.Source != "" {
-		conditions = append(conditions, "r.source = ?")
-		args = append(args, q.Source)
-	}
+	conditions, args = appendSourceConstraints(conditions, args, "r.source", q.Source, q.Sources)
 	// Exclude vuln from default search (no type specified)
 	if q.Type == "" {
 		conditions = append(conditions, "r.type != 'vuln'")
@@ -281,6 +281,7 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 		conditions = append(conditions, "LOWER(category) = LOWER(?)")
 		args = append(args, q.Category)
 	}
+	conditions, args = appendSourceConstraints(conditions, args, "source", q.Source, q.Sources)
 	// Exclude vuln from default list (no type specified)
 	if q.Type == "" {
 		conditions = append(conditions, "type != 'vuln'")
@@ -335,12 +336,23 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 
 // GetByName returns a single resource by type, name.
 func GetByName(db *sql.DB, typ, name string) (*Resource, error) {
-	var r Resource
-	err := db.QueryRow(`
+	return GetByNameInSources(db, typ, name, nil)
+}
+
+func GetByNameInSources(db *sql.DB, typ, name string, allowed []string) (*Resource, error) {
+	query := `
 		SELECT id, type, COALESCE(name,''), COALESCE(source,''), COALESCE(file_path,''),
 		       COALESCE(category,''), COALESCE(tags,''),
 		       COALESCE(description,''), COALESCE(body,''), COALESCE(metadata,'')
-		FROM resources WHERE type=? AND name=? AND enabled = 1 LIMIT 1`, typ, name).Scan(
+		FROM resources WHERE type=? AND name=? AND enabled = 1`
+	args := []interface{}{typ, name}
+	if clause, extra := sourceInClause("source", allowed); clause != "" {
+		query += " AND " + clause
+		args = append(args, extra...)
+	}
+	query += " LIMIT 1"
+	var r Resource
+	err := db.QueryRow(query, args...).Scan(
 		&r.ID, &r.Type, &r.Name, &r.Source, &r.FilePath,
 		&r.Category, &r.Tags,
 		&r.Description, &r.Body, &r.Metadata,
@@ -352,4 +364,29 @@ func GetByName(db *sql.DB, typ, name string) (*Resource, error) {
 		return nil, err
 	}
 	return &r, nil
+}
+
+func appendSourceConstraints(conditions []string, args []interface{}, column, source string, allowed []string) ([]string, []interface{}) {
+	if source != "" {
+		conditions = append(conditions, column+" = ?")
+		args = append(args, source)
+	}
+	if clause, extra := sourceInClause(column, allowed); clause != "" {
+		conditions = append(conditions, clause)
+		args = append(args, extra...)
+	}
+	return conditions, args
+}
+
+func sourceInClause(column string, allowed []string) (string, []interface{}) {
+	if len(allowed) == 0 {
+		return "", nil
+	}
+	placeholders := make([]string, len(allowed))
+	args := make([]interface{}, len(allowed))
+	for i, source := range allowed {
+		placeholders[i] = "?"
+		args[i] = source
+	}
+	return column + " IN (" + strings.Join(placeholders, ",") + ")", args
 }

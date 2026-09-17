@@ -29,7 +29,7 @@ func setupTestRouter(t *testing.T) http.Handler {
 		Description: "Test skill",
 	})
 
-	return NewRouter(db, dir, "", nil)
+	return NewRouter(db, dir, nil, nil, "")
 }
 
 func TestUsageEndpointUsesMCPAPIKey(t *testing.T) {
@@ -42,7 +42,7 @@ func TestUsageEndpointUsesMCPAPIKey(t *testing.T) {
 
 	collector := usage.NewCollector()
 	collector.RecordTool("search_security", true, 5*time.Millisecond, 128)
-	router := NewRouter(db, dir, "mcp-api-key", nil, UsageEndpoint{Collector: collector})
+	router := NewRouter(db, dir, testAuthStore(t, "mcp-api-key"), nil, "", UsageEndpoint{Collector: collector})
 
 	for _, token := range []string{"", "wrong-token"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/usage", nil)
@@ -83,7 +83,7 @@ func TestUsageEndpointIsDisabledWithoutMCPAPIKey(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	router := NewRouter(db, dir, "", nil, UsageEndpoint{
+	router := NewRouter(db, dir, nil, nil, "", UsageEndpoint{
 		Collector: usage.NewCollector(),
 	})
 	req := httptest.NewRequest(http.MethodGet, "/api/usage", nil)

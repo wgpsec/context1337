@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>context1337 管理台</title>
+  <style>
+    :root {
+      --bg: #0b1016;
+      --bg-2: #121a24;
+      --panel: #17212d;
+      --line: #2a3848;
+      --text: #e7eef6;
+      --muted: #8ea0b5;
+      --accent: #3ee0a2;
+      --accent-2: #1f6feb;
+      --danger: #f97066;
+      --warn: #f5c15c;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: radial-gradient(1200px 500px at 10% -10%, #163226 0%, transparent 50%), var(--bg);
+      color: var(--text);
+    }
+    a { color: var(--accent); }
+    button, input, select, textarea {
+      font: inherit; color: var(--text); background: var(--bg-2);
+      border: 1px solid var(--line); border-radius: 8px;
+    }
+    input, select, textarea { padding: 8px 10px; width: 100%; }
+    input[type="checkbox"] { width: auto; }
+    label.muted { display: flex; gap: 8px; align-items: center; }
+    textarea { min-height: 140px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    button { padding: 8px 12px; cursor: pointer; }
+    button.primary { background: var(--accent); color: #062117; border-color: transparent; font-weight: 650; }
+    button.danger { background: #3a1c1c; border-color: #5c2a2a; color: #ffd2ce; }
+    button.ghost { background: transparent; }
+    .hidden { display: none !important; }
+    .login {
+      min-height: 100%; display: grid; place-items: center; padding: 24px;
+    }
+    .card {
+      width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line);
+      border-radius: 16px; padding: 28px; box-shadow: 0 20px 60px rgba(0,0,0,.35);
+    }
+    .brand { font-size: 22px; font-weight: 750; letter-spacing: .04em; }
+    .brand span { color: var(--accent); }
+    .sub { color: var(--muted); margin: 8px 0 20px; }
+    .error { color: var(--danger); min-height: 20px; margin: 8px 0 0; }
+    .app { display: grid; grid-template-columns: 220px 1fr; min-height: 100%; }
+    nav {
+      background: var(--bg-2); border-right: 1px solid var(--line); padding: 20px 14px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    nav .brand { padding: 0 8px 16px; }
+    nav button {
+      text-align: left; background: transparent; border: 0; border-radius: 8px; padding: 10px 12px;
+    }
+    nav button.active { background: #203246; color: var(--accent); }
+    main { padding: 24px; overflow: auto; }
+    h1 { font-size: 20px; margin: 0 0 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    .stat, table, .panel {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    }
+    .stat { padding: 14px; }
+    .stat .k { color: var(--muted); font-size: 12px; }
+    .stat .v { font-size: 24px; font-weight: 700; margin-top: 6px; }
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+    .filters > * { width: auto; min-width: 120px; }
+    table { width: 100%; border-collapse: collapse; overflow: hidden; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #223246; font-size: 12px; }
+    .tag.off { background: #3a2a16; color: var(--warn); }
+    .row-actions { display: flex; gap: 6px; }
+    dialog { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: var(--text); width: min(720px, 92vw); }
+    dialog::backdrop { background: rgba(0,0,0,.55); }
+    .form-grid { display: grid; gap: 10px; }
+    .muted { color: var(--muted); }
+    .ok { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <section id="login" class="login">
+    <form class="card" id="login-form">
+      <div class="brand">context<span>1337</span></div>
+      <p class="sub">使用独立超管密钥登录管理台。该密钥不能用于 MCP / REST。</p>
+      <input id="admin-key" type="password" autocomplete="current-password" placeholder="ABOUTSECURITY_ADMIN_KEY" autofocus>
+      <div style="height:12px"></div>
+      <button class="primary" type="submit">登录</button>
+      <p class="error" id="login-error"></p>
+    </form>
+  </section>
+
+  <section id="app" class="app hidden">
+    <nav>
+      <div class="brand">context<span>1337</span></div>
+      <button data-view="keys" class="active">密钥</button>
+      <button data-view="overview">总览</button>
+      <button data-view="resources">资源</button>
+      <button data-view="usage">用量</button>
+      <div style="flex:1"></div>
+      <button id="logout">退出</button>
+    </nav>
+    <main>
+      <section id="view-keys">
+        <h1>API 密钥</h1>
+        <p class="muted">管理 MCP/REST 密钥的 source 与读写权限。明文只在创建或轮换时显示一次。环境变量里的 bootstrap 密钥只读。</p>
+        <div class="filters">
+          <button class="primary" id="new-key">新建密钥</button>
+        </div>
+        <table>
+          <thead><tr><th>ID</th><th>Access</th><th>Sources</th><th>来源</th><th></th></tr></thead>
+          <tbody id="key-manage-rows"></tbody>
+        </table>
+      </section>
+      <section id="view-overview" class="hidden">
+        <h1>总览</h1>
+        <div class="grid" id="overview-stats"></div>
+        <h1 style="margin-top:24px">按来源</h1>
+        <table><thead><tr><th>类型</th><th>来源</th><th>数量</th></tr></thead><tbody id="source-stats"></tbody></table>
+      </section>
+      <section id="view-resources" class="hidden">
+        <h1>资源</h1>
+        <div class="filters">
+          <input id="q" placeholder="搜索关键字">
+          <select id="type">
+            <option value="">全部类型</option>
+            <option>skill</option><option>vuln</option><option>dict</option><option>payload</option>
+          </select>
+          <select id="source">
+            <option value="">全部来源</option>
+            <option>builtin</option><option>nuclei</option><option>team</option><option>custom</option>
+          </select>
+          <select id="enabled">
+            <option value="">启用状态</option>
+            <option value="true">仅启用</option>
+            <option value="false">仅停用</option>
+          </select>
+          <button class="primary" id="search">查询</button>
+          <button class="primary" id="new-custom">新建 custom</button>
+          <button id="prev-page">上一页</button>
+          <button id="next-page">下一页</button>
+        </div>
+        <p class="muted" id="resource-meta"></p>
+        <table>
+          <thead><tr><th>ID</th><th>类型</th><th>名称</th><th>来源</th><th>分类</th><th>状态</th><th></th></tr></thead>
+          <tbody id="resource-rows"></tbody>
+        </table>
+      </section>
+      <section id="view-usage" class="hidden">
+        <h1>用量</h1>
+        <div class="grid" id="usage-stats"></div>
+        <h1 style="margin-top:24px">零结果查询</h1>
+        <table><thead><tr><th>Query</th><th>Type</th><th>Calls</th><th>Zero</th></tr></thead><tbody id="zero-rows"></tbody></table>
+      </section>
+    </main>
+  </section>
+
+  <dialog id="key-dialog">
+    <form class="form-grid" id="key-form">
+      <h1 id="key-title">新建密钥</h1>
+      <input id="key-id" placeholder="id，例如 public-mcp" required>
+      <label class="muted"><input id="acc-read" type="checkbox" checked> 读（MCP / REST 查询）</label>
+      <label class="muted"><input id="acc-write" type="checkbox"> 写（custom CRUD、toggle、用量）</label>
+      <label class="muted"><input id="src-builtin" type="checkbox" checked> builtin（含 nuclei）</label>
+      <label class="muted"><input id="src-team" type="checkbox"> team</label>
+      <label class="muted"><input id="src-custom" type="checkbox"> custom</label>
+      <input id="key-secret" placeholder="明文密钥，留空则自动生成">
+      <div class="row-actions">
+        <button class="primary" type="submit" id="key-save">保存</button>
+        <button class="ghost" type="button" id="key-cancel">关闭</button>
+      </div>
+      <p class="error" id="key-error"></p>
+    </form>
+  </dialog>
+
+  <dialog id="secret-dialog">
+    <div class="form-grid">
+      <h1>请立即复制密钥</h1>
+      <p class="muted">关闭后无法再查看明文。请发给对应客户端并妥善保存。</p>
+      <textarea id="secret-value" readonly></textarea>
+      <div class="row-actions">
+        <button class="primary" type="button" id="secret-copy">复制</button>
+        <button class="ghost" type="button" id="secret-close">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="edit-dialog">
+    <form class="form-grid" id="edit-form">
+      <h1 id="edit-title">新建 custom</h1>
+      <input type="hidden" id="edit-id">
+      <select id="edit-type">
+        <option>skill</option><option>vuln</option><option>dict</option><option>payload</option>
+      </select>
+      <input id="edit-name" placeholder="name" required>
+      <input id="edit-category" placeholder="category">
+      <input id="edit-tags" placeholder="tags">
+      <input id="edit-description" placeholder="description">
+      <textarea id="edit-body" placeholder="body"></textarea>
+      <div class="row-actions">
+        <button class="primary" type="submit" id="edit-save">保存</button>
+        <button class="ghost" type="button" id="edit-cancel">关闭</button>
+      </div>
+      <p class="error" id="edit-error"></p>
+    </form>
+  </dialog>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const loginView = $("login");
+    const appView = $("app");
+    const dialog = $("edit-dialog");
+
+    async function api(path, opts = {}) {
+      const res = await fetch("/admin/api" + path, {
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+        ...opts,
+      });
+      if (res.status === 401) {
+        showLogin();
+        throw new Error("unauthorized");
+      }
+      const text = await res.text();
+      let data = {};
+      if (text) {
+        try { data = JSON.parse(text); } catch { data = { error: text }; }
+      }
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      return data;
+    }
+
+    function showLogin() {
+      loginView.classList.remove("hidden");
+      appView.classList.add("hidden");
+    }
+    function showApp() {
+      loginView.classList.add("hidden");
+      appView.classList.remove("hidden");
+    }
+
+    $("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("login-error").textContent = "";
+      try {
+        await api("/login", { method: "POST", body: JSON.stringify({ key: $("admin-key").value }) });
+        $("admin-key").value = "";
+        showApp();
+        loadKeys();
+      } catch (err) {
+        $("login-error").textContent = "登录失败：超管密钥不正确";
+      }
+    });
+
+    $("logout").addEventListener("click", async () => {
+      await api("/logout", { method: "POST", body: "{}" }).catch(() => {});
+      showLogin();
+    });
+
+    document.querySelectorAll("nav button[data-view]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("nav button[data-view]").forEach((b) => b.classList.toggle("active", b === btn));
+        ["keys", "overview", "resources", "usage"].forEach((name) => {
+          $("view-" + name).classList.toggle("hidden", name !== btn.dataset.view);
+        });
+        if (btn.dataset.view === "keys") loadKeys();
+        if (btn.dataset.view === "overview") loadOverview();
+        if (btn.dataset.view === "resources") loadResources();
+        if (btn.dataset.view === "usage") loadUsage();
+      });
+    });
+
+    const keyDialog = $("key-dialog");
+    const secretDialog = $("secret-dialog");
+    let editingKeyId = "";
+
+    function selectedSources() {
+      const sources = [];
+      if ($("src-builtin").checked) sources.push("builtin");
+      if ($("src-team").checked) sources.push("team");
+      if ($("src-custom").checked) sources.push("custom");
+      return sources;
+    }
+    function selectedAccess() {
+      const access = [];
+      if ($("acc-read").checked) access.push("read");
+      if ($("acc-write").checked) access.push("write");
+      return access;
+    }
+
+    function showSecret(key) {
+      $("secret-value").value = key;
+      secretDialog.showModal();
+    }
+
+    async function loadKeys() {
+      const data = await api("/keys");
+      $("key-manage-rows").innerHTML = (data.keys || []).map((k) => {
+        const envOwned = k.origin === "env";
+        const actions = envOwned
+          ? `<span class="muted">环境变量只读</span>`
+          : `<button data-key-edit="${escapeHtml(k.id)}">编辑</button>
+             <button data-key-rotate="${escapeHtml(k.id)}">轮换</button>
+             <button class="danger" data-key-del="${escapeHtml(k.id)}">删除</button>`;
+        return `<tr>
+          <td>${escapeHtml(k.id)}</td>
+          <td>${escapeHtml((Array.isArray(k.access) ? k.access : [k.access]).filter(Boolean).join(", ") || "无")}</td>
+          <td>${escapeHtml((k.sources || []).join(", "))}</td>
+          <td>${envOwned ? "环境变量" : "管理台"}</td>
+          <td class="row-actions">${actions}</td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="5" class="muted">还没有 MCP/REST 密钥</td></tr>`;
+    }
+
+    function openKeyForm(item) {
+      editingKeyId = item ? item.id : "";
+      $("key-title").textContent = item ? "编辑密钥权限" : "新建密钥";
+      $("key-id").value = item ? item.id : "";
+      $("key-id").disabled = Boolean(item);
+      const access = Array.isArray(item?.access) ? item.access : (item?.access ? [item.access] : ["read"]);
+      $("acc-read").checked = access.includes("read");
+      $("acc-write").checked = access.includes("write");
+      $("src-builtin").checked = !item || (item.sources || []).includes("builtin");
+      $("src-team").checked = Boolean(item && (item.sources || []).includes("team"));
+      $("src-custom").checked = Boolean(item && (item.sources || []).includes("custom"));
+      $("key-secret").value = "";
+      $("key-secret").classList.toggle("hidden", Boolean(item));
+      $("key-error").textContent = "";
+      keyDialog.showModal();
+    }
+
+    $("new-key").addEventListener("click", () => openKeyForm(null));
+    $("key-cancel").addEventListener("click", () => keyDialog.close());
+    $("secret-close").addEventListener("click", () => secretDialog.close());
+    $("secret-copy").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("secret-value").value); } catch {}
+    });
+    $("key-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("key-error").textContent = "";
+      const sources = selectedSources();
+      const access = selectedAccess();
+      if (!sources.length) {
+        $("key-error").textContent = "至少选择一个 source";
+        return;
+      }
+      if (!access.length) {
+        $("key-error").textContent = "至少选择读或写";
+        return;
+      }
+      try {
+        if (editingKeyId) {
+          await api("/keys/" + encodeURIComponent(editingKeyId), {
+            method: "PUT",
+            body: JSON.stringify({ access, sources }),
+          });
+          keyDialog.close();
+          await loadKeys();
+          return;
+        }
+        const created = await api("/keys", {
+          method: "POST",
+          body: JSON.stringify({
+            id: $("key-id").value.trim(),
+            access,
+            sources,
+            key: $("key-secret").value.trim(),
+          }),
+        });
+        keyDialog.close();
+        await loadKeys();
+        showSecret(created.key);
+      } catch (err) {
+        $("key-error").textContent = err.message;
+      }
+    });
+
+    $("key-manage-rows").addEventListener("click", async (e) => {
+      const t = e.target;
+      try {
+        if (t.dataset.keyEdit) {
+          const data = await api("/keys");
+          const item = (data.keys || []).find((k) => k.id === t.dataset.keyEdit);
+          if (item) openKeyForm(item);
+        } else if (t.dataset.keyRotate) {
+          if (!confirm("轮换后旧密钥立即失效，确认？")) return;
+          const rotated = await api("/keys/" + encodeURIComponent(t.dataset.keyRotate) + "/rotate", { method: "POST" });
+          await loadKeys();
+          showSecret(rotated.key);
+        } else if (t.dataset.keyDel) {
+          if (!confirm("删除后该密钥立即失效，确认？")) return;
+          await api("/keys/" + encodeURIComponent(t.dataset.keyDel), { method: "DELETE" });
+          await loadKeys();
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    async function loadOverview() {
+      const [health, stats, keys] = await Promise.all([
+        api("/health"), api("/stats"), api("/keys"),
+      ]);
+      $("overview-stats").innerHTML = [
+        ["资源总数", health.total_resources || 0],
+        ["Skills", health.skills || 0],
+        ["Vulns", health.vulns || 0],
+        ["Dicts", health.dicts || 0],
+        ["Payloads", health.payloads || 0],
+        ["API Keys", (keys.keys || []).length],
+      ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+      $("source-stats").innerHTML = (stats.stats || []).map((s) =>
+        `<tr><td>${s.type}</td><td>${s.source}</td><td>${s.count}</td></tr>`
+      ).join("") || `<tr><td colspan="3" class="muted">暂无数据</td></tr>`;
+    }
+
+    const PAGE_SIZE = 100;
+    let resourceOffset = 0;
+
+    function resetResources() {
+      resourceOffset = 0;
+      return loadResources();
+    }
+
+    async function loadResources() {
+      const params = new URLSearchParams();
+      if ($("q").value.trim()) params.set("q", $("q").value.trim());
+      if ($("type").value) params.set("type", $("type").value);
+      if ($("source").value) params.set("source", $("source").value);
+      if ($("enabled").value) params.set("enabled", $("enabled").value);
+      params.set("limit", String(PAGE_SIZE));
+      params.set("offset", String(resourceOffset));
+      const data = await api("/resources?" + params.toString());
+      const total = data.total || 0;
+      if (resourceOffset > 0 && resourceOffset >= total) {
+        resourceOffset = Math.max(0, total - PAGE_SIZE);
+        return loadResources();
+      }
+      const from = total === 0 ? 0 : resourceOffset + 1;
+      const to = Math.min(resourceOffset + (data.items || []).length, total);
+      $("resource-meta").textContent = `共 ${total} 条 · ${from}-${to}`;
+      $("prev-page").disabled = resourceOffset <= 0;
+      $("next-page").disabled = resourceOffset + PAGE_SIZE >= total;
+      $("resource-rows").innerHTML = (data.items || []).map((item) => `
+        <tr>
+          <td>${item.id}</td>
+          <td>${item.type}</td>
+          <td>${escapeHtml(item.name)}</td>
+          <td>${item.source}</td>
+          <td>${escapeHtml(item.category || "")}</td>
+          <td><span class="tag ${item.enabled ? "" : "off"}">${item.enabled ? "启用" : "停用"}</span></td>
+          <td class="row-actions">
+            <button data-open="${item.id}">查看</button>
+            <button data-toggle="${item.id}" data-enabled="${item.enabled}">${item.enabled ? "停用" : "启用"}</button>
+            ${item.source === "custom" ? `<button data-edit="${item.id}">编辑</button><button class="danger" data-del="${item.id}">删除</button>` : ""}
+          </td>
+        </tr>
+      `).join("") || `<tr><td colspan="7" class="muted">没有匹配资源</td></tr>`;
+    }
+
+    $("search").addEventListener("click", () => resetResources().catch(console.error));
+    $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") resetResources().catch(console.error); });
+    $("type").addEventListener("change", () => resetResources().catch(console.error));
+    $("source").addEventListener("change", () => resetResources().catch(console.error));
+    $("enabled").addEventListener("change", () => resetResources().catch(console.error));
+    $("prev-page").addEventListener("click", () => {
+      resourceOffset = Math.max(0, resourceOffset - PAGE_SIZE);
+      loadResources().catch(console.error);
+    });
+    $("next-page").addEventListener("click", () => {
+      resourceOffset += PAGE_SIZE;
+      loadResources().catch(console.error);
+    });
+
+    $("resource-rows").addEventListener("click", async (e) => {
+      const t = e.target;
+      try {
+        if (t.dataset.toggle) {
+          await api(`/resources/${t.dataset.toggle}/toggle`, {
+            method: "PUT",
+            body: JSON.stringify({ enabled: t.dataset.enabled !== "true" }),
+          });
+          await loadResources();
+        } else if (t.dataset.open || t.dataset.edit) {
+          const id = t.dataset.open || t.dataset.edit;
+          const item = await api(`/resources/${id}`);
+          openEdit(item, !t.dataset.edit);
+        } else if (t.dataset.del) {
+          if (!confirm("删除这条 custom 资源？")) return;
+          await api(`/resources/${t.dataset.del}`, { method: "DELETE" });
+          await loadResources();
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    $("new-custom").addEventListener("click", () => openEdit(null, false));
+    $("edit-cancel").addEventListener("click", () => dialog.close());
+    $("edit-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if ($("edit-save").classList.contains("hidden")) return;
+      $("edit-error").textContent = "";
+      const id = $("edit-id").value;
+      const payload = {
+        type: $("edit-type").value,
+        name: $("edit-name").value,
+        category: $("edit-category").value,
+        tags: $("edit-tags").value,
+        description: $("edit-description").value,
+        body: $("edit-body").value,
+      };
+      try {
+        if (id) {
+          await api(`/resources/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+        } else {
+          await api("/resources", { method: "POST", body: JSON.stringify(payload) });
+        }
+        dialog.close();
+        await loadResources();
+      } catch (err) {
+        $("edit-error").textContent = err.message;
+      }
+    });
+
+    function openEdit(item, readOnly) {
+      $("edit-title").textContent = !item ? "新建 custom" : (readOnly ? "查看资源" : "编辑 custom");
+      $("edit-id").value = item ? item.id : "";
+      $("edit-type").value = item ? item.type : "skill";
+      $("edit-type").disabled = Boolean(item) || readOnly;
+      $("edit-name").value = item ? item.name : "";
+      $("edit-name").disabled = Boolean(readOnly);
+      $("edit-category").value = item ? (item.category || "") : "";
+      $("edit-category").disabled = Boolean(readOnly);
+      $("edit-tags").value = item ? (item.tags || "") : "";
+      $("edit-tags").disabled = Boolean(readOnly);
+      $("edit-description").value = item ? (item.description || "") : "";
+      $("edit-description").disabled = Boolean(readOnly);
+      $("edit-body").value = item ? (item.body || "") : "";
+      $("edit-body").disabled = Boolean(readOnly);
+      $("edit-save").classList.toggle("hidden", Boolean(readOnly));
+      $("edit-error").textContent = "";
+      dialog.showModal();
+    }
+
+    async function loadUsage() {
+      try {
+        const snap = await api("/usage");
+        $("usage-stats").innerHTML = [
+          ["MCP 请求", snap.mcp_http?.requests_total || 0],
+          ["活跃会话", snap.mcp?.active_sessions || 0],
+          ["工具调用", snap.tools?.calls_total || 0],
+          ["搜索次数", snap.search?.queries_total || 0],
+          ["零结果", snap.search?.zero_result_total || 0],
+        ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+        $("zero-rows").innerHTML = (snap.search?.zero_result_queries || []).map((q) =>
+          `<tr><td>${escapeHtml(q.query)}</td><td>${q.resource_type || ""}</td><td>${q.calls}</td><td>${q.zero_results}</td></tr>`
+        ).join("") || `<tr><td colspan="4" class="muted">暂无零结果查询</td></tr>`;
+      } catch (err) {
+        $("usage-stats").innerHTML = `<div class="stat"><div class="k">用量</div><div class="v">不可用</div></div>`;
+        $("zero-rows").innerHTML = `<tr><td colspan="4" class="muted">${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value || "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
+    }
+
+    api("/session").then(() => { showApp(); loadKeys(); }).catch(() => showLogin());
+  </script>
+</body>
+</html>

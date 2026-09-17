@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wgpsec/context1337/internal/auth"
 	"github.com/wgpsec/context1337/internal/search"
 	"github.com/wgpsec/context1337/internal/storage"
 	"github.com/wgpsec/context1337/internal/usage"
@@ -297,6 +298,7 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 		}
 		results, total, fallback, err := search.SearchWithFallback(s.DB, search.SearchQuery{
 			Query: in.Query, Type: in.Type, Category: in.Category,
+			Sources:  auth.FromContext(ctx).Sources,
 			Severity: in.Severity, Product: in.Product,
 			Offset: in.Offset, Limit: fetchLimit,
 		})
@@ -401,6 +403,7 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 	// Empty query -> list
 	result, err := search.ListByType(s.DB, search.ListQuery{
 		Type: in.Type, Category: in.Category,
+		Sources:  auth.FromContext(ctx).Sources,
 		Severity: in.Severity, Product: in.Product,
 		Offset: in.Offset, Limit: in.Limit,
 	})
@@ -451,13 +454,13 @@ type GetResult struct {
 	Fingerprint     string           `json:"fingerprint,omitempty"`
 }
 
-func (s *Service) resolveGetResource(in GetInput) (*search.Resource, error) {
+func (s *Service) resolveGetResource(ctx context.Context, in GetInput) (*search.Resource, error) {
 	if in.ID == "" {
 		if in.Type != "skill" && in.Type != "vuln" {
 			return nil, fmt.Errorf("type must be skill or vuln (use read_security_file for dict/payload)")
 		}
 
-		r, err := search.GetByName(s.DB, in.Type, in.Name)
+		r, err := search.GetByNameInSources(s.DB, in.Type, in.Name, auth.FromContext(ctx).Sources)
 		if err != nil {
 			return nil, err
 		}
@@ -482,7 +485,7 @@ func (s *Service) resolveGetResource(in GetInput) (*search.Resource, error) {
 	if err != nil {
 		return nil, err
 	}
-	if r == nil {
+	if r == nil || !auth.FromContext(ctx).AllowsSource(r.Source) {
 		return nil, fmt.Errorf("resource ID %q not found; try search_security to get a current stable id", in.ID)
 	}
 	if in.Type != "" && in.Type != r.Type {
@@ -495,7 +498,7 @@ func (s *Service) resolveGetResource(in GetInput) (*search.Resource, error) {
 }
 
 func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
-	r, err := s.resolveGetResource(in)
+	r, err := s.resolveGetResource(ctx, in)
 	if err != nil {
 		return nil, err
 	}

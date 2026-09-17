@@ -9,4 +9,6 @@ data:
   ABOUTSECURITY_PORT: "1337"
   ABOUTSECURITY_DATA_DIR: "/app/data"
   ABOUTSECURITY_TOOL_MODE: "lite" # "lite" (3 tools) or "full" (12 tools)
-  ABOUTSECURITY_API_KEY: "" # set your MCP auth token here
+  ABOUTSECURITY_API_KEY: "" # bootstrap MCP/REST admin key; empty disables auth
+  ABOUTSECURITY_ADMIN_KEY: "" # independent /admin key; must not equal any API key; empty disables the console
+  # ABOUTSECURITY_API_KEYS_FILE defaults to /app/data/runtime/api-keys.json

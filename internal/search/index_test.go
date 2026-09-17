@@ -1061,3 +1061,49 @@ func TestSearch_ConcurrentReaders(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSearch_SourcesAllowlist(t *testing.T) {
+	db := setupTestDB(t)
+	if err := InsertResource(db, Resource{
+		Type: "vuln", Name: "PUBLIC-VULN", Source: "builtin",
+		Description: "public seeyon marker", Body: "public seeyon marker",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := InsertResource(db, Resource{
+		Type: "vuln", Name: "PRIVATE-VULN", Source: "team",
+		Description: "private seeyon marker", Body: "private seeyon marker",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	results, total, err := Search(db, SearchQuery{
+		Query: "seeyon", Type: "vuln", Sources: []string{"builtin"}, Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(results) != 1 || results[0].Name != "PUBLIC-VULN" {
+		t.Fatalf("allowlist results = %+v total=%d", results, total)
+	}
+}
+
+func TestGetByNameInSources(t *testing.T) {
+	db := setupTestDB(t)
+	if err := InsertResource(db, Resource{
+		Type: "vuln", Name: "SHARED", Source: "team", Description: "team copy",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := GetByNameInSources(db, "vuln", "SHARED", []string{"builtin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil, got %+v", got)
+	}
+	got, err = GetByNameInSources(db, "vuln", "SHARED", []string{"team"})
+	if err != nil || got == nil || got.Source != "team" {
+		t.Fatalf("got = %+v err=%v", got, err)
+	}
+}

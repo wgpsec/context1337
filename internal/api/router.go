@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
+	"github.com/wgpsec/context1337/internal/auth"
 	"github.com/wgpsec/context1337/internal/usage"
 )
 
@@ -15,7 +17,7 @@ type UsageEndpoint struct {
 
 // NewRouter creates the HTTP mux with REST endpoints.
 // mcpHandler is optional -- if non-nil, it's mounted at /mcp/.
-func NewRouter(db *sql.DB, dataDir, apiKey string, mcpHandler http.Handler, usageEndpoints ...UsageEndpoint) http.Handler {
+func NewRouter(db *sql.DB, dataDir string, store *auth.Store, mcpHandler http.Handler, adminKey string, usageEndpoints ...UsageEndpoint) http.Handler {
 	mux := http.NewServeMux()
 
 	// MCP endpoint — Streamable HTTP handler mounted at /mcp
@@ -39,18 +41,36 @@ func NewRouter(db *sql.DB, dataDir, apiKey string, mcpHandler http.Handler, usag
 	mux.HandleFunc("DELETE /api/resources/{id}", handleDeleteResource(db))
 	mux.HandleFunc("PUT /api/resources/{id}/toggle", handleToggleResource(db))
 
-	// Usage analytics reuse the MCP API key. With authentication disabled, the
+	// Usage analytics reuse write keys. With authentication disabled, the
 	// endpoint stays disabled rather than exposing platform telemetry publicly.
-	if apiKey != "" && len(usageEndpoints) > 0 && usageEndpoints[0].Collector != nil {
-		mux.Handle("GET /api/usage", handleUsage(usageEndpoints[0]))
+	var collector *usage.Collector
+	if len(usageEndpoints) > 0 {
+		collector = usageEndpoints[0].Collector
+	}
+	if collector != nil {
+		mux.Handle("GET /api/usage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !store.Enabled() {
+				http.NotFound(w, r)
+				return
+			}
+			handleUsage(usageEndpoints[0]).ServeHTTP(w, r)
+		}))
 	} else {
 		mux.HandleFunc("GET /api/usage", http.NotFound)
 	}
-	return AuthMiddleware(apiKey)(mux)
+	if strings.TrimSpace(adminKey) != "" {
+		admin := newAdminServer(db, store, adminKey, collector)
+		mux.Handle("/admin", admin)
+		mux.Handle("/admin/", admin)
+	}
+	return AuthMiddleware(store)(mux)
 }
 
 func handleUsage(endpoint UsageEndpoint) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !requireWrite(w, r) {
+			return
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(endpoint.Collector.Snapshot())
@@ -67,7 +87,14 @@ func handleHealth(db *sql.DB) http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query("SELECT type, count(*) FROM resources WHERE enabled = 1 GROUP BY type")
+		if !requireRead(w, r) {
+			return
+		}
+		where := []string{"enabled = 1"}
+		var args []interface{}
+		where, args = appendSourceAllowlist(where, args, "source", principalOf(r))
+		query := "SELECT type, count(*) FROM resources WHERE " + strings.Join(where, " AND ") + " GROUP BY type"
+		rows, err := db.Query(query, args...)
 		w.Header().Set("Content-Type", "application/json")
 		if err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -98,7 +125,14 @@ func handleHealth(db *sql.DB) http.HandlerFunc {
 
 func handleStats(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query("SELECT type, source, count(*) FROM resources WHERE enabled = 1 GROUP BY type, source")
+		if !requireRead(w, r) {
+			return
+		}
+		where := []string{"enabled = 1"}
+		var args []interface{}
+		where, args = appendSourceAllowlist(where, args, "source", principalOf(r))
+		query := "SELECT type, source, count(*) FROM resources WHERE " + strings.Join(where, " AND ") + " GROUP BY type, source"
+		rows, err := db.Query(query, args...)
 		if err != nil {
 			http.Error(w, `{"error":"internal server error"}`, 500)
 			return

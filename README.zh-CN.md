@@ -36,6 +36,13 @@ make docker-ref ABOUTSECURITY_REF=dev
 
 ```bash
 docker run -p 1337:1337 -e ABOUTSECURITY_API_KEY=your-key context1337:latest
+
+# 可选：打开 /admin，并把管理台密钥和 custom 资源持久化到 runtime 卷
+docker run -p 1337:1337 \
+  -e ABOUTSECURITY_API_KEY=your-key \
+  -e ABOUTSECURITY_ADMIN_KEY=your-admin-key \
+  -v context1337-runtime:/app/data/runtime \
+  context1337:latest
 ```
 
 ### 本地开发（推荐首次使用者）
@@ -194,19 +201,21 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 
 | 接口 | 说明 |
 |------|------|
-| `GET /api/health` | 健康检查 + 已启用资源计数 |
-| `GET /api/stats` | 按类型/来源统计已启用资源 |
-| `GET /api/usage` | MCP 使用与搜索关键词聚合（复用 `ABOUTSECURITY_API_KEY`；密钥为空时关闭） |
-| `GET /api/resources` | 分页列表（含 enabled 状态，管理用） |
-| `POST /api/resources` | 创建自定义资源（source 强制为 custom） |
-| `PUT /api/resources/{id}` | 编辑自定义资源（仅 source=custom，否则 403） |
-| `DELETE /api/resources/{id}` | 删除自定义资源（仅 source=custom，否则 403） |
-| `PUT /api/resources/{id}/toggle` | 切换资源启用/禁用状态 |
-| `PUT /api/resources/batch-toggle` | 按 type/category/source 批量切换 |
+| `GET /health` | 存活探针，免鉴权，不暴露 source 计数 |
+| `GET /admin` | 管理台（独立 `ABOUTSECURITY_ADMIN_KEY`；未设置则关闭） |
+| `GET /api/health` | 需认证；按已授权 source 返回已启用资源计数 |
+| `GET /api/stats` | 需认证；按类型/来源统计已启用资源（仅已授权 source） |
+| `GET /api/usage` | MCP 使用与搜索关键词聚合（仅 write 密钥；关闭认证时禁用） |
+| `GET /api/resources` | 分页列表（仅已授权 source，含 disabled） |
+| `POST /api/resources` | 创建自定义资源（需要 write 且含 `custom`；source 强制为 custom） |
+| `PUT /api/resources/{id}` | 编辑自定义资源（需要 write 且含 `custom`，否则 403） |
+| `DELETE /api/resources/{id}` | 删除自定义资源（需要 write 且含 `custom`，否则 403） |
+| `PUT /api/resources/{id}/toggle` | 切换启用/禁用（需要 write；仅已授权 source） |
+| `PUT /api/resources/batch-toggle` | 按 type/category/source 批量切换（需要 write；仅已授权 source） |
 
 ### 资源管理
 
-资源表有 `enabled` 字段（默认 `1`）。禁用的资源在所有 MCP 工具查询（搜索、列表、详情）中不可见，但管理 API（`GET /api/resources`）仍可查看。
+资源表有 `enabled` 字段（默认 `1`）。禁用的资源在 MCP 工具查询（搜索、列表、详情）中不可见，但 `GET /api/resources` 仍可查看。列表/搜索/详情需要 `read`；创建/编辑/删除/启停需要 `write`。
 
 **切换单个资源：**
 ```bash
@@ -240,10 +249,32 @@ curl -X POST http://localhost:1337/api/resources \
 |------|--------|------|
 | `ABOUTSECURITY_PORT` | `1337` | HTTP 监听端口 |
 | `ABOUTSECURITY_DATA_DIR` | `./data` | 数据目录根路径 |
-| `ABOUTSECURITY_API_KEY` | （空=无认证） | MCP、REST API 与 `GET /api/usage` 共用的 Bearer 密钥；为空时关闭使用分析接口 |
+| `ABOUTSECURITY_API_KEY` | （空=无认证） | 引导管理员密钥：可见全部 source（`builtin`/`nuclei`、`team`、`custom`）且可写。为空时关闭认证和 `GET /api/usage` |
+| `ABOUTSECURITY_API_KEYS_FILE` | `{dataDir}/runtime/api-keys.json` | 额外 API 密钥 JSON，按 source/access 授权。文件不存在表示没有额外密钥。管理台会创建并写入此文件。需要挂持久化 runtime 卷，不要打进镜像或 team zip |
+| `ABOUTSECURITY_ADMIN_KEY` | （未设置） | 仅用于 `/admin` 的独立超管密钥，不能与任何 MCP/REST 密钥相同。为空则关闭管理台 |
 | `ABOUTSECURITY_TOOL_MODE` | `lite` | 工具注册模式：`lite`（3 个工具）或 `full`（12 个工具） |
 | `NUCLEI_TEMPLATES_DIR` | 原生运行为空；官方镜像为内置快照路径 | nuclei-templates 仓库根目录，启用第二数据源 |
 | `NUCLEI_MIN_SEVERITY` | `high` | nuclei 漏洞模板最低导入级别：`critical`/`high`/`medium`/`low` |
+
+## API 密钥 RBAC
+
+每把密钥有两轴权限：**sources**（`builtin`、`team`、`custom`）和 **access**（`read` 与 `write` 可同时勾选）。授权 `builtin` 即包含 `nuclei`。`ABOUTSECURITY_API_KEY` 仍是向后兼容的管理员密钥。额外密钥来自 `ABOUTSECURITY_API_KEYS_FILE`：
+
+```json
+[
+  {"id": "public-mcp", "key": "replace-me", "sources": ["builtin"], "access": ["read"]},
+  {"id": "pojun-agent", "key": "replace-me", "sources": ["builtin", "team"], "access": ["read"]},
+  {"id": "ops", "key": "replace-me", "sources": ["builtin", "team", "custom"], "access": ["read", "write"]}
+]
+```
+
+未带 `source=` 的搜索/列表/MCP 会静默限制在已授权 source。显式传入未授权 `source=` 返回 403。按 id 读取隐藏 source 与资源不存在相同，返回 not-found。`read` 才能做 MCP/REST 查询；`write` 才能做 custom CRUD、toggle 和 `GET /api/usage`。两者可同时有，也可分开给。toggle 只作用于已授权 source。`/health` 继续免鉴权，且不暴露 source 计数。旧格式 `"access": "write"` 仍表示读写都有。
+
+## 管理台
+
+打开 `/admin`，用 `ABOUTSECURITY_ADMIN_KEY` 登录。这把超管密钥与 MCP/REST 密钥隔离：它不能调 `/mcp` 或 `/api/*`，MCP/REST 密钥也进不了管理台。未设置时 `/admin` 返回 404。
+
+管理台主功能是 MCP/REST 密钥管理：创建、改 `sources`/`access`、轮换、删除。明文只在创建或轮换时显示一次。环境变量里的 bootstrap 密钥只读。管理台写入 `ABOUTSECURITY_API_KEYS_FILE` 或 `data/runtime/api-keys.json`，立即对 MCP/REST 生效。资源检索/启停和用量是附带页面。
 
 ## 数据源
 
