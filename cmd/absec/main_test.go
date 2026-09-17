@@ -17,7 +17,7 @@ func TestRootCommandReportsReleaseVersion(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got := output.String(); got != "absec version 0.7.13\n" {
+	if got := output.String(); got != "absec version 0.7.14\n" {
 		t.Fatalf("version output = %q", got)
 	}
 }

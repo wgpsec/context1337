@@ -70,12 +70,14 @@
     .stat .v { font-size: 24px; font-weight: 700; margin-top: 6px; }
     .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
     .filters > * { width: auto; min-width: 120px; }
-    table { width: 100%; border-collapse: collapse; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; }
     th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
     th { color: var(--muted); font-weight: 600; font-size: 12px; }
+    th.actions, td.row-actions { min-width: 220px; white-space: nowrap; }
     .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #223246; font-size: 12px; }
     .tag.off { background: #3a2a16; color: var(--warn); }
-    .row-actions { display: flex; gap: 6px; }
+    .row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
     dialog { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: var(--text); width: min(720px, 92vw); }
     dialog::backdrop { background: rgba(0,0,0,.55); }
     .form-grid { display: grid; gap: 10px; }
@@ -108,12 +110,12 @@
     <main>
       <section id="view-keys">
         <h1>API 密钥</h1>
-        <p class="muted">管理 MCP/REST 密钥的 source 与读写权限。明文只在创建或轮换时显示一次。环境变量里的 bootstrap 密钥只读。</p>
+        <p class="muted">管理台创建的密钥右侧可编辑、轮换、删除。bootstrap 来自环境变量，不能在此删除。</p>
         <div class="filters">
           <button class="primary" id="new-key">新建密钥</button>
         </div>
         <table>
-          <thead><tr><th>ID</th><th>Access</th><th>Sources</th><th>来源</th><th></th></tr></thead>
+          <thead><tr><th>ID</th><th>Access</th><th>Sources</th><th>来源</th><th class="actions">操作</th></tr></thead>
           <tbody id="key-manage-rows"></tbody>
         </table>
       </section>
@@ -303,7 +305,7 @@
       $("key-manage-rows").innerHTML = (data.keys || []).map((k) => {
         const envOwned = k.origin === "env";
         const actions = envOwned
-          ? `<span class="muted">环境变量只读</span>`
+          ? `<button disabled title="来自 ABOUTSECURITY_API_KEY，无法在管理台删除">删除</button>`
           : `<button data-key-edit="${escapeHtml(k.id)}">编辑</button>
              <button data-key-rotate="${escapeHtml(k.id)}">轮换</button>
              <button class="danger" data-key-del="${escapeHtml(k.id)}">删除</button>`;
@@ -381,7 +383,8 @@
     });
 
     $("key-manage-rows").addEventListener("click", async (e) => {
-      const t = e.target;
+      const t = e.target.closest("button");
+      if (!t || t.disabled) return;
       try {
         if (t.dataset.keyEdit) {
           const data = await api("/keys");
