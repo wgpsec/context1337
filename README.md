@@ -277,11 +277,26 @@ NUCLEI_TEMPLATES_DIR=/path/to/nuclei-templates ./absec serve
 
 ---
 
+## Private team overlay
+
+Mount a private corpus at `data/team` with the same layout as AboutSecurity
+(`Vuln/`, `Dic/`, `Payload/`, `skills/`). Context1337 indexes it as `source=team`
+and searches it together with `builtin`. Do not bake private files into the image
+or `builtin.db`.
+
+On startup, context1337 hashes the team directory and rebuilds only `source=team`
+when the snapshot changes. `runtime.db` stays in place, so `custom` resources are
+preserved. Unchanged restarts reuse the existing team rows and IDs. After replacing
+files in the volume, restart the process — do not delete `runtime.db`.
+
+---
+
 ## Architecture
 
 ```
 Build time:   AboutSecurity/ → Python+jieba → builtin.db (FTS5 index)
-Startup:      cp builtin.db → runtime.db, scan team/ → INSERT
+Startup:      cp builtin.db → runtime.db when missing/version-changed
+              sync team/ when the directory snapshot changes → INSERT (source=team)
               [optional] sync supported nuclei HTTP categories → INSERT (source=nuclei)
 Runtime:      MCP Streamable HTTP + REST API, pure Go tokenizer for new content
 ```

@@ -1,13 +1,16 @@
 package storage
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/wgpsec/context1337/internal/fts"
@@ -26,12 +29,16 @@ const (
 	nucleiDirMetaKey         = "nuclei_dir"
 	nucleiMinSeverityMetaKey = "nuclei_min_severity"
 	nucleiCountMetaKey       = "nuclei_count"
+	teamDirMetaKey           = "team_dir"
+	teamSnapshotMetaKey      = "team_snapshot"
+	teamCountMetaKey         = "team_count"
 )
 
 // InitRuntime handles the three-layer startup lifecycle:
-// 1. If runtime.db doesn't exist -> copy builtin.db -> scan team data
+// 1. If runtime.db doesn't exist -> copy builtin.db
 // 2. If builtin version changed -> rebuild runtime.db from new builtin
 // 3. Otherwise -> open existing runtime.db (instant start)
+// Team and nuclei overlays are synced on every start without rebuilding runtime.db.
 func InitRuntime(cfg LoaderConfig) (*sql.DB, error) {
 	needRebuild := false
 
@@ -75,11 +82,9 @@ func InitRuntime(cfg LoaderConfig) (*sql.DB, error) {
 		return nil, err
 	}
 
-	if needRebuild {
-		if err := scanAndIndex(db, cfg); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("scan team data: %w", err)
-		}
+	if err := syncTeamSource(db, cfg); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("sync team data: %w", err)
 	}
 
 	if err := syncNucleiSource(db, cfg); err != nil {
@@ -211,6 +216,186 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 	}
 
 	return nil
+}
+
+func syncTeamSource(db *sql.DB, cfg LoaderConfig) error {
+	teamDir := strings.TrimSpace(cfg.TeamDir)
+	snapshot, err := teamSnapshot(teamDir)
+	if err != nil {
+		return err
+	}
+
+	currentDir, err := GetMeta(db, teamDirMetaKey)
+	if err != nil {
+		return err
+	}
+	currentSnapshot, err := GetMeta(db, teamSnapshotMetaKey)
+	if err != nil {
+		return err
+	}
+	currentCountMeta, err := GetMeta(db, teamCountMetaKey)
+	if err != nil {
+		return err
+	}
+
+	absDir := ""
+	if teamDir != "" {
+		if resolved, err := filepath.Abs(teamDir); err == nil {
+			absDir = resolved
+			if linked, err := filepath.EvalSymlinks(resolved); err == nil {
+				absDir = linked
+			}
+		} else {
+			absDir = teamDir
+		}
+	}
+
+	if snapshot == "" && (teamDir == "" || absDir == "") {
+		count, err := countTeamResources(db)
+		if err != nil {
+			return err
+		}
+		if currentDir == "" && currentSnapshot == "" && count == 0 {
+			return nil
+		}
+		if err := deleteTeamResources(db); err != nil {
+			return err
+		}
+		if err := clearTeamMeta(db); err != nil {
+			return err
+		}
+		log.Println("loader: team data disabled; removed source=team resources")
+		return nil
+	}
+
+	if currentDir == absDir && currentSnapshot == snapshot {
+		count, err := countTeamResources(db)
+		if err != nil {
+			return err
+		}
+		if currentCountMeta == fmt.Sprintf("%d", count) {
+			log.Printf("loader: team data up to date: %d resources", count)
+			return nil
+		}
+	}
+
+	if err := deleteTeamResources(db); err != nil {
+		return err
+	}
+	if err := scanAndIndex(db, LoaderConfig{TeamDir: teamDir}); err != nil {
+		return err
+	}
+	count, err := countTeamResources(db)
+	if err != nil {
+		return err
+	}
+	if err := SetMeta(db, teamDirMetaKey, absDir); err != nil {
+		return err
+	}
+	if err := SetMeta(db, teamSnapshotMetaKey, snapshot); err != nil {
+		return err
+	}
+	if err := SetMeta(db, teamCountMetaKey, fmt.Sprintf("%d", count)); err != nil {
+		return err
+	}
+	log.Printf("loader: team data indexed: %d resources", count)
+	return nil
+}
+
+func teamSnapshot(teamDir string) (string, error) {
+	if strings.TrimSpace(teamDir) == "" {
+		return "", nil
+	}
+	info, err := os.Stat(teamDir)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("team dir is not a directory: %s", teamDir)
+	}
+
+	root := teamDir
+	if resolved, err := filepath.EvalSymlinks(teamDir); err == nil {
+		root = resolved
+	}
+
+	type fileRec struct {
+		rel  string
+		path string
+	}
+	var files []fileRec
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() == ".DS_Store" {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, fileRec{rel: filepath.ToSlash(rel), path: path})
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].rel < files[j].rel })
+
+	h := sha256.New()
+	for _, f := range files {
+		st, err := os.Stat(f.path)
+		if err != nil {
+			return "", err
+		}
+		if _, err := fmt.Fprintf(h, "%s\x00%d\x00", f.rel, st.Size()); err != nil {
+			return "", err
+		}
+		fh, err := os.Open(f.path)
+		if err != nil {
+			return "", err
+		}
+		_, copyErr := io.Copy(h, fh)
+		fh.Close()
+		if copyErr != nil {
+			return "", copyErr
+		}
+		if _, err := h.Write([]byte{0}); err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func deleteTeamResources(db *sql.DB) error {
+	if _, err := db.Exec(`DELETE FROM resources_fts
+		WHERE rowid IN (SELECT id FROM resources WHERE source = 'team')`); err != nil {
+		return err
+	}
+	_, err := db.Exec("DELETE FROM resources WHERE source = 'team'")
+	return err
+}
+
+func countTeamResources(db *sql.DB) (int, error) {
+	var count int
+	err := db.QueryRow("SELECT count(*) FROM resources WHERE source = 'team'").Scan(&count)
+	return count, err
+}
+
+func clearTeamMeta(db *sql.DB) error {
+	_, err := db.Exec("DELETE FROM meta WHERE key IN (?, ?, ?)",
+		teamDirMetaKey, teamSnapshotMetaKey, teamCountMetaKey)
+	return err
 }
 
 func syncNucleiSource(db *sql.DB, cfg LoaderConfig) error {

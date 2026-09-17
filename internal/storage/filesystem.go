@@ -57,23 +57,50 @@ type VulnData struct {
 }
 
 type vulnFrontmatter struct {
-	ID              string   `yaml:"id"`
-	Title           string   `yaml:"title"`
-	Description     string   `yaml:"description"`
-	Product         string   `yaml:"product"`
-	Vendor          string   `yaml:"vendor"`
-	VersionAffected string   `yaml:"version_affected"`
-	Severity        string   `yaml:"severity"`
-	Tags            []string `yaml:"tags"`
-	Fingerprint     string   `yaml:"fingerprint"`
+	ID              string         `yaml:"id"`
+	Title           string         `yaml:"title"`
+	Description     string         `yaml:"description"`
+	Product         string         `yaml:"product"`
+	Vendor          string         `yaml:"vendor"`
+	VersionAffected string         `yaml:"version_affected"`
+	Severity        string         `yaml:"severity"`
+	Tags            []string       `yaml:"tags"`
+	Fingerprint     yamlStringList `yaml:"fingerprint"`
+}
+
+// yamlStringList accepts a YAML string or sequence and stores a comma-joined string.
+type yamlStringList string
+
+func (s *yamlStringList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		*s = yamlStringList(value.Value)
+		return nil
+	case yaml.SequenceNode:
+		var items []string
+		if err := value.Decode(&items); err != nil {
+			return err
+		}
+		*s = yamlStringList(strings.Join(items, ","))
+		return nil
+	case yaml.AliasNode:
+		if value.Alias != nil {
+			return s.UnmarshalYAML(value.Alias)
+		}
+		*s = ""
+		return nil
+	default:
+		*s = ""
+		return nil
+	}
 }
 
 type skillFrontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 	Metadata    struct {
-		Tags        string `yaml:"tags"`
-		Category    string `yaml:"category"`
+		Tags     string `yaml:"tags"`
+		Category string `yaml:"category"`
 	} `yaml:"metadata"`
 }
 
@@ -213,7 +240,7 @@ func ParseVulnMD(path string) (*VulnData, error) {
 		VersionAffected: meta.VersionAffected,
 		Severity:        strings.ToUpper(meta.Severity),
 		Tags:            strings.Join(meta.Tags, ","),
-		Fingerprint:     meta.Fingerprint,
+		Fingerprint:     string(meta.Fingerprint),
 		Body:            trimmedBody,
 		FilePath:        path,
 	}, nil

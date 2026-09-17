@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -459,7 +460,7 @@ vendor: Apache
 version_affected: "<2.17.0"
 severity: CRITICAL
 tags: [rce, jndi]
-fingerprint: "header=X-Log4j"
+fingerprint: ["header=X-Log4j", "log4j"]
 ---
 
 ## PoC
@@ -484,5 +485,155 @@ test payload
 	}
 	if !strings.Contains(metadata, "CRITICAL") {
 		t.Errorf("metadata missing severity: %s", metadata)
+	}
+	if !strings.Contains(metadata, "header=X-Log4j,log4j") {
+		t.Errorf("metadata missing array fingerprint: %s", metadata)
+	}
+}
+
+func writeTeamVuln(t *testing.T, teamDir, product, id, description, fingerprintYAML string) {
+	t.Helper()
+	vulnDir := filepath.Join(teamDir, "Vuln", "web", product)
+	if err := os.MkdirAll(vulnDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := fmt.Sprintf(`---
+id: %s
+title: %s
+description: %s
+product: %s
+vendor: NCSEC
+version_affected: "lab-fixture"
+severity: LOW
+tags: [info_leak]
+fingerprint: %s
+---
+
+## 漏洞描述
+
+%s
+`, id, id, description, product, fingerprintYAML, description)
+	if err := os.WriteFile(filepath.Join(vulnDir, id+".md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoader_TeamSyncOnRestartKeepsIDsWhenUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	builtinPath := filepath.Join(dir, "builtin.db")
+	runtimePath := filepath.Join(dir, "runtime", "runtime.db")
+	teamDir := filepath.Join(dir, "team")
+
+	bdb, err := OpenDB(builtinPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetMeta(bdb, "builtin_version", "v1")
+	bdb.Close()
+
+	writeTeamVuln(t, teamDir, "ncsec-lab-board", "NCSEC-PRIV-0001", "first fixture", `["ncsec-lab-board", "NCSEC-PRIV-0001"]`)
+
+	cfg := LoaderConfig{BuiltinDB: builtinPath, RuntimeDB: runtimePath, TeamDir: teamDir}
+	db, err := InitRuntime(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var firstID int
+	if err := db.QueryRow("SELECT id FROM resources WHERE source='team' AND name='NCSEC-PRIV-0001'").Scan(&firstID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	db, err = InitRuntime(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	var secondID, count int
+	if err := db.QueryRow("SELECT id FROM resources WHERE source='team' AND name='NCSEC-PRIV-0001'").Scan(&secondID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM resources WHERE source='team'").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("team count = %d, want 1", count)
+	}
+	if secondID != firstID {
+		t.Fatalf("team resource id changed from %d to %d on unchanged restart", firstID, secondID)
+	}
+}
+
+func TestLoader_TeamSyncPicksUpNewContentWithoutRebuildingRuntime(t *testing.T) {
+	dir := t.TempDir()
+	builtinPath := filepath.Join(dir, "builtin.db")
+	runtimePath := filepath.Join(dir, "runtime", "runtime.db")
+	teamDir := filepath.Join(dir, "team")
+
+	bdb, err := OpenDB(builtinPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetMeta(bdb, "builtin_version", "v1")
+	bdb.Close()
+
+	os.MkdirAll(filepath.Dir(runtimePath), 0o755)
+	rdb, err := OpenDB(runtimePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetMeta(rdb, "builtin_version", "v1")
+	SetMeta(rdb, "marker", "keep")
+	if _, err := rdb.Exec(`INSERT INTO resources
+		(type, name, source, file_path, category, tags, description, body, metadata)
+		VALUES ('skill', 'custom-skill', 'custom', '', 'web', 'custom', 'custom desc', 'custom body', '')`); err != nil {
+		t.Fatal(err)
+	}
+	rdb.Close()
+
+	writeTeamVuln(t, teamDir, "ncsec-lab-board", "NCSEC-PRIV-0001", "first fixture", `["ncsec-lab-board"]`)
+
+	cfg := LoaderConfig{BuiltinDB: builtinPath, RuntimeDB: runtimePath, TeamDir: teamDir}
+	db, err := InitRuntime(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	writeTeamVuln(t, teamDir, "ncsec-lab-board", "NCSEC-PRIV-0001", "updated fixture", `["ncsec-lab-board"]`)
+	writeTeamVuln(t, teamDir, "ncsec-lab-board", "NCSEC-PRIV-0002", "second fixture", `["ncsec-lab-board"]`)
+
+	db, err = InitRuntime(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	marker, _ := GetMeta(db, "marker")
+	if marker != "keep" {
+		t.Fatal("marker lost -- runtime.db was unexpectedly rebuilt")
+	}
+
+	var customCount, teamCount int
+	if err := db.QueryRow("SELECT count(*) FROM resources WHERE source='custom'").Scan(&customCount); err != nil {
+		t.Fatal(err)
+	}
+	if customCount != 1 {
+		t.Fatalf("custom resource count = %d, want 1", customCount)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM resources WHERE source='team'").Scan(&teamCount); err != nil {
+		t.Fatal(err)
+	}
+	if teamCount != 2 {
+		t.Fatalf("team resource count = %d, want 2", teamCount)
+	}
+
+	var desc string
+	if err := db.QueryRow("SELECT description FROM resources WHERE source='team' AND name='NCSEC-PRIV-0001'").Scan(&desc); err != nil {
+		t.Fatal(err)
+	}
+	if desc != "updated fixture" {
+		t.Fatalf("updated description = %q, want updated fixture", desc)
 	}
 }

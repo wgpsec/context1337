@@ -263,6 +263,39 @@ Apache Log4j2 JNDI features do not protect against attacker-controlled LDAP.
 	}
 }
 
+func TestParseVulnMD_FingerprintArray(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "NCSEC-PRIV-0001.md")
+	os.WriteFile(path, []byte(`---
+id: NCSEC-PRIV-0001
+title: NCSEC Lab Board fixture
+product: ncsec-lab-board
+vendor: NCSEC
+version_affected: "lab-fixture"
+severity: LOW
+tags: [info_leak, 无需认证]
+fingerprint: ["ncsec-lab-board", "NCSEC Lab Board", "NCSEC-PRIV-0001"]
+---
+## 漏洞描述
+
+AboutSecurity-style array fingerprint must still parse for team overlay.
+`), 0o644)
+
+	vuln, err := ParseVulnMD(path)
+	if err != nil {
+		t.Fatalf("ParseVulnMD: %v", err)
+	}
+	if vuln == nil {
+		t.Fatal("expected non-nil vuln for array fingerprint")
+	}
+	if vuln.ID != "NCSEC-PRIV-0001" {
+		t.Errorf("ID = %q", vuln.ID)
+	}
+	if vuln.Fingerprint != "ncsec-lab-board,NCSEC Lab Board,NCSEC-PRIV-0001" {
+		t.Errorf("Fingerprint = %q", vuln.Fingerprint)
+	}
+}
+
 func TestParseVulnMD_NoFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "plain.md")

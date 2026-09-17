@@ -288,11 +288,24 @@ NUCLEI_TEMPLATES_DIR=/path/to/nuclei-templates ./absec serve
 
 ---
 
+## 私有 team overlay
+
+把私有语料挂到 `data/team`，目录结构和 AboutSecurity 相同（`Vuln/`、`Dic/`、
+`Payload/`、`skills/`）。Context1337 以 `source=team` 建索引，并和 `builtin` 一起检索。
+不要把私有文件打进镜像或 `builtin.db`。
+
+启动时会计算 team 目录快照，只有快照变化才重建 `source=team` 资源，不会删
+`runtime.db`，也不会动 `custom`。目录没变的重启会复用已有 team 行和 ID。替换 volume
+里的文件后重启进程即可，不要删 `runtime.db`。
+
+---
+
 ## 架构
 
 ```
 构建阶段:   AboutSecurity/ → Python+jieba 分词 → builtin.db（FTS5 索引）
-启动阶段:   复制 builtin.db → runtime.db，扫描 team/ → INSERT
+启动阶段:   缺失或版本变化时复制 builtin.db → runtime.db
+            team/ 目录快照变化时同步 → INSERT（source=team）
             [可选] 按配置同步支持的 nuclei HTTP 类别 → INSERT（source=nuclei）
 运行阶段:   MCP Streamable HTTP + REST API，Go 原生分词器处理新内容
 ```
