@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Keep the bundled knowledge base reproducible across releases.
-      ABOUTSECURITY_COMMIT: f3c8574e6fa1f9c1cd5aeaba5a209af796107b34
+      ABOUTSECURITY_COMMIT: db4573f6ca2ab4dae487edc5ddf977624518fcba
     permissions:
       contents: read
       packages: write
