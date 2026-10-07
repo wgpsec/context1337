@@ -151,11 +151,21 @@ func PlanQuery(raw string) (QueryPlan, error) {
 	expressions := make([]string, 0, len(groups))
 	exactExpressions := make([]string, 0, len(groups))
 	atomCount := 0
+	rendered := make([]QueryGroup, 0, len(groups))
 	for _, group := range groups {
 		expression, atoms := buildFTSGroup(group.Alternatives)
+		if expression == "" {
+			// Group carried no searchable atoms (punctuation-only). Drop it so
+			// the joined expression never contains an empty operand.
+			continue
+		}
+		rendered = append(rendered, group)
 		expressions = append(expressions, expression)
 		atomCount += atoms
 		exactExpression, _ := buildFTSGroup([]string{group.Original})
+		if exactExpression == "" {
+			exactExpression = expression
+		}
 		exactExpressions = append(exactExpressions, exactExpression)
 	}
 	if atomCount > maxQueryAtoms {
@@ -167,7 +177,7 @@ func PlanQuery(raw string) (QueryPlan, error) {
 
 	return QueryPlan{
 		RawQuery:           raw,
-		Groups:             groups,
+		Groups:             rendered,
 		FTSExpression:      strings.Join(expressions, " AND "),
 		ExactFTSExpression: strings.Join(exactExpressions, " AND "),
 		Version:            SearchContractVersion,
@@ -410,6 +420,11 @@ func hasConceptBoundaries(text string, start, end int) bool {
 	return true
 }
 
+// buildFTSGroup renders one query group as an FTS5 expression. Alternatives
+// that tokenize to nothing (punctuation-only input such as "..." or "!!!") are
+// dropped; when every alternative is dropped the group yields "" rather than
+// "()", because an empty group is not a valid MATCH expression and SQLite
+// rejects it with `fts5: syntax error near ")"`.
 func buildFTSGroup(alternatives []string) (string, int) {
 	expressions := make([]string, 0, len(alternatives))
 	atomCount := 0
@@ -429,10 +444,14 @@ func buildFTSGroup(alternatives []string) (string, int) {
 		}
 		expressions = append(expressions, expression)
 	}
-	if len(expressions) == 1 {
+	switch len(expressions) {
+	case 0:
+		return "", atomCount
+	case 1:
 		return expressions[0], atomCount
+	default:
+		return "(" + strings.Join(expressions, " OR ") + ")", atomCount
 	}
-	return "(" + strings.Join(expressions, " OR ") + ")", atomCount
 }
 
 func quoteFTSToken(token string) string {

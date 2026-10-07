@@ -33,8 +33,10 @@ func extractVulnMeta(metadata string) (severity, product, vendor, versionAffecte
 	if metadata == "" {
 		return
 	}
+	// Unparseable metadata yields an empty map, so the vuln still lists with the
+	// fields it does have instead of dropping out of the result.
 	var meta map[string]string
-	json.Unmarshal([]byte(metadata), &meta)
+	_ = json.Unmarshal([]byte(metadata), &meta)
 	return meta["severity"], meta["product"], meta["vendor"], meta["version_affected"], meta["fingerprint"]
 }
 
@@ -79,6 +81,11 @@ func splitSkillBody(content string) (string, string, error) {
 // negative = more relevant). 0.2 means keep results at least 20% as strong
 // as the best hit, trimming the long tail of barely-matching documents.
 const relevanceCutoff = 0.2
+
+// crossTypeCandidateLimit bounds how many FTS candidates a cross-type search
+// ranks before pagination. diversifyByType interleaves types, so the whole
+// candidate list must be materialized before any page can be sliced.
+const crossTypeCandidateLimit = 300
 
 // trimByRelevance drops results whose BM25 score falls below relevanceCutoff
 // of the globally best raw score while preserving the canonical rank order.
@@ -290,17 +297,28 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 
 	// Non-empty query -> FTS5 search
 	if in.Query != "" {
-		// When searching across types, fetch extra results so diversify
-		// has enough material from each type to fill the final page.
-		fetchLimit := in.Limit
+		// Ranking (relevance trim, then cross-type diversify) re-orders the
+		// candidate list, so every page must be sliced from the same ranked
+		// list. Fetching only a page-sized window and passing the caller's
+		// offset to SQL made each page a different view of that re-ordering,
+		// which repeated rows across pages. Read from the top of the candidate
+		// list instead and slice the requested page after ranking.
+		window := in.Limit
 		if in.Type == "" {
-			fetchLimit = in.Limit * 3
+			window = crossTypeCandidateLimit
 		}
-		results, total, fallback, err := search.SearchWithFallback(s.DB, search.SearchQuery{
+		if needed := in.Offset + in.Limit; needed > window {
+			window = needed
+		}
+		results, _, fallback, err := search.SearchWithFallback(s.DB, search.SearchQuery{
 			Query: in.Query, Type: in.Type, Category: in.Category,
 			Sources:  auth.FromContext(ctx).Sources,
 			Severity: in.Severity, Product: in.Product,
-			Offset: in.Offset, Limit: fetchLimit,
+			// Pagination stays on the exact result set. The fallback rewrites the
+			// query, so letting it run on a later page would swap the whole result
+			// set under a caller that is paging through the previous one.
+			SkipFallback: in.Offset > 0,
+			Limit:        window,
 		})
 		if err != nil {
 			var complexityError *search.QueryComplexityError
@@ -322,15 +340,25 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 			}
 			return nil, err
 		}
-		present := func(inResults []search.SearchResult) []search.SearchResult {
+		// present ranks the fetched candidates and returns the requested page
+		// together with the rank-adjusted total, so total/offset/limit describe
+		// the same pageable result set.
+		present := func(inResults []search.SearchResult) ([]search.SearchResult, int) {
 			inResults = trimByRelevance(inResults)
 			if in.Type == "" {
 				inResults = diversifyByType(inResults)
 			}
+			rankedTotal := len(inResults)
+			switch {
+			case in.Offset >= len(inResults):
+				inResults = nil
+			case in.Offset > 0:
+				inResults = inResults[in.Offset:]
+			}
 			if len(inResults) > in.Limit {
 				inResults = inResults[:in.Limit]
 			}
-			return inResults
+			return inResults, rankedTotal
 		}
 		summarize := func(inResults []search.SearchResult) []ResourceSummary {
 			items := make([]ResourceSummary, len(inResults))
@@ -344,13 +372,14 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 			for index, mapping := range fallback.Transliterations {
 				mappings[index] = SearchTransliteration{From: mapping.From, To: mapping.To}
 			}
+			page, rankedTotal := present(results)
 			return &SearchResult{
 				SearchVersion: search.SearchContractVersion,
 				Status:        "matched",
-				Total:         total,
+				Total:         rankedTotal,
 				Offset:        in.Offset,
 				Limit:         in.Limit,
-				Items:         summarize(present(results)),
+				Items:         summarize(page),
 				Hint:          "Exact query returned no results. Showing results after deterministic Chinese-to-pinyin transliteration.",
 				Resolution: &SearchResolution{
 					Mode: "transliterated", OriginalQuery: in.Query, EffectiveQuery: fallback.Query,
@@ -359,17 +388,11 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 				AttemptedStrategies: []string{"exact", "pinyin"},
 			}, nil
 		}
-		results = present(results)
-		items := summarize(results)
-		// If cutoff reduced this page, cap total so the caller does not
-		// paginate into low-relevance results.
-		if len(results) < in.Limit {
-			total = in.Offset + len(results)
-		}
+		page, total := present(results)
 		out = &SearchResult{
 			SearchVersion: search.SearchContractVersion,
 			Status:        "matched",
-			Total:         total, Offset: in.Offset, Limit: in.Limit, Items: items,
+			Total:         total, Offset: in.Offset, Limit: in.Limit, Items: summarize(page),
 		}
 		if total == 0 {
 			out.Status = "no_match"
@@ -515,12 +538,15 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 		if in.Depth == "" {
 			in.Depth = "summary"
 		}
+		// The index stores paths relative to the resource root; the runtime image
+		// only guarantees dataDir, so resolve before touching the filesystem.
+		skillFile := storage.ResolveResourcePath(s.DataDir, r.FilePath)
 		switch in.Depth {
 		case "metadata":
 			// No body
 		case "summary":
 			// Read original SKILL.md body from disk (without tokenized refs)
-			if data, err := os.ReadFile(r.FilePath); err == nil {
+			if data, err := os.ReadFile(skillFile); err == nil {
 				if _, rawBody, fmErr := splitSkillBody(string(data)); fmErr == nil {
 					result.Body = strings.TrimSpace(rawBody)
 				}
@@ -533,14 +559,12 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 				result.Body = body
 			}
 			// Include ref_total so caller knows references exist
-			skillDir := filepath.Dir(r.FilePath)
-			if refs, err := storage.ReadReferences(skillDir); err == nil && len(refs) > 0 {
+			if refs, err := storage.ReadReferences(filepath.Dir(skillFile)); err == nil && len(refs) > 0 {
 				result.RefTotal = len(refs)
 			}
 		case "full":
 			// Read original SKILL.md body from disk (without concatenated refs)
-			skillDir := filepath.Dir(r.FilePath)
-			if data, err := os.ReadFile(r.FilePath); err == nil {
+			if data, err := os.ReadFile(skillFile); err == nil {
 				if _, rawBody, fmErr := splitSkillBody(string(data)); fmErr == nil {
 					result.Body = strings.TrimSpace(rawBody)
 				}
@@ -553,7 +577,7 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 				result.Body = body
 			}
 			// Load references with pagination
-			refs, err := storage.ReadReferences(skillDir)
+			refs, err := storage.ReadReferences(filepath.Dir(skillFile))
 			if err == nil && len(refs) > 0 {
 				result.RefTotal = len(refs)
 				start := in.RefOffset
@@ -589,9 +613,11 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 		case "full":
 			result.Body = r.Body
 			result.Fingerprint = fingerprint
-			// For nuclei templates, append raw YAML so LLM gets HTTP requests/payloads
+			// For nuclei templates, append raw YAML so LLM gets HTTP requests/payloads.
+			// These paths are written by the loader at runtime, so they are
+			// already absolute; resolving keeps old relative rows working too.
 			if r.Source == "nuclei" && r.FilePath != "" {
-				if data, err := os.ReadFile(r.FilePath); err == nil {
+				if data, err := os.ReadFile(storage.ResolveResourcePath(s.DataDir, r.FilePath)); err == nil {
 					result.Body = r.Body + "\n\n---\n# Nuclei Template\n```yaml\n" + string(data) + "\n```"
 				}
 			}

@@ -120,6 +120,29 @@ def parse_skill_md(path: str) -> dict:
     }
 
 
+def store_path(path: str, base_dir: str) -> str:
+    """Rewrite a source path to the layout the runtime image uses.
+
+    The index is built from one build context and read from another, where only
+    the data dir is guaranteed to exist, so file_path must not record the build
+    machine's location. SKILL.md and friends are laid out under the data dir as
+    skills/, Dic/, Payload/, and Vuln/, which is exactly where the runtime image
+    puts them. storage.ResolveResourcePath in the Go server reverses this.
+
+    Falls back to rebasing against base_dir rather than recording the given
+    location verbatim: a path that cannot be made data-dir-relative is worse than
+    useless, because the reader would go looking for it on a machine that is not
+    the build host.
+    """
+    normalized = path.replace(os.sep, "/")
+    rel = os.path.relpath(path, base_dir).replace(os.sep, "/")
+    if rel.startswith("../"):
+        # Outside the data dir; there is no location in the runtime image that
+        # corresponds to this file, so let the reader fall back to the DB body.
+        return ""
+    return rel.strip("/")
+
+
 def index_skills(conn: sqlite3.Connection, base_dir: str):
     """Index all SKILL.md files."""
     skills_dir = os.path.join(base_dir, "skills")
@@ -132,10 +155,10 @@ def index_skills(conn: sqlite3.Connection, base_dir: str):
         for f in files:
             if f != "SKILL.md":
                 continue
-            path = os.path.join(root, f)
-            skill = parse_skill_md(path)
+            skill = parse_skill_md(os.path.join(root, f))
             if not skill or not skill["name"]:
                 continue
+            skill["file_path"] = store_path(skill["file_path"], base_dir)
 
             # Append references content to body for FTS5
             body = skill["body"]
@@ -220,21 +243,22 @@ def _index_data_dir(conn, base_dir, subdir, resource_type):
 
                     insert_resource(
                         conn, type=resource_type, name=rel, source="builtin",
-                        file_path=path, category=dir_cat, tags=merged_tags,
+                        file_path=store_path(path, base_dir),
+                        category=dir_cat, tags=merged_tags,
                         description=desc, body=body_text, metadata=metadata,
                     )
                 else:
-                    _index_file_fallback(conn, resource_type, data_dir, root, f)
+                    _index_file_fallback(conn, resource_type, base_dir, data_dir, root, f)
                 count += 1
         else:
             for f in data_files:
-                _index_file_fallback(conn, resource_type, data_dir, root, f)
+                _index_file_fallback(conn, resource_type, base_dir, data_dir, root, f)
                 count += 1
 
     return count
 
 
-def _index_file_fallback(conn, resource_type, data_dir, root, filename):
+def _index_file_fallback(conn, resource_type, base_dir, data_dir, root, filename):
     """Fallback: index a file using only its path for metadata."""
     path = os.path.join(root, filename)
     rel = os.path.relpath(path, data_dir)
@@ -243,7 +267,7 @@ def _index_file_fallback(conn, resource_type, data_dir, root, filename):
     label = "dictionary" if resource_type == "dict" else "payload"
     insert_resource(
         conn, type=resource_type, name=rel, source="builtin",
-        file_path=path, category=cat,
+        file_path=store_path(path, base_dir), category=cat,
         description=f"{cat} {label}: {filename}",
         body=f"{cat} {filename}",
     )
@@ -331,6 +355,7 @@ def index_vulns(conn: sqlite3.Connection, base_dir: str):
             vuln = parse_vuln_md(path)
             if not vuln:
                 continue
+            vuln["file_path"] = store_path(vuln["file_path"], base_dir)
 
             # Extract category from directory path: Vuln/{category}/...
             rel = os.path.relpath(root, vulns_dir)

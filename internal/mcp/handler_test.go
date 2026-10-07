@@ -9,6 +9,7 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/wgpsec/context1337/internal/buildinfo"
 	"github.com/wgpsec/context1337/internal/usage"
 )
 
@@ -137,7 +138,9 @@ func TestNewMCPServer_InitializeReportsReleaseVersion(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("initialize status = %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), `"version":"0.7.13"`) {
-		t.Fatalf("initialize response does not report 0.7.13: %s", rec.Body.String())
+	// Assert the reported version is buildinfo's, not a pinned literal: this
+	// assertion rotted for two releases because nothing in CI runs go test.
+	if want := `"version":"` + buildinfo.Version + `"`; !strings.Contains(rec.Body.String(), want) {
+		t.Fatalf("initialize response does not report %s: %s", want, rec.Body.String())
 	}
 }

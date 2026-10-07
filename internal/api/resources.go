@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -107,8 +108,10 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 			whereClause = " WHERE " + strings.Join(where, " AND ")
 		}
 
+		// A failed count leaves total at 0; the listing still returns, so a
+		// transient error downgrades to a wrong total rather than no response.
 		var total int
-		db.QueryRow("SELECT count(*) FROM resources"+whereClause, args...).Scan(&total)
+		_ = db.QueryRow("SELECT count(*) FROM resources"+whereClause, args...).Scan(&total)
 
 		rows, err := db.Query("SELECT id, type, name, category, source, description, tags, enabled FROM resources"+whereClause+" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
 		if err != nil {
@@ -187,14 +190,26 @@ func handleToggleResource(db *sql.DB) http.HandlerFunc {
 		if body.Enabled {
 			val = 1
 		}
-		res, _ := db.Exec("UPDATE resources SET enabled = ? WHERE id = ?", val, id)
-		n, _ := res.RowsAffected()
+		// See handleBatchToggle: Exec yields a nil Result on failure, so the
+		// error has to be checked before RowsAffected is called.
+		res, err := db.Exec("UPDATE resources SET enabled = ? WHERE id = ?", val, id)
+		if err != nil {
+			http.Error(w, `{"error":"update failed"}`, http.StatusInternalServerError)
+			return
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			http.Error(w, `{"error":"update failed"}`, http.StatusInternalServerError)
+			return
+		}
 		if n == 0 {
 			http.Error(w, `{"error":"not found"}`, 404)
 			return
 		}
+		// The toggle already succeeded; a failed read-back just yields empty
+		// name/type in the response rather than discarding the update.
 		var name, typ string
-		db.QueryRow("SELECT name, type FROM resources WHERE id = ?", id).Scan(&name, &typ)
+		_ = db.QueryRow("SELECT name, type FROM resources WHERE id = ?", id).Scan(&name, &typ)
 		w.Header().Set("Content-Type", "application/json")
 		idInt, _ := strconv.Atoi(id)
 		json.NewEncoder(w).Encode(map[string]interface{}{"id": idInt, "name": name, "type": typ, "enabled": body.Enabled})
@@ -246,8 +261,18 @@ func handleBatchToggle(db *sql.DB) http.HandlerFunc {
 		}
 		where, args = appendSourceAllowlist(where, args, "source", principalOf(r))
 		query := "UPDATE resources SET enabled = ? WHERE " + strings.Join(where, " AND ")
-		res, _ := db.Exec(query, args...)
-		n, _ := res.RowsAffected()
+		// Exec returns a nil Result when it fails, so RowsAffected must not be
+		// reached before the error is checked. A SQLITE_BUSY here used to panic.
+		res, err := db.Exec(query, args...)
+		if err != nil {
+			http.Error(w, `{"error":"update failed"}`, http.StatusInternalServerError)
+			return
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			http.Error(w, `{"error":"update failed"}`, http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"affected": n})
 	}
@@ -286,14 +311,16 @@ func handleCreateResource(db *sql.DB) http.HandlerFunc {
 		)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				http.Error(w, `{"error":"conflict"}`, 409)
+				http.Error(w, `{"error":"conflict"}`, http.StatusConflict)
 				return
 			}
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), 500)
 			return
 		}
 		id, _ := res.LastInsertId()
-		search.IndexFTS(db, id, body.Name, body.Description, body.Tags, body.Category, body.Body)
+		if err := search.IndexFTS(db, id, body.Name, body.Description, body.Tags, body.Category, body.Body); err != nil {
+			log.Printf("index new resource %s/%s (%d): %v", body.Type, body.Name, id, err)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]interface{}{"id": id, "name": body.Name, "type": body.Type})
@@ -313,7 +340,7 @@ func handleUpdateResource(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		if source != "custom" {
-			http.Error(w, `{"error":"only custom resources can be updated"}`, 403)
+			http.Error(w, `{"error":"only custom resources can be updated"}`, http.StatusForbidden)
 			return
 		}
 		if !requireCustomWrite(w, r) {
@@ -358,14 +385,22 @@ func handleUpdateResource(db *sql.DB) http.HandlerFunc {
 			args = append(args, *body.Metadata)
 		}
 		args = append(args, id)
-		db.Exec("UPDATE resources SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+		// The ignored errors here are the tracked P2-5 finding: the handler
+		// reports {"ok":true} whether or not the write, the read-back, or the
+		// re-index succeeded, and an UPDATE that lands while IndexFTS fails
+		// leaves the row unsearchable by its new keywords. Fixing that changes
+		// the response contract, so it awaits a decision; the explicit ignores
+		// keep the intent visible to errcheck instead of hiding it.
+		_, _ = db.Exec("UPDATE resources SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
 
 		// Re-index FTS from the updated row so search reflects new content.
 		var rName, rDesc, rTags, rCat, rBody string
-		db.QueryRow("SELECT COALESCE(name,''), COALESCE(description,''), COALESCE(tags,''), COALESCE(category,''), COALESCE(body,'') FROM resources WHERE id = ?", id).
+		_ = db.QueryRow("SELECT COALESCE(name,''), COALESCE(description,''), COALESCE(tags,''), COALESCE(category,''), COALESCE(body,'') FROM resources WHERE id = ?", id).
 			Scan(&rName, &rDesc, &rTags, &rCat, &rBody)
 		idInt, _ := strconv.Atoi(id)
-		search.IndexFTS(db, int64(idInt), rName, rDesc, rTags, rCat, rBody)
+		if err := search.IndexFTS(db, int64(idInt), rName, rDesc, rTags, rCat, rBody); err != nil {
+			log.Printf("reindex updated resource %s: %v", id, err)
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"id": idInt, "ok": true})
@@ -385,15 +420,18 @@ func handleDeleteResource(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		if source != "custom" {
-			http.Error(w, `{"error":"only custom resources can be deleted"}`, 403)
+			http.Error(w, `{"error":"only custom resources can be deleted"}`, http.StatusForbidden)
 			return
 		}
 		if !requireCustomWrite(w, r) {
 			return
 		}
-		db.Exec("DELETE FROM resources WHERE id = ?", id)
+		// Same as handleUpdateResource: both statements answer {"ok":true}
+		// unconditionally. An orphaned FTS row is harmless for reads because
+		// every query joins back to resources, but the row would linger.
+		_, _ = db.Exec("DELETE FROM resources WHERE id = ?", id)
 		idInt, _ := strconv.Atoi(id)
-		db.Exec("DELETE FROM resources_fts WHERE rowid = ?", idInt)
+		_, _ = db.Exec("DELETE FROM resources_fts WHERE rowid = ?", idInt)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 	}

@@ -3,7 +3,9 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -13,6 +15,37 @@ import (
 
 type UsageEndpoint struct {
 	Collector *usage.Collector
+}
+
+// recoverMiddleware turns a handler panic into an explicit 500.
+//
+// net/http already survives a handler panic, and the deferred bookkeeping in
+// usage.Collector still runs while the stack unwinds, so nothing leaks. What it
+// does not do is set a status code: the response was never written, so the usage
+// collector records the request as a 200 and /admin/usage reports a crash as a
+// success. It also closes the connection silently, and the stack trace it logs
+// can contain request body content, which for this service is custom resource
+// text. Handlers stay free to panic on programming errors; this is the one place
+// that decides what the client and the logs see.
+func recoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			recovered := recover()
+			if recovered == nil {
+				return
+			}
+			// http.ErrAbortHandler is the documented way for a handler to abort
+			// a response deliberately; it is not a fault and must stay silent.
+			// recover() yields any value, so the panic payload may not be an
+			// error at all — hence the type assertion rather than errors.Is.
+			if err, ok := recovered.(error); ok && errors.Is(err, http.ErrAbortHandler) {
+				panic(recovered)
+			}
+			log.Printf("panic serving %s %s: %v", r.Method, r.URL.Path, recovered)
+			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 // NewRouter creates the HTTP mux with REST endpoints.
@@ -63,7 +96,9 @@ func NewRouter(db *sql.DB, dataDir string, store *auth.Store, mcpHandler http.Ha
 		mux.Handle("/admin", admin)
 		mux.Handle("/admin/", admin)
 	}
-	return AuthMiddleware(store)(mux)
+	// Recovery sits inside auth so an unauthenticated request cannot reach a
+	// handler; auth itself only compares keys and does not deserve a recover.
+	return AuthMiddleware(store)(recoverMiddleware(mux))
 }
 
 func handleUsage(endpoint UsageEndpoint) http.Handler {

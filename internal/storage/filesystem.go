@@ -126,6 +126,25 @@ type ReferenceFile struct {
 	Content string
 }
 
+// ResolveResourcePath maps a stored file_path to a filesystem location.
+//
+// builtin.db is indexed in one container layer and read in another, where only
+// dataDir is guaranteed to exist, so the indexer stores paths relative to the
+// resource root (skills/.../SKILL.md, Dic/..., Payload/...). Resolving against
+// dataDir restores them in the runtime image. Databases built before that
+// convention carry the build machine's path instead; an absolute path is
+// returned as-is so those keep working when the file happens to exist, and
+// callers fall back to the DB body when it does not.
+func ResolveResourcePath(dataDir, filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+	if filepath.IsAbs(filePath) {
+		return filePath
+	}
+	return filepath.Join(dataDir, filePath)
+}
+
 // ReadReferences reads all .md files from skillDir/references/, sorted by name.
 // Returns empty slice (not error) if references/ doesn't exist.
 func ReadReferences(skillDir string) ([]ReferenceFile, error) {

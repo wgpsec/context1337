@@ -1,0 +1,86 @@
+name: CI
+
+# The only other workflow is tag-triggered (release.yml), so until now nothing
+# ran go test on a branch or pull request. A hardcoded version assertion in the
+# MCP handler test rotted across two releases without anyone noticing, which is
+# exactly the kind of drift this job exists to catch.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The FTS5 and sqlite_json extensions are compiled in via CGO behind build
+      # tags, so both the tag set and a working C toolchain are required for the
+      # packages to build at all.
+      - name: Verify formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt reports misformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: CGO_ENABLED=1 go vet -tags "fts5 sqlite_json" ./...
+
+      - name: Test
+        run: CGO_ENABLED=1 go test -tags "fts5 sqlite_json" -count=1 ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Pinned rather than @latest: a new linter release can add checks that fail
+      # a branch nobody touched, and the build tags in .golangci.yml must match
+      # the linter version's config schema.
+      - name: Lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.14.0
+          args: --timeout=5m
+
+  indexer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install --quiet jieba pyyaml pytest
+
+      # build_index.py writes builtin.db, which is baked into the release image
+      # and read by the Go server. Its tests need no corpus, so this is cheap
+      # insurance for the one artifact that ships without a Go test.
+      - name: Test indexer
+        run: python3 -m pytest build/test_build_index.py -q

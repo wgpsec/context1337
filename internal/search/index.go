@@ -3,6 +3,7 @@ package search
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/wgpsec/context1337/internal/fts"
@@ -45,6 +46,11 @@ type SearchQuery struct {
 	Visibility ResourceVisibility
 	Offset     int
 	Limit      int
+	// SkipFallback suppresses the pinyin retry even at offset 0. Set it when
+	// this query is only the fetch of a ranked candidate list on behalf of a
+	// later page: such callers read from the top, so Offset can no longer say
+	// whether the current request is a first page.
+	SkipFallback bool
 }
 
 // SearchResult is a Resource with a relevance score.
@@ -110,7 +116,9 @@ func DeleteResource(db *sql.DB, typ, name, source string) error {
 	var id int64
 	err := db.QueryRow("SELECT id FROM resources WHERE type=? AND name=? AND source=?", typ, name, source).Scan(&id)
 	if err == nil {
-		db.Exec("DELETE FROM resources_fts WHERE rowid = ?", id)
+		if _, err := db.Exec("DELETE FROM resources_fts WHERE rowid = ?", id); err != nil {
+			log.Printf("drop FTS row %d for %s/%s/%s: %v", id, source, typ, name, err)
+		}
 	}
 	_, err = db.Exec("DELETE FROM resources WHERE type=? AND name=? AND source=?", typ, name, source)
 	return err
@@ -231,13 +239,22 @@ type FallbackSearch struct {
 	Transliterations []QueryTransliteration
 }
 
-// SearchWithFallback runs the exact query first. If that returns zero rows at
-// offset 0, it retries once with deterministic Han-to-pinyin context rewrite.
+// SearchWithFallback runs the exact query first. If that returns zero rows on
+// a first-page request, it retries once with deterministic Han-to-pinyin
+// context rewrite. Later pages never fall back, because the fallback rewrites
+// the query into a different result set and page 2 of an exact search would
+// then describe unrelated rows. q.Offset != 0 keeps that guarantee for direct
+// callers; q.SkipFallback covers callers that read from the top of a ranked
+// candidate list on behalf of a later page.
 func SearchWithFallback(db *sql.DB, q SearchQuery) ([]SearchResult, int, FallbackSearch, error) {
 	results, total, err := Search(db, q)
-	if err != nil || total > 0 || q.Offset != 0 {
+	if err != nil || total > 0 || q.Offset != 0 || q.SkipFallback {
 		return results, total, FallbackSearch{}, err
 	}
+	// A query the planner cannot render is not an error here: the caller already
+	// has the exact search's results, and the design mandates a plain no_match
+	// rather than a failure. Returning the planner's error would turn an
+	// unsearchable query into a 500.
 	plan, planErr := PlanQuery(q.Query)
 	if planErr != nil {
 		return results, total, FallbackSearch{}, nil
@@ -253,6 +270,10 @@ func SearchWithFallback(db *sql.DB, q SearchQuery) ([]SearchResult, int, Fallbac
 	}
 	fallbackQuery := q
 	fallbackQuery.Query = fallback.Query
+	// The fallback is an optional retry on top of the exact search, which already
+	// succeeded and returned nothing. A failing retry must not fail the request:
+	// the degradation design says fallback failure is closed and the original
+	// no_match is returned, so the error is deliberately dropped.
 	fallbackResults, fallbackTotal, fallbackErr := Search(db, fallbackQuery)
 	if fallbackErr != nil || fallbackTotal == 0 {
 		return results, total, info, nil

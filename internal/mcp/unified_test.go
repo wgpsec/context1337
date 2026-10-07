@@ -218,11 +218,24 @@ func TestSearch_PinyinFallbackIsDisabledForLaterPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "matched" || result.Total != 1 || len(result.Items) != 0 {
-		t.Fatalf("later page changed existing pagination semantics: %#v", result)
+	// The exact search matched nothing, and fallback is off for later pages, so
+	// the page over the exact result set is empty. Reporting the fallback's row
+	// count here would hand the client a total that page 0 cannot reproduce.
+	if result.Status != "no_match" || result.Total != 0 || len(result.Items) != 0 {
+		t.Fatalf("later page reported results the exact search never returned: %#v", result)
 	}
-	if result.Resolution != nil || len(result.AttemptedStrategies) != 0 || len(result.RetryGuidance) != 0 {
+	if result.Resolution != nil || len(result.AttemptedStrategies) != 1 || result.AttemptedStrategies[0] != "exact" {
 		t.Fatalf("later page attempted fallback: %#v", result)
+	}
+
+	// Suppressing fallback must not suppress it for first pages, which is the
+	// only place it is allowed to run.
+	first, err := svc.Search(context.Background(), SearchInput{Query: "天擎 360 sqli", Type: "vuln"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Status != "matched" || first.Total != 1 || len(first.Items) != 1 {
+		t.Fatalf("first page lost pinyin fallback: %#v", first)
 	}
 }
 
@@ -1007,6 +1020,132 @@ func TestSearch_RelevanceCutoff_AdjustsTotal(t *testing.T) {
 	// Total should equal len(Items) when cutoff trims within a single page
 	if res.Total != len(res.Items) {
 		t.Errorf("Total=%d but len(Items)=%d; cutoff should align total with trimmed results", res.Total, len(res.Items))
+	}
+}
+
+// setupPaginationTest builds a store with more matching rows than any single
+// page, spread across several types so cross-type diversification is in play.
+func setupPaginationTest(t *testing.T) *Service {
+	t.Helper()
+	svc := setupUnifiedTest(t)
+	for i := 0; i < 12; i++ {
+		for _, typ := range []string{"skill", "dict", "payload"} {
+			if err := search.InsertResource(svc.DB, search.Resource{
+				Type: typ, Name: fmt.Sprintf("%s-paging-%02d", typ, i), Source: "builtin",
+				FilePath:    fmt.Sprintf("test/%s-%02d.md", typ, i),
+				Category:    "paging",
+				Tags:        "pagingmarker",
+				Description: "pagingmarker probe row",
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return svc
+}
+
+// Cross-type search re-ranks the candidate list before slicing a page. When
+// each page was fetched with the caller's SQL offset but sliced from a
+// differently-ordered window, later pages repeated rows the client had already
+// seen. Every page must now be a slice of one ranked list.
+func TestSearch_CrossTypePaginationReturnsNoDuplicates(t *testing.T) {
+	svc := setupPaginationTest(t)
+	const limit = 5
+
+	seen := make(map[string]struct{})
+	var total int
+	for offset := 0; ; offset += limit {
+		res, err := svc.Search(context.Background(), SearchInput{
+			Query: "pagingmarker", Offset: offset, Limit: limit,
+		})
+		if err != nil {
+			t.Fatalf("offset %d: %v", offset, err)
+		}
+		if offset == 0 {
+			total = res.Total
+			if total <= limit {
+				t.Fatalf("fixture too small: total = %d, want more than one page", total)
+			}
+		}
+		if res.Total != total {
+			t.Fatalf("offset %d: total = %d, want stable %d", offset, res.Total, total)
+		}
+		if len(res.Items) == 0 {
+			break
+		}
+		for _, item := range res.Items {
+			if _, dup := seen[item.ID]; dup {
+				t.Fatalf("offset %d: item id %q repeated across pages", offset, item.ID)
+			}
+			seen[item.ID] = struct{}{}
+		}
+	}
+	if len(seen) != total {
+		t.Fatalf("walked %d distinct items before running dry, want %d", len(seen), total)
+	}
+}
+
+// total must describe the pageable result set, so it may not grow as the caller
+// paginates. It used to collapse to offset+len(results) once a page happened to
+// come back short, which made total track the last offset the client requested
+// rather than the number of rows it can actually page through.
+func TestSearch_PaginationTotalIsConsistentAcrossWindows(t *testing.T) {
+	svc := setupPaginationTest(t)
+	const limit = 5
+
+	first, err := svc.Search(context.Background(), SearchInput{Query: "pagingmarker", Limit: limit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Total <= limit {
+		t.Fatalf("fixture too small: total = %d, want more than one page", first.Total)
+	}
+
+	for _, offset := range []int{limit, first.Total - 1, first.Total, 10_000} {
+		res, err := svc.Search(context.Background(), SearchInput{
+			Query: "pagingmarker", Offset: offset, Limit: limit,
+		})
+		if err != nil {
+			t.Fatalf("offset %d: %v", offset, err)
+		}
+		if res.Total != first.Total {
+			t.Fatalf("offset %d: total = %d, want %d", offset, res.Total, first.Total)
+		}
+	}
+
+	typed, err := svc.Search(context.Background(), SearchInput{Query: "pagingmarker", Type: "skill", Limit: limit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typed.Total > first.Total {
+		t.Fatalf("typed total = %d exceeds untyped total = %d", typed.Total, first.Total)
+	}
+
+	last, err := svc.Search(context.Background(), SearchInput{
+		Query: "pagingmarker", Offset: first.Total - 1, Limit: limit,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(last.Items) == 0 {
+		t.Fatalf("offset %d returned no rows although total = %d", first.Total-1, first.Total)
+	}
+}
+
+func TestSearch_OffsetBeyondTotalReturnsEmptyPage(t *testing.T) {
+	svc := setupPaginationTest(t)
+
+	res, err := svc.Search(context.Background(), SearchInput{
+		Query: "pagingmarker", Offset: 10_000, Limit: 5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 0 {
+		t.Fatalf("offset past the end returned %d items: %#v", len(res.Items), res.Items)
+	}
+	if res.Status != "matched" || res.Total == 0 {
+		t.Fatalf("offset past the end changed the result set: %#v", res)
 	}
 }
 

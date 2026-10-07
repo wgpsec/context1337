@@ -167,8 +167,10 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			log.Printf("loader: scan team skills: %v", err)
 		}
 		for _, s := range skills {
-			insertResource(db, "skill", s.Name, "team", s.FilePath,
-				s.Category, s.Tags, s.Description, s.Body)
+			if err := insertResource(db, "skill", s.Name, "team", s.FilePath,
+				s.Category, s.Tags, s.Description, s.Body); err != nil {
+				log.Printf("loader: insert team skill %q: %v", s.Name, err)
+			}
 		}
 	}
 
@@ -178,8 +180,10 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			log.Printf("loader: scan team dicts: %v", err)
 		}
 		for _, d := range dicts {
-			insertResource(db, "dict", d.Path, "team", d.FilePath,
-				d.Category, d.Tags, d.Description, "")
+			if err := insertResource(db, "dict", d.Path, "team", d.FilePath,
+				d.Category, d.Tags, d.Description, ""); err != nil {
+				log.Printf("loader: insert team dict %q: %v", d.Path, err)
+			}
 		}
 	}
 
@@ -189,8 +193,10 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			log.Printf("loader: scan team payloads: %v", err)
 		}
 		for _, p := range payloads {
-			insertResource(db, "payload", p.Path, "team", p.FilePath,
-				p.Category, p.Tags, p.Description, "")
+			if err := insertResource(db, "payload", p.Path, "team", p.FilePath,
+				p.Category, p.Tags, p.Description, ""); err != nil {
+				log.Printf("loader: insert team payload %q: %v", p.Path, err)
+			}
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wgpsec/context1337/internal/api"
@@ -66,6 +67,31 @@ func finalizeIndexCmd() *cobra.Command {
 	return cmd
 }
 
+// exemptStreamingWrites clears the per-request write deadline for MCP streaming
+// responses. mcp.StreamableHTTPHandler deliberately holds the response open —
+// POST responses stream tool results over SSE, and the standalone GET stream
+// stays open for the life of the session — so a server-level WriteTimeout would
+// kill every stream once the deadline passes. ResponseController walks Unwrap
+// to reach the real connection, which is why usage.responseWriter implements it.
+//
+// Only GET streams are exempted. A POST response ends when its tool call
+// returns, and the 150KB maxResponseBytes ceiling keeps that bounded, so those
+// stay under the server deadline.
+func exemptStreamingWrites(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isStreamingRequest(r) {
+			// Best effort: if the connection does not support deadlines the SDK
+			// falls back to normal behavior, and the server timeout applies.
+			_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isStreamingRequest(r *http.Request) bool {
+	return r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+}
+
 func serveCmd() *cobra.Command {
 	var port int
 	var dataDir string
@@ -115,7 +141,9 @@ func serveCmd() *cobra.Command {
 			// Benchmark logging
 			if benchmark {
 				logDir := filepath.Join(cfg.DataDir, "benchmark")
-				os.MkdirAll(logDir, 0o755)
+				// benchlog.New reports a missing parent dir, so the mkdir error
+				// does not need handling of its own.
+				_ = os.MkdirAll(logDir, 0o755)
 				logPath := filepath.Join(logDir, "calls.jsonl")
 				logger, err := benchlog.New(logPath, benchmarkScenario)
 				if err != nil {
@@ -178,7 +206,24 @@ func serveCmd() *cobra.Command {
 			} else {
 				log.Printf("admin console: disabled")
 			}
-			return http.ListenAndServe(addr, handler)
+			server := &http.Server{
+				Addr:    addr,
+				Handler: exemptStreamingWrites(handler),
+				// ReadHeaderTimeout is the one that matters most: without it a
+				// client that opens a connection and never finishes its headers
+				// holds a goroutine and an fd forever (slowloris), and the
+				// deployment sets no resource limits.
+				ReadHeaderTimeout: 10 * time.Second,
+				// Bodies here are small JSON documents; MaxBytesReader is not
+				// wired up yet, so this is the only ceiling on upload size.
+				ReadTimeout: 30 * time.Second,
+				// Bounds a client that negotiates a response and then reads it
+				// arbitrarily slowly. MCP's streaming responses are exempted
+				// below, because they are meant to stay open indefinitely.
+				WriteTimeout: 2 * time.Minute,
+				IdleTimeout:  2 * time.Minute,
+			}
+			return server.ListenAndServe()
 		},
 	}
 

@@ -113,7 +113,11 @@ func TestOpenDB_JSONExtract(t *testing.T) {
 	}
 }
 
-func TestOpenDB_DoesNotLimitConnections(t *testing.T) {
+// The pool is bounded because the k8s deployment sets no container resource
+// limits: an unbounded pool turns a traffic spike into an OOMKill instead of
+// backpressure. It must also stay above a single connection, since a handler
+// that reads rows while issuing another query would otherwise deadlock here.
+func TestOpenDB_BoundsConnectionPool(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(filepath.Join(dir, "test.db"))
 	if err != nil {
@@ -121,8 +125,8 @@ func TestOpenDB_DoesNotLimitConnections(t *testing.T) {
 	}
 	defer db.Close()
 
-	if got := db.Stats().MaxOpenConnections; got != 0 {
-		t.Fatalf("MaxOpenConnections = %d, want 0 (unlimited)", got)
+	if got := db.Stats().MaxOpenConnections; got <= 1 || got > 64 {
+		t.Fatalf("MaxOpenConnections = %d, want a bounded pool above a single connection", got)
 	}
 }
 

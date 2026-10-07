@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 )
 
-const schemaVersion = 1
-
 const ddl = `
 CREATE TABLE IF NOT EXISTS resources (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,8 +66,14 @@ func OpenDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
 
-	db.Exec("ALTER TABLE resources ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_resources_enabled ON resources(enabled)")
+	// Both are migrations for databases created before the column existed. The
+	// ALTER fails with "duplicate column name" on every open of a current
+	// database, which is the expected steady state, so only the index is worth
+	// reporting; a genuinely broken schema surfaces on the first query.
+	_, _ = db.Exec("ALTER TABLE resources ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_resources_enabled ON resources(enabled)"); err != nil {
+		return nil, fmt.Errorf("create enabled index: %w", err)
+	}
 
 	return db, nil
 }

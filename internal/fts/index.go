@@ -31,12 +31,12 @@ func Replace(executor Executor, id int64, fields Fields) error {
 	_, err := executor.Exec(`
 		INSERT INTO resources_fts(rowid, name, description, tags, category, body)
 			VALUES (?, ?, ?, ?, ?, ?)`,
-			id,
-			tokenize.TokenizeToString(fields.Name),
-			tokenize.TokenizeToString(fields.Description),
-			tokenize.TokenizeToString(fields.Tags),
-			tokenize.TokenizeToString(fields.Category),
-			tokenize.TokenizeToString(fields.Body),
+		id,
+		tokenize.TokenizeToString(fields.Name),
+		tokenize.TokenizeToString(fields.Description),
+		tokenize.TokenizeToString(fields.Tags),
+		tokenize.TokenizeToString(fields.Category),
+		tokenize.TokenizeToString(fields.Body),
 	)
 	return err
 }

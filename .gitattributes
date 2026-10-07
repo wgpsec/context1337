@@ -1,0 +1,13 @@
+# Normalise line endings. Several Go files in this repo were checked out with
+# CRLF because core.autocrlf=true rewrites them on checkout, which makes gofmt
+# report the whole file as misformatted and buries real edits in a whitespace
+# diff. Pin the working tree to LF so gofmt means the same thing everywhere.
+* text=auto eol=lf
+
+# Binary-ish assets that must not be touched.
+*.db binary
+*.db-wal binary
+*.db-shm binary
+*.png binary
+*.jpg binary
+*.ico binary

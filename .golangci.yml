@@ -1,0 +1,60 @@
+version: "2"
+
+run:
+  build-tags:
+    - fts5
+    - sqlite_json
+
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - misspell
+    - unconvert
+    - whitespace
+  disable:
+    # Every hit was the codebase's deliberate "skip this unparseable row and
+    # keep loading" pattern in the scanner, not a dropped error. The linter
+    # cannot tell that from a swallowed failure, and annotating seven sites
+    # would hide the distinction rather than make it.
+    - nilerr
+  settings:
+    errcheck:
+      # These calls either cannot fail in a way the caller can act on, or their
+      # failure is already reported through the surrounding operation: a deferred
+      # Close on a drained query, a Rollback after a successful Commit, a write
+      # whose failure the client sees as a truncated response. Everything else
+      # stays checked, so a genuinely ignored error like a failed UPDATE is still
+      # flagged.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+        - (net/http.ResponseWriter).Write
+        - fmt.Fprint
+        - fmt.Fprintf
+        - (*encoding/json.Encoder).Encode
+        - (*encoding/json.Decoder).Decode
+        - os.Setenv
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - errchkjson
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

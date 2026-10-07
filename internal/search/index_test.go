@@ -322,6 +322,62 @@ func TestPlanQuery_RejectsOversizedRawQueryAndExposesContractVersion(t *testing.
 	}
 }
 
+func TestPlanQuery_DropsGroupsThatTokenizeToNothing(t *testing.T) {
+	// Punctuation-only queries used to render as "()" and every search tool
+	// failed with `fts5: syntax error near ")"`. The plan must drop those
+	// groups instead of emitting an empty FTS operand.
+	for _, query := range []string{"...", "!!!", "???", "///", "... ??? ///"} {
+		plan, err := PlanQuery(query)
+		if err != nil {
+			t.Fatalf("PlanQuery(%q) error = %v", query, err)
+		}
+		if len(plan.Groups) != 0 {
+			t.Fatalf("PlanQuery(%q) groups = %#v, want none", query, plan.Groups)
+		}
+		if plan.FTSExpression != "" || plan.ExactFTSExpression != "" {
+			t.Fatalf("PlanQuery(%q) expression = %q exact = %q, want empty",
+				query, plan.FTSExpression, plan.ExactFTSExpression)
+		}
+	}
+}
+
+func TestPlanQuery_KeepsSearchableGroupsAlongsidePunctuation(t *testing.T) {
+	plan, err := PlanQuery("JWT ... bypass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Groups) == 0 {
+		t.Fatal("searchable groups were dropped with the punctuation-only one")
+	}
+	if plan.FTSExpression == "" {
+		t.Fatal("FTS expression is empty despite searchable groups")
+	}
+	if strings.Contains(plan.FTSExpression, "()") {
+		t.Fatalf("FTS expression = %q, want no empty operand", plan.FTSExpression)
+	}
+}
+
+func TestSearch_PunctuationOnlyQueryReturnsNoMatchesInsteadOfSyntaxError(t *testing.T) {
+	db := setupTestDB(t)
+	if err := InsertResource(db, Resource{
+		Type: "skill", Name: "sql-injection", Source: "builtin",
+		FilePath: "skills/sql-injection/SKILL.md", Category: "exploit",
+		Tags: "sqli", Description: "SQL Injection attack techniques",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, query := range []string{"...", "!!!", "???", "///"} {
+		results, total, err := Search(db, SearchQuery{Query: query, Limit: 10})
+		if err != nil {
+			t.Fatalf("Search(%q) error = %v, want no error", query, err)
+		}
+		if total != 0 || len(results) != 0 {
+			t.Fatalf("Search(%q) = total=%d results=%v, want empty", query, total, results)
+		}
+	}
+}
+
 func TestSecurityConceptRegistryRejectsMoreThanSixAliases(t *testing.T) {
 	_, err := buildConceptAliasIndex([]SecurityConcept{{
 		ID:      "oversized",

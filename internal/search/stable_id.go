@@ -2,6 +2,7 @@ package search
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -60,7 +61,7 @@ func GetByStableID(db *sql.DB, id string) (*Resource, error) {
 		&r.Category, &r.Tags,
 		&r.Description, &r.Body, &r.Metadata,
 	)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
