@@ -279,6 +279,63 @@ func TestSearchEval(t *testing.T) {
 			wantAny: []string{"CVE-2020-13925"},
 		},
 
+		// --- Named products, frameworks and tooling. A word the planner cannot
+		// classify makes a prose question produce no retry at all, so these
+		// concepts are what makes the retry mechanism reachable for the way an
+		// agent actually asks. Each expectation is a resource a competent answer
+		// to that question must surface. ---
+		{
+			name:    "kerberoasting by name",
+			query:   "kerberoasting",
+			typ:     "skill",
+			wantAny: []string{"kerberos-pentesting", "ad-domain-attack"},
+		},
+		{
+			name:    "lateral movement by name",
+			query:   "横向移动",
+			typ:     "skill",
+			wantAny: []string{"impacket-toolkit", "lateral-movement", "ad-domain-attack"},
+		},
+		{
+			name:    "redis by name",
+			query:   "redis",
+			typ:     "skill",
+			wantAny: []string{"redis-attack", "redis-pentesting"},
+		},
+		{
+			name:    "docker escape by name",
+			query:   "docker 逃逸",
+			typ:     "skill",
+			wantAny: []string{"docker-pentesting", "cdk-escape"},
+		},
+		{
+			name:    "sqlmap by name",
+			query:   "sqlmap",
+			typ:     "skill",
+			wantAny: []string{"sqlmap-advanced", "sql-injection-methodology"},
+		},
+
+		// --- Alias shape: an alias that contains every token of a narrower alias
+		// in the same concept is a redundant OR branch, and FTS5 scores a row once
+		// per matching branch. That inflates the best score, which tightens the
+		// relevance cutoff and shrinks the reported total. These pin the totals
+		// measured with a single alias so a reintroduced compound alias shows up
+		// as a number rather than as a slow drift. ---
+		{
+			name:      "product alias does not inflate bm25",
+			query:     "tomcat",
+			typ:       "skill",
+			minTotal:  17,
+			wantTotal: 17,
+		},
+		{
+			name:      "framework alias does not inflate bm25",
+			query:     "spring",
+			typ:       "skill",
+			minTotal:  26,
+			wantTotal: 26,
+		},
+
 		// --- Adversarial: long natural-language phrasing, which the tool docs
 		// explicitly warn against but agents produce anyway. The contract is
 		// that this is rejected loudly rather than answered badly. ---

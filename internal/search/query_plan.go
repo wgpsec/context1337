@@ -95,6 +95,45 @@ var securityConcepts = []SecurityConcept{
 	{ID: "log_poisoning", Aliases: []string{"log poisoning", "日志投毒"}, Role: ConceptRoleTopic},
 	{ID: "csrf", Aliases: []string{"csrf", "cross-site request forgery", "跨站请求伪造"}, Role: ConceptRoleTopic},
 	{ID: "forgery", Aliases: []string{"forgery", "伪造"}, Role: ConceptRoleTopic},
+
+	// Products, frameworks and named tooling. These are identity concepts, the
+	// same kind already carried by java / php / yii / learun: a word that names
+	// *what* is being attacked rather than *how*. Without them the planner has no
+	// evidence about the query, so a prose phrasing reports no recognised concept
+	// and offers no retry.
+	//
+	// Every alias here must earn its place twice over: it has to occur in the
+	// corpus, and it must not be a token-superset of a narrower alias in the same
+	// concept. A redundant pair such as "tomcat" plus "apache tomcat" renders as
+	// (tomcat OR (apache AND tomcat)), and FTS5 sums a row's contribution per
+	// matching OR branch, so a row matching both scores about twice as strongly
+	// (measured 2.52x) for no reason -- which then tightens the relevance cutoff
+	// and silently shrinks every reported total for that query.
+	{ID: "tomcat", Aliases: []string{"tomcat"}, Role: ConceptRoleIdentity},
+	{ID: "nacos", Aliases: []string{"nacos"}, Role: ConceptRoleIdentity},
+	{ID: "fastjson", Aliases: []string{"fastjson"}, Role: ConceptRoleIdentity},
+	{ID: "shiro", Aliases: []string{"shiro"}, Role: ConceptRoleIdentity},
+	{ID: "spring", Aliases: []string{"spring"}, Role: ConceptRoleIdentity},
+	{ID: "actuator", Aliases: []string{"actuator"}, Role: ConceptRoleIdentity},
+	{ID: "redis", Aliases: []string{"redis"}, Role: ConceptRoleIdentity},
+	{ID: "mysql", Aliases: []string{"mysql"}, Role: ConceptRoleIdentity},
+	{ID: "sqlmap", Aliases: []string{"sqlmap"}, Role: ConceptRoleIdentity},
+	{ID: "docker", Aliases: []string{"docker"}, Role: ConceptRoleIdentity},
+	{ID: "kerberoasting", Aliases: []string{"kerberoasting"}, Role: ConceptRoleIdentity},
+	{ID: "hashcat", Aliases: []string{"hashcat"}, Role: ConceptRoleIdentity},
+
+	// Vulnerability categories the corpus names in Chinese but the planner did
+	// not carry. Topic role: these describe *how*, so a retry built from them is
+	// narrower than the question rather than narrower than the subject.
+	{ID: "unauthorized_access", Aliases: []string{"未授权"}, Role: ConceptRoleTopic},
+	{ID: "container_escape", Aliases: []string{"逃逸"}, Role: ConceptRoleTopic},
+	{ID: "av_evasion", Aliases: []string{"免杀"}, Role: ConceptRoleTopic},
+	{ID: "weak_credentials", Aliases: []string{"弱口令"}, Role: ConceptRoleTopic},
+	{ID: "blind_injection", Aliases: []string{"盲注"}, Role: ConceptRoleTopic},
+	{ID: "brute_force", Aliases: []string{"爆破"}, Role: ConceptRoleTopic},
+	{ID: "port_scanning", Aliases: []string{"端口扫描"}, Role: ConceptRoleTopic},
+	{ID: "lateral_movement", Aliases: []string{"横向移动"}, Role: ConceptRoleTopic},
+	{ID: "delegation_attack", Aliases: []string{"委派"}, Role: ConceptRoleTopic},
 }
 
 var conceptsByAlias = mustBuildConceptAliasIndex(securityConcepts)
@@ -113,6 +152,9 @@ func buildConceptAliasIndex(concepts []SecurityConcept) (map[string]SecurityConc
 		if len(concept.Aliases) > 6 {
 			return nil, fmt.Errorf("security concept %q must have at most 6 aliases", concept.ID)
 		}
+		if err := checkAliasSubsumption(concept); err != nil {
+			return nil, err
+		}
 		for _, alias := range concept.Aliases {
 			normalized := normalizeConceptAlias(alias)
 			if normalized == "" {
@@ -128,6 +170,55 @@ func buildConceptAliasIndex(concepts []SecurityConcept) (map[string]SecurityConc
 		}
 	}
 	return index, nil
+}
+
+// checkAliasSubsumption rejects an alias whose tokens already contain every
+// token of another alias in the same concept.
+//
+// Such a pair renders as a redundant OR branch and FTS5 scores a row once per
+// matching branch, so a row matching both is scored about twice as strongly as
+// the same row matching only the narrower alias. Since trimByRelevance derives
+// its cutoff from the best score in the list, that inflation silently tightens
+// the cutoff and shrinks the reported total: `tomcat` plus `apache tomcat`
+// measured -17.78 against -7.07 for `tomcat` alone, and `spring` plus
+// `spring boot` reached 3.13x. The wider alias contributes no row the narrower
+// one does not already match, so dropping it loses nothing.
+func checkAliasSubsumption(concept SecurityConcept) error {
+	for _, outer := range concept.Aliases {
+		outerTokens := Tokenize(outer)
+		if len(outerTokens) == 0 {
+			continue
+		}
+		for _, inner := range concept.Aliases {
+			if inner == outer {
+				continue
+			}
+			innerTokens := Tokenize(inner)
+			if len(innerTokens) == 0 || len(innerTokens) >= len(outerTokens) {
+				continue
+			}
+			if containsAllTokens(outerTokens, innerTokens) {
+				return fmt.Errorf(
+					"security concept %q alias %q is subsumed by %q; the wider alias inflates bm25 and tightens the relevance cutoff",
+					concept.ID, outer, inner,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+func containsAllTokens(haystack, needles []string) bool {
+	set := make(map[string]struct{}, len(haystack))
+	for _, t := range haystack {
+		set[t] = struct{}{}
+	}
+	for _, n := range needles {
+		if _, ok := set[n]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeConceptAlias(value string) string {

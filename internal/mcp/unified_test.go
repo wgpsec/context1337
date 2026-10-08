@@ -609,6 +609,40 @@ func TestSearch_NoMatchRetryReturnsResultsWhenTheConceptExists(t *testing.T) {
 	}
 }
 
+// A named product in a prose question must still yield a usable retry. This is
+// the shape an agent writes, and it is the reason the registry carries product
+// identity concepts: without them nothing in the query is recognised, so the
+// caller is told to reduce keywords with no indication of which one carries the
+// question.
+func TestSearch_NoMatchRetrySurvivesNamedProduct(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "tomcat 弱口令 怎么 打",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "no_match" {
+		t.Fatalf("status = %q, want no_match for a query the corpus does not contain", result.Status)
+	}
+	if len(result.RetryQueries) == 0 {
+		t.Fatal("no retry offered; a recognised product must be enough to suggest one")
+	}
+	// The retry keeps the recognised concepts and names what it left out.
+	retry := result.RetryQueries[0]
+	if !strings.Contains(retry.Query, "tomcat") {
+		t.Fatalf("retry query = %q, want it to keep the recognised product", retry.Query)
+	}
+	if len(retry.DroppedTerms) == 0 {
+		t.Fatal("dropped terms empty; the unrecognised words must be named")
+	}
+	if _, err := search.PlanQuery(retry.Query); err != nil {
+		t.Fatalf("retry query %q is not executable: %v", retry.Query, err)
+	}
+}
+
 // A query the planner recognised nothing in must not get a guessed retry. There
 // is no concept to narrow toward, and inventing one would be the "伪造 retries"
 // the closure design rules out.
