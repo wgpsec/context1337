@@ -16,7 +16,7 @@ const (
 	maxQueryAtoms    = 48
 )
 
-const SearchContractVersion = "security-concepts-v3"
+const SearchContractVersion = "security-concepts-v4"
 
 type SecurityConcept struct {
 	ID      string
