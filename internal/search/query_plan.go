@@ -213,6 +213,11 @@ func BuildPinyinFallback(plan QueryPlan) (PinyinFallback, bool) {
 type FocusedRetryQuery struct {
 	Query string
 	Type  string
+	// DroppedTerms are the context groups this retry left out. The planner has
+	// no way to tell a filler word ("怎么") from a product name ("shiro"), so a
+	// narrowing retry necessarily drops both. Reporting them keeps the
+	// suggestion auditable instead of silently rewriting the caller's question.
+	DroppedTerms []string
 }
 
 func BuildFocusedRetryQueries(groups []QueryGroup, resourceType string) []FocusedRetryQuery {
@@ -278,17 +283,85 @@ func BuildFocusedRetryQueries(groups []QueryGroup, resourceType string) []Focuse
 	return retries
 }
 
-func BuildMultiTopicRetryQueries(groups []QueryGroup, resourceType string) []FocusedRetryQuery {
-	topics := 0
+// BuildNoMatchRetryQueries narrows a query that returned nothing down to the
+// concepts the planner actually recognised.
+//
+// The builder this replaced only fired when at least two topic concepts were
+// recognised, and it carried every context group into each retry. Both are wrong
+// for the query shape an agent actually writes. "拿到 webshell 之后怎么提权"
+// recognises one topic and three context groups, so it produced no retry at all;
+// and where a retry was produced, carrying context forward re-sent the terms that
+// made the query fail in the first place. Measured over eighteen such phrasings,
+// those retries hit zero of six offered.
+//
+// This drops context instead. A context group is by definition a word the
+// planner could not classify, so keeping it is what reproduces the failure and
+// dropping it leaves only terms with aliases behind (sql_injection carries
+// "sql injection" / "sqli" / "sql注入"). The dropped words are reported in
+// DroppedTerms because the planner cannot tell filler from a product name: for
+// "我想打一个 shiro 反序列化" this suggests "反序列化", which is narrower than what
+// was asked. That is why the retry is a suggestion the caller may take or ignore
+// (Context1337 never executes it) and why the dropped words travel with it.
+//
+// Identity groups are kept for the same reason the older builder keeps them: a
+// retry that loses "php" stops being about the thing the caller asked about. A
+// query whose retry would be empty produces none.
+func BuildNoMatchRetryQueries(groups []QueryGroup, resourceType string) []FocusedRetryQuery {
+	const maxIdentityGroups = 4
+
+	identities := make([]string, 0)
+	topics := make([]string, 0)
+	dropped := make([]string, 0)
 	for _, group := range groups {
-		if group.Role == ConceptRoleTopic {
-			topics++
+		switch group.Role {
+		case ConceptRoleIdentity:
+			identities = append(identities, group.Original)
+		case ConceptRoleTopic:
+			topics = append(topics, group.Original)
+		default:
+			dropped = append(dropped, group.Original)
 		}
 	}
-	if topics < 2 {
+	// Four identities already fill the focused-query budget, leaving no room to
+	// add the topic that would make a retry narrower than the original query.
+	if len(identities) >= maxIdentityGroups {
 		return nil
 	}
-	return BuildFocusedRetryQueries(groups, resourceType)
+
+	build := func(parts []string) FocusedRetryQuery {
+		return FocusedRetryQuery{
+			Query: strings.Join(parts, " "),
+			Type:  resourceType,
+			// Copied per retry so a caller appending to one does not mutate the
+			// rest. Nil when nothing was dropped, which omits the field.
+			DroppedTerms: append([]string(nil), dropped...),
+		}
+	}
+
+	if len(topics) == 0 {
+		// No topic to pivot on. The identities alone are still a narrower query
+		// than the one that failed, and returning nothing would leave the caller
+		// with no suggestion at all.
+		if len(identities) == 0 {
+			return nil
+		}
+		return []FocusedRetryQuery{build(identities)}
+	}
+	if len(identities) == 0 && len(topics) == 1 {
+		// A single topic with nothing to qualify it is the original query minus
+		// the unrecognised words, which is exactly the suggestion worth making.
+		return []FocusedRetryQuery{build(topics)}
+	}
+
+	// One retry per topic, so a multi-topic question ("sql注入 提权") yields a
+	// query per topic instead of one that still demands both.
+	retries := make([]FocusedRetryQuery, 0, len(topics))
+	for _, topic := range topics {
+		parts := append([]string(nil), identities...)
+		parts = append(parts, topic)
+		retries = append(retries, build(parts))
+	}
+	return retries
 }
 
 type conceptSpan struct {

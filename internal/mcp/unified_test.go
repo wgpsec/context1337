@@ -544,6 +544,118 @@ func TestSearch_MultiTopicNoMatchDoesNotReturnRetriesThatWouldDropIdentity(t *te
 	}
 }
 
+// A prose query with unrecognised filler must still offer a narrower retry, and
+// must say which words the narrowing left out. Before this, a single-topic query
+// produced no retry at all (the builder required two topics), and the retries
+// that were produced carried the filler forward and returned nothing.
+func TestSearch_NoMatchRetryDropsFillerAndReportsIt(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "sql注入 怎么 利用",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "no_match" {
+		t.Fatalf("status = %q, want no_match", result.Status)
+	}
+	if len(result.RetryQueries) != 1 {
+		t.Fatalf("retry queries = %#v, want one focused retry", result.RetryQueries)
+	}
+	retry := result.RetryQueries[0]
+	if retry.Query != "sql注入" {
+		t.Fatalf("retry query = %q, want the recognised concept alone", retry.Query)
+	}
+	if fmt.Sprint(retry.DroppedTerms) != "[怎么 利用]" {
+		t.Fatalf("dropped terms = %v, want the unrecognised words named", retry.DroppedTerms)
+	}
+	if retry.Type != "skill" {
+		t.Fatalf("retry type = %q, want the caller's type preserved", retry.Type)
+	}
+	if !strings.Contains(result.Hint, "dropped: 怎么, 利用") {
+		t.Fatalf("hint = %q, want the dropped terms to be visible without parsing retry_queries", result.Hint)
+	}
+	if _, err := search.PlanQuery(retry.Query); err != nil {
+		t.Fatalf("retry query %q is not executable: %v", retry.Query, err)
+	}
+}
+
+// The retry must actually return something. A suggestion that reproduces the
+// empty result is worse than no suggestion: it costs the caller a round trip and
+// reads as if the corpus had nothing to say.
+func TestSearch_NoMatchRetryReturnsResultsWhenTheConceptExists(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "sql注入 怎么 利用",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.RetryQueries) != 1 {
+		t.Fatalf("retry queries = %#v, want one", result.RetryQueries)
+	}
+
+	retry := result.RetryQueries[0]
+	followed, err := svc.Search(context.Background(), SearchInput{Query: retry.Query, Type: retry.Type})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if followed.Status != "matched" || len(followed.Items) == 0 {
+		t.Fatalf("following the retry returned nothing: %#v", followed)
+	}
+}
+
+// A query the planner recognised nothing in must not get a guessed retry. There
+// is no concept to narrow toward, and inventing one would be the "伪造 retries"
+// the closure design rules out.
+func TestSearch_NoMatchWithoutRecognisedConceptsReturnsNoRetry(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "zzzznothing 怎么 yyyynothing",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "no_match" {
+		t.Fatalf("status = %q, want no_match", result.Status)
+	}
+	if len(result.RetryQueries) != 0 {
+		t.Fatalf("invented retries = %#v, want none", result.RetryQueries)
+	}
+}
+
+// The complexity path is a different contract: it fires before any FTS query
+// runs, and its retries keep the context groups because the query was never
+// executed, so nothing is known about which words would fail.
+func TestSearch_ComplexityRetriesKeepSpecShapedAllocation(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "learun 力软 alpha bravo charlie delta echo foxtrot golf hotel india",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "query_too_complex" {
+		t.Fatalf("status = %q, want query_too_complex", result.Status)
+	}
+	for _, retry := range result.RetryQueries {
+		if len(retry.DroppedTerms) != 0 {
+			t.Fatalf("complexity retry reported dropped terms: %#v", retry)
+		}
+		if !strings.Contains(strings.ToLower(retry.Query), "learun") {
+			t.Fatalf("complexity retry dropped product identity: %#v", retry)
+		}
+	}
+}
+
 func TestSearch_ComplexityOutcomeHasDedicatedUsageAccounting(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	collector := usage.NewCollector()
@@ -1023,6 +1135,40 @@ func TestSearch_RelevanceCutoff_AdjustsTotal(t *testing.T) {
 	}
 }
 
+// A typed search used to fetch only one page of candidates and then run the
+// relevance trim over it, so `total` grew with the offset: the caller paging
+// through 26 real matches was told 5, then 10, then 15, and a client that stops
+// when offset+limit reaches total would quit after the first page. The typed
+// path now reads the same candidate window the cross-type path does, so total
+// is a property of the result set rather than of the page being viewed.
+func TestSearch_TypedPaginationTotalIsStableAcrossOffsets(t *testing.T) {
+	svc := setupPaginationTest(t)
+	const limit = 5
+
+	first, err := svc.Search(context.Background(), SearchInput{
+		Query: "pagingmarker", Type: "skill", Limit: limit,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Total <= limit {
+		t.Fatalf("fixture too small: typed total = %d, want more than one page", first.Total)
+	}
+
+	for offset := 0; offset <= first.Total; offset += limit {
+		res, err := svc.Search(context.Background(), SearchInput{
+			Query: "pagingmarker", Type: "skill", Offset: offset, Limit: limit,
+		})
+		if err != nil {
+			t.Fatalf("offset %d: %v", offset, err)
+		}
+		if res.Total != first.Total {
+			t.Fatalf("offset %d: typed total = %d, want the first page's %d",
+				offset, res.Total, first.Total)
+		}
+	}
+}
+
 // setupPaginationTest builds a store with more matching rows than any single
 // page, spread across several types so cross-type diversification is in play.
 func setupPaginationTest(t *testing.T) *Service {
@@ -1042,6 +1188,57 @@ func setupPaginationTest(t *testing.T) *Service {
 		}
 	}
 	return svc
+}
+
+// A search must report the size of its result set, not the size of whatever
+// prefix it read to compute the ranking. Ranking here is not order-preserving
+// (the relevance trim needs the best score in the list, cross-type diversify
+// needs every type's candidates), so the ranked list has to be the whole match
+// set. When the candidate window was a real cap, `total` was an artifact of it:
+// a query matching 400 rows reported 300 until the caller paged far enough to
+// slide the window past the cap, and a client that stops when
+// `offset+limit >= total` never saw the last 100.
+func TestSearch_TotalIsNotCappedByCandidateWindow(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	const rows = 320
+
+	for i := 0; i < rows; i++ {
+		if err := search.InsertResource(svc.DB, search.Resource{
+			Type: "skill", Name: fmt.Sprintf("windowmarker-%03d", i), Source: "builtin",
+			FilePath:    fmt.Sprintf("test/window-%03d.md", i),
+			Category:    "window",
+			Tags:        "windowmarker",
+			Description: "windowmarker probe row",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := svc.Search(context.Background(), SearchInput{
+		Query: "windowmarker", Type: "skill", Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Total != rows {
+		t.Fatalf("total = %d, want all %d matching rows", first.Total, rows)
+	}
+
+	// Paging to the end must be able to reach the last row, which it cannot if
+	// the window stops short of the match set.
+	last := rows - rows%10 - 10
+	res, err := svc.Search(context.Background(), SearchInput{
+		Query: "windowmarker", Type: "skill", Offset: last, Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Total != rows {
+		t.Fatalf("offset %d: total = %d, want %d", last, res.Total, rows)
+	}
+	if len(res.Items) != 10 {
+		t.Fatalf("offset %d: returned %d items, want 10", last, len(res.Items))
+	}
 }
 
 // Cross-type search re-ranks the candidate list before slicing a page. When

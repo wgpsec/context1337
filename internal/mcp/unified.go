@@ -82,10 +82,30 @@ func splitSkillBody(content string) (string, string, error) {
 // as the best hit, trimming the long tail of barely-matching documents.
 const relevanceCutoff = 0.2
 
-// crossTypeCandidateLimit bounds how many FTS candidates a cross-type search
-// ranks before pagination. diversifyByType interleaves types, so the whole
-// candidate list must be materialized before any page can be sliced.
-const crossTypeCandidateLimit = 300
+// rankedCandidateLimit is how many FTS candidates a search ranks before
+// pagination. It is deliberately far above anything the corpus can match: the
+// largest match set any single query reaches here is 664 rows, the whole vuln
+// table.
+//
+// This used to be a real cap — 300 for a cross-type search, `in.Limit` for a
+// typed one — and both were wrong for the same reason. Ranking here is not
+// order-preserving: trimByRelevance keeps a row only if it clears a cutoff
+// derived from the *best* score in the candidate list, and diversifyByType
+// interleaves types. So the rank-derived size of the result set is a property
+// of the whole candidate list, and reading a prefix of it makes `total` an
+// artifact of the window. It showed up as a total that grew as the caller
+// paged: `type=vuln, query=rce` reported 300 at offset 0, then 305, 310, ...
+// 434 as the window slid past the cap, and a client that stops when
+// `offset+limit >= total` would have stopped at 300 with 134 rows unseen.
+//
+// Ranking whole match sets was measured before being adopted: at 664
+// candidates the full fetch costs 1.02-1.24x the 300-row one (rce 3.34ms →
+// 3.40ms, the widest match set 4.10ms → 5.08ms), which is the price of total
+// describing one result set instead of one window.
+//
+// The bound still exists so a pathological match set cannot make one call
+// unbounded. At 664 rows there is no way to reach it from this corpus.
+const rankedCandidateLimit = 100000
 
 // trimByRelevance drops results whose BM25 score falls below relevanceCutoff
 // of the globally best raw score while preserving the canonical rank order.
@@ -224,6 +244,10 @@ type SearchResolution struct {
 type SearchRetryQuery struct {
 	Query string `json:"query"`
 	Type  string `json:"type,omitempty"`
+	// DroppedTerms lists the words the retry left out. The planner cannot tell a
+	// filler word from a product name, so a narrowing retry drops both; naming
+	// them lets the caller add back anything that mattered.
+	DroppedTerms []string `json:"dropped_terms,omitempty"`
 }
 
 func resourceToSummary(r search.Resource) ResourceSummary {
@@ -301,15 +325,16 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 		// candidate list, so every page must be sliced from the same ranked
 		// list. Fetching only a page-sized window and passing the caller's
 		// offset to SQL made each page a different view of that re-ordering,
-		// which repeated rows across pages. Read from the top of the candidate
-		// list instead and slice the requested page after ranking.
-		window := in.Limit
-		if in.Type == "" {
-			window = crossTypeCandidateLimit
-		}
-		if needed := in.Offset + in.Limit; needed > window {
-			window = needed
-		}
+		// which repeated rows across pages. Read the whole match set instead and
+		// slice the requested page after ranking.
+		//
+		// Neither the relevance trim nor the diversify can be applied to a
+		// prefix: the trim measures every row against the best score in the list
+		// it is given, so trimming a page would hide the weaker rows that later
+		// pages are made of, and interleaving types needs every type's candidates
+		// before any page can be ordered. Both make total, offset and limit
+		// describe the result set only if the ranked list is the whole match set.
+		window := rankedCandidateLimit
 		results, _, fallback, err := search.SearchWithFallback(s.DB, search.SearchQuery{
 			Query: in.Query, Type: in.Type, Category: in.Category,
 			Sources:  auth.FromContext(ctx).Sources,
@@ -408,15 +433,25 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 			out.RetryGuidance = append(out.RetryGuidance, SearchGuidance{
 				Action: "reduce_keywords", Reason: "focused_query_returned_no_results",
 			})
+			// Offer a narrower query built from the concepts the planner did
+			// recognise. Consecutive no-match queries are the norm for phrasings
+			// an agent writes in prose, and knowing which words the planner
+			// understands is the one thing the caller cannot work out from a
+			// empty result set.
 			plan, planErr := search.PlanQuery(in.Query)
 			if planErr == nil {
-				retries := search.BuildMultiTopicRetryQueries(plan.Groups, in.Type)
+				retries := search.BuildNoMatchRetryQueries(plan.Groups, in.Type)
 				if len(retries) > 0 {
 					out.RetryQueries = make([]SearchRetryQuery, len(retries))
 					for index, retry := range retries {
-						out.RetryQueries[index] = SearchRetryQuery{Query: retry.Query, Type: retry.Type}
+						out.RetryQueries[index] = SearchRetryQuery{
+							Query: retry.Query, Type: retry.Type, DroppedTerms: retry.DroppedTerms,
+						}
 					}
-					out.Hint += "; split this multi-topic request into the focused retry queries"
+					out.Hint += "; this query returned nothing, but it contains recognised concepts — retry with retry_queries, which drop the words the planner could not classify"
+					if len(retries[0].DroppedTerms) > 0 {
+						out.Hint += fmt.Sprintf(" (dropped: %s)", strings.Join(retries[0].DroppedTerms, ", "))
+					}
 				}
 			}
 		}
