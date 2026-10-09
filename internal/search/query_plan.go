@@ -16,7 +16,11 @@ const (
 	maxQueryAtoms    = 48
 )
 
-const SearchContractVersion = "security-concepts-v4"
+// Bumped to v5 when the no_match retry contract changed: retry_queries are now
+// measured against the corpus (a candidate is offered only after it was counted)
+// instead of synthesised from the concept registry, and each retry carries the
+// hit count and the words it dropped.
+const SearchContractVersion = "security-concepts-v5"
 
 type SecurityConcept struct {
 	ID      string

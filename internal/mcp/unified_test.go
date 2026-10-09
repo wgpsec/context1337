@@ -254,7 +254,7 @@ func TestSearch_ResponseAdvertisesSecurityConceptSearchVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(payload), `"search_version":"security-concepts-v4"`) {
+	if !strings.Contains(string(payload), `"search_version":"security-concepts-v5"`) {
 		t.Fatalf("search response does not advertise the active contract: %s", payload)
 	}
 }
