@@ -124,29 +124,10 @@ func DeleteResource(db *sql.DB, typ, name, source string) error {
 	return err
 }
 
-// Search performs a full-text search against the FTS5 index.
-// Returns matching results, total count (before LIMIT/OFFSET), and error.
-func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
-	if q.Limit <= 0 {
-		q.Limit = 10
-	}
-
-	plan, err := PlanQuery(q.Query)
-	if err != nil {
-		return nil, 0, err
-	}
-	if len(plan.Groups) == 0 {
-		return nil, 0, nil
-	}
-	ftsQuery := plan.FTSExpression
-	if q.Type == "vuln" {
-		ftsQuery = plan.ExactFTSExpression
-	}
-
-	// Filters are split from the match expression so the count can be phrased
-	// differently from the page fetch without drifting from it. Both are built
-	// over the alias `r`, and MATCH is a pure filter, so the two forms below
-	// describe exactly the same row set.
+// buildSearchFilters renders the non-FTS half of a search predicate, phrased
+// over the alias `r`. It is shared with CountMatching so a row set counted by the
+// retry builder is the row set a later Search returns for the same query.
+func buildSearchFilters(q SearchQuery) (string, []interface{}) {
 	var filters []string
 	var filterArgs []interface{}
 
@@ -181,7 +162,67 @@ func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
 		filterArgs = append(filterArgs, q.Product)
 	}
 
-	filterWhere := strings.Join(filters, " AND ")
+	return strings.Join(filters, " AND "), filterArgs
+}
+
+// CountMatching returns how many rows a SearchQuery would match, without ranking
+// or paging. It exists for the no_match retry builder, which needs to know
+// whether a candidate query reaches the corpus at all before offering it: a
+// suggestion that cannot return a row is worse than no suggestion.
+//
+// The row set is deliberately identical to Search's count, filters included, so
+// "this candidate hits" means the caller's own follow-up search hits too.
+func CountMatching(db *sql.DB, q SearchQuery) (int, error) {
+	plan, err := PlanQuery(q.Query)
+	if err != nil {
+		return 0, err
+	}
+	if len(plan.Groups) == 0 {
+		return 0, nil
+	}
+	ftsQuery := plan.FTSExpression
+	if q.Type == "vuln" {
+		ftsQuery = plan.ExactFTSExpression
+	}
+
+	filterWhere, filterArgs := buildSearchFilters(q)
+	countArgs := append(append([]interface{}{}, filterArgs...), ftsQuery)
+
+	var total int
+	err = db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM resources r WHERE %s AND r.id IN
+		(SELECT rowid FROM resources_fts WHERE resources_fts MATCH ?)`, filterWhere),
+		countArgs...).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("count matching: %w", err)
+	}
+	return total, nil
+}
+
+// Search performs a full-text search against the FTS5 index.
+// Returns matching results, total count (before LIMIT/OFFSET), and error.
+func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
+	if q.Limit <= 0 {
+		q.Limit = 10
+	}
+
+	plan, err := PlanQuery(q.Query)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(plan.Groups) == 0 {
+		return nil, 0, nil
+	}
+	ftsQuery := plan.FTSExpression
+	if q.Type == "vuln" {
+		ftsQuery = plan.ExactFTSExpression
+	}
+
+	// Filters are split from the match expression so the count can be phrased
+	// differently from the page fetch without drifting from it. Both are built
+	// over the alias `r`, and MATCH is a pure filter, so the two forms below
+	// describe exactly the same row set. They are built by buildSearchFilters so
+	// CountMatching describes the same row set without restating the clauses.
+	filterWhere, filterArgs := buildSearchFilters(q)
 
 	// Count total matching rows.
 	//

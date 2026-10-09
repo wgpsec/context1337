@@ -244,10 +244,13 @@ type SearchResolution struct {
 type SearchRetryQuery struct {
 	Query string `json:"query"`
 	Type  string `json:"type,omitempty"`
-	// DroppedTerms lists the words the retry left out. The planner cannot tell a
-	// filler word from a product name, so a narrowing retry drops both; naming
-	// them lets the caller add back anything that mattered.
+	// DroppedTerms lists the words the retry left out: the ones that were blocking
+	// the original query. Naming them lets the caller add back anything that
+	// mattered.
 	DroppedTerms []string `json:"dropped_terms,omitempty"`
+	// Hits is how many rows this retry matches in this index. It is always at
+	// least 1: a candidate that matched nothing is never offered.
+	Hits int `json:"hits,omitempty"`
 }
 
 func resourceToSummary(r search.Resource) ResourceSummary {
@@ -433,22 +436,31 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 			out.RetryGuidance = append(out.RetryGuidance, SearchGuidance{
 				Action: "reduce_keywords", Reason: "focused_query_returned_no_results",
 			})
-			// Offer a narrower query built from the concepts the planner did
-			// recognise. Consecutive no-match queries are the norm for phrasings
-			// an agent writes in prose, and knowing which words the planner
-			// understands is the one thing the caller cannot work out from a
-			// empty result set.
+			// Offer a narrower query built by finding which words block the match.
+			// Consecutive no-match queries are the norm for phrasings an agent
+			// writes in prose, and which words are responsible is the one thing the
+			// caller cannot work out from an empty result set.
 			plan, planErr := search.PlanQuery(in.Query)
 			if planErr == nil {
-				retries := search.BuildNoMatchRetryQueries(plan.Groups, in.Type)
+				// Candidates are measured against the caller's own filters and type,
+				// so "this retry hits" means the caller's follow-up search hits too.
+				sources := auth.FromContext(ctx).Sources
+				counter := func(candidate string) (int, error) {
+					return search.CountMatching(s.DB, search.SearchQuery{
+						Query: candidate, Type: in.Type, Category: in.Category,
+						Sources: sources, Severity: in.Severity, Product: in.Product,
+					})
+				}
+				retries := search.BuildNoMatchRetryQueries(plan.Groups, in.Type, counter)
 				if len(retries) > 0 {
 					out.RetryQueries = make([]SearchRetryQuery, len(retries))
 					for index, retry := range retries {
 						out.RetryQueries[index] = SearchRetryQuery{
-							Query: retry.Query, Type: retry.Type, DroppedTerms: retry.DroppedTerms,
+							Query: retry.Query, Type: retry.Type,
+							DroppedTerms: retry.DroppedTerms, Hits: retry.Hits,
 						}
 					}
-					out.Hint += "; this query returned nothing, but it contains recognised concepts — retry with retry_queries, which drop the words the planner could not classify"
+					out.Hint += "; this query returned nothing, but retry_queries drop the words that blocked it and are verified to match"
 					if len(retries[0].DroppedTerms) > 0 {
 						out.Hint += fmt.Sprintf(" (dropped: %s)", strings.Join(retries[0].DroppedTerms, ", "))
 					}

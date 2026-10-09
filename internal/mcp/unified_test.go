@@ -412,7 +412,11 @@ func TestSearch_ComplexityRetriesPreserveProductIdentity(t *testing.T) {
 	}
 }
 
-func TestSearch_MultiTopicNoMatchReturnsFocusedRetries(t *testing.T) {
+// "php" is an identity the fixture does not hold, and the only sub-query that
+// matches anything drops it. Narrowing to "sql注入" alone would answer a
+// different question, so the caller is told nothing rather than handed a
+// suggestion that silently discards the thing being asked about.
+func TestSearch_MultiTopicNoMatchKeepsAnIdentityTheCorpusLacks(t *testing.T) {
 	svc := setupUnifiedTest(t)
 
 	result, err := svc.Search(context.Background(), SearchInput{
@@ -425,19 +429,34 @@ func TestSearch_MultiTopicNoMatchReturnsFocusedRetries(t *testing.T) {
 	if result.Status != "no_match" {
 		t.Fatalf("status = %q, want no_match", result.Status)
 	}
-	if len(result.RetryQueries) != 2 {
-		t.Fatalf("retry queries = %#v, want one retry per security topic", result.RetryQueries)
+	if len(result.RetryQueries) != 0 {
+		t.Fatalf("retry queries = %#v, want none that drops the identity", result.RetryQueries)
 	}
-	queries := []string{result.RetryQueries[0].Query, result.RetryQueries[1].Query}
-	if queries[0] != "php sql注入" || queries[1] != "php 提权" {
-		t.Fatalf("retry queries = %v, want deterministic identity + topic retries", queries)
-	}
-	for _, retry := range result.RetryQueries {
-		if retry.Type != "skill" {
-			t.Fatalf("retry type = %q, want skill", retry.Type)
+}
+
+// Every offered retry actually returns rows, which is the property that makes a
+// suggestion worth following: the caller spends a round trip on it.
+func TestSearch_EveryOfferedRetryReturnsRows(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	for _, query := range []string{
+		"php sql注入 提权",
+		"sql注入 提权",
+		"sql注入 怎么 利用",
+		"php 反序列化 文件包含 日志投毒",
+	} {
+		result, err := svc.Search(context.Background(), SearchInput{Query: query, Type: "skill"})
+		if err != nil {
+			t.Fatalf("%q: %v", query, err)
 		}
-		if _, err := search.PlanQuery(retry.Query); err != nil {
-			t.Fatalf("retry query %q is not executable: %v", retry.Query, err)
+		for _, retry := range result.RetryQueries {
+			followed, err := svc.Search(context.Background(), SearchInput{Query: retry.Query, Type: retry.Type})
+			if err != nil {
+				t.Fatalf("%q retry %q: %v", query, retry.Query, err)
+			}
+			if followed.Status != "matched" || len(followed.Items) == 0 {
+				t.Fatalf("%q offered retry %q, which returned nothing: %#v", query, retry.Query, followed)
+			}
 		}
 	}
 }
@@ -469,7 +488,10 @@ func TestSearch_MultiTopicMatchDoesNotReturnFocusedRetries(t *testing.T) {
 	}
 }
 
-func TestSearch_PHPAttackChainNoMatchReturnsOneRetryPerTopic(t *testing.T) {
+// An attack chain the corpus does not hold yields no retry, because no subset of
+// it matches either. The previous assertion pinned three synthetic candidates;
+// what matters now is that nothing unverifiable is offered.
+func TestSearch_PHPAttackChainNoMatchReturnsNoUnverifiedRetry(t *testing.T) {
 	svc := setupUnifiedTest(t)
 
 	result, err := svc.Search(context.Background(), SearchInput{
@@ -479,17 +501,17 @@ func TestSearch_PHPAttackChainNoMatchReturnsOneRetryPerTopic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"php 反序列化", "php 文件包含", "php 日志投毒"}
-	got := make([]string, len(result.RetryQueries))
-	for index, retry := range result.RetryQueries {
-		got[index] = retry.Query
+	if result.Status != "no_match" {
+		t.Fatalf("status = %q, want no_match", result.Status)
 	}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("retry queries = %v, want %v", got, want)
+	for _, retry := range result.RetryQueries {
+		if retry.Hits < 1 {
+			t.Fatalf("retry %q offered with %d hits", retry.Query, retry.Hits)
+		}
 	}
 }
 
-func TestSearch_YiiAttackChainNoMatchReturnsOneRetryPerTopic(t *testing.T) {
+func TestSearch_YiiAttackChainNoMatchReturnsNoUnverifiedRetry(t *testing.T) {
 	svc := setupUnifiedTest(t)
 
 	result, err := svc.Search(context.Background(), SearchInput{
@@ -499,16 +521,19 @@ func TestSearch_YiiAttackChainNoMatchReturnsOneRetryPerTopic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"yii 反序列化", "yii csrf", "yii 伪造"}
-	got := make([]string, len(result.RetryQueries))
-	for index, retry := range result.RetryQueries {
-		got[index] = retry.Query
+	if result.Status != "no_match" {
+		t.Fatalf("status = %q, want no_match", result.Status)
 	}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("retry queries = %v, want %v", got, want)
+	for _, retry := range result.RetryQueries {
+		if retry.Hits < 1 {
+			t.Fatalf("retry %q offered with %d hits", retry.Query, retry.Hits)
+		}
 	}
 }
 
+// Without an identity there is nothing that must be preserved, so the search is
+// free to drop whichever topic is blocking. The fixture can match "sql注入" but
+// not "提权", and that is the suggestion.
 func TestSearch_MultiTopicNoMatchWithoutIdentityStillReturnsSafeRetries(t *testing.T) {
 	svc := setupUnifiedTest(t)
 
@@ -519,13 +544,14 @@ func TestSearch_MultiTopicNoMatchWithoutIdentityStillReturnsSafeRetries(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"sql注入", "提权"}
-	got := make([]string, len(result.RetryQueries))
-	for index, retry := range result.RetryQueries {
-		got[index] = retry.Query
+	if len(result.RetryQueries) != 1 {
+		t.Fatalf("retry queries = %#v, want the one candidate this corpus supports", result.RetryQueries)
 	}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("retry queries = %v, want %v", got, want)
+	if got := result.RetryQueries[0].Query; got != "sql注入" {
+		t.Fatalf("retry query = %q, want the blocking topic dropped", got)
+	}
+	if got := fmt.Sprint(result.RetryQueries[0].DroppedTerms); got != "[提权]" {
+		t.Fatalf("dropped terms = %v, want the blocking topic named", got)
 	}
 }
 
@@ -610,12 +636,23 @@ func TestSearch_NoMatchRetryReturnsResultsWhenTheConceptExists(t *testing.T) {
 }
 
 // A named product in a prose question must still yield a usable retry. This is
-// the shape an agent writes, and it is the reason the registry carries product
-// identity concepts: without them nothing in the query is recognised, so the
-// caller is told to reduce keywords with no indication of which one carries the
+// the shape an agent writes, and it is why the registry carries product identity
+// concepts: without them "tomcat" would be an unrecognised word, and the retry
+// that follows the corpus would be free to drop the very word carrying the
 // question.
+//
+// The fixture needs a document that actually holds the product and the topic,
+// because the retry is now measured against the corpus rather than synthesised
+// from the concept registry.
 func TestSearch_NoMatchRetrySurvivesNamedProduct(t *testing.T) {
 	svc := setupUnifiedTest(t)
+	if err := search.InsertResource(svc.DB, search.Resource{
+		Type: "skill", Name: "tomcat-manager-weak-password", Source: "builtin",
+		Tags:        "tomcat,弱口令",
+		Description: "Tomcat manager console exploitation.",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := svc.Search(context.Background(), SearchInput{
 		Query: "tomcat 弱口令 怎么 打",
@@ -628,18 +665,42 @@ func TestSearch_NoMatchRetrySurvivesNamedProduct(t *testing.T) {
 		t.Fatalf("status = %q, want no_match for a query the corpus does not contain", result.Status)
 	}
 	if len(result.RetryQueries) == 0 {
-		t.Fatal("no retry offered; a recognised product must be enough to suggest one")
+		t.Fatal("no retry offered; a recognised product reaching the corpus must be enough to suggest one")
 	}
 	// The retry keeps the recognised concepts and names what it left out.
 	retry := result.RetryQueries[0]
 	if !strings.Contains(retry.Query, "tomcat") {
 		t.Fatalf("retry query = %q, want it to keep the recognised product", retry.Query)
 	}
-	if len(retry.DroppedTerms) == 0 {
-		t.Fatal("dropped terms empty; the unrecognised words must be named")
+	if !strings.Contains(retry.Query, "弱口令") {
+		t.Fatalf("retry query = %q, want it to keep the recognised topic", retry.Query)
+	}
+	if fmt.Sprint(retry.DroppedTerms) != "[怎么 打]" {
+		t.Fatalf("dropped terms = %v, want only the prose words named", retry.DroppedTerms)
 	}
 	if _, err := search.PlanQuery(retry.Query); err != nil {
 		t.Fatalf("retry query %q is not executable: %v", retry.Query, err)
+	}
+}
+
+// The same prose question against a corpus that lacks the product gets nothing.
+// The measured retry cannot be built by discarding the identity, so an agent is
+// told the search was empty rather than handed "弱口令 怎么 打".
+func TestSearch_NoMatchRetryDeclinesWhenTheProductIsAbsent(t *testing.T) {
+	svc := setupUnifiedTest(t)
+
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "tomcat 弱口令 怎么 打",
+		Type:  "skill",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "no_match" {
+		t.Fatalf("status = %q, want no_match", result.Status)
+	}
+	if len(result.RetryQueries) != 0 {
+		t.Fatalf("retry queries = %#v, want none when recovering requires dropping the product", result.RetryQueries)
 	}
 }
 

@@ -304,11 +304,14 @@ func BuildPinyinFallback(plan QueryPlan) (PinyinFallback, bool) {
 type FocusedRetryQuery struct {
 	Query string
 	Type  string
-	// DroppedTerms are the context groups this retry left out. The planner has
-	// no way to tell a filler word ("怎么") from a product name ("shiro"), so a
-	// narrowing retry necessarily drops both. Reporting them keeps the
-	// suggestion auditable instead of silently rewriting the caller's question.
+	// DroppedTerms are the groups this retry left out: the words that were
+	// blocking the original query. Naming them lets the caller add back anything
+	// that mattered.
 	DroppedTerms []string
+	// Hits is the number of rows this retry matches, measured against the corpus
+	// that produced it. Zero means the retry was not verified and must not be
+	// offered; the caller can use the value to order or filter suggestions.
+	Hits int
 }
 
 func BuildFocusedRetryQueries(groups []QueryGroup, resourceType string) []FocusedRetryQuery {
@@ -374,85 +377,145 @@ func BuildFocusedRetryQueries(groups []QueryGroup, resourceType string) []Focuse
 	return retries
 }
 
-// BuildNoMatchRetryQueries narrows a query that returned nothing down to the
-// concepts the planner actually recognised.
-//
-// The builder this replaced only fired when at least two topic concepts were
-// recognised, and it carried every context group into each retry. Both are wrong
-// for the query shape an agent actually writes. "拿到 webshell 之后怎么提权"
-// recognises one topic and three context groups, so it produced no retry at all;
-// and where a retry was produced, carrying context forward re-sent the terms that
-// made the query fail in the first place. Measured over eighteen such phrasings,
-// those retries hit zero of six offered.
-//
-// This drops context instead. A context group is by definition a word the
-// planner could not classify, so keeping it is what reproduces the failure and
-// dropping it leaves only terms with aliases behind (sql_injection carries
-// "sql injection" / "sqli" / "sql注入"). The dropped words are reported in
-// DroppedTerms because the planner cannot tell filler from a product name: for
-// "我想打一个 shiro 反序列化" this suggests "反序列化", which is narrower than what
-// was asked. That is why the retry is a suggestion the caller may take or ignore
-// (Context1337 never executes it) and why the dropped words travel with it.
-//
-// Identity groups are kept for the same reason the older builder keeps them: a
-// retry that loses "php" stops being about the thing the caller asked about. A
-// query whose retry would be empty produces none.
-func BuildNoMatchRetryQueries(groups []QueryGroup, resourceType string) []FocusedRetryQuery {
-	const maxIdentityGroups = 4
+// RetryCounter reports how many rows a candidate query would match, so the retry
+// builder can tell which words are blocking a zero-result query.
+type RetryCounter func(query string) (int, error)
 
-	identities := make([]string, 0)
-	topics := make([]string, 0)
-	dropped := make([]string, 0)
+// BuildNoMatchRetryQueries finds the words that are blocking a zero-result
+// query: the smallest set of groups whose removal makes the query match.
+//
+// The builder this replaced stitched together concepts the planner had already
+// classified. That assumes the blocking words are exactly the unclassified ones,
+// and it fails in the two shapes that matter most. A prose query with a single
+// recognised concept ("kerberoasting 怎么 打") suggested that concept on its own
+// — retrying the query that had just failed, minus one word. And a query mixing
+// an unclassified product name with a classified topic ("landray ekp admin.do
+// bypass captcha datasource") suggested the topic alone, dropping the words that
+// identify the thing asked about.
+//
+// Classifying a word is not the same as knowing whether the corpus contains it.
+// "bypass" is a recognised topic and can still be what blocks a query; a CVE id
+// is unrecognised and precise. So this asks the corpus instead: try dropping one
+// group, then two, and take the first level where something matches. The words
+// that had to go are the blocking words, and they are what DroppedTerms reports.
+//
+// Two rules keep the result usable:
+//
+//   - A candidate may never drop an identity group. Identities name the product
+//     or technology the caller asked about, so a retry that loses one is about
+//     something else. Without this rule the search prefers dropping the identity,
+//     because a rare product name is usually blocking more than a filler word is:
+//     "tomcat 弱口令 怎么 打" would suggest "弱口令 怎么" over "tomcat 弱口令".
+//   - Every candidate is verified to match before it is offered, so a retry is a
+//     query that returned rows, not a query that might. Filler is handled by that
+//     measurement rather than by a stopword list, which is the only way it can
+//     work here: word frequency does not separate filler from content in this
+//     corpus. "怎么" appears in 2 documents and "打" in 4, while "利用" appears in
+//     194 and "用" in 85 — the prose words agents write are rarer than the
+//     security terms they are attached to, so a frequency-based filter would
+//     delete the subject and keep the noise.
+//
+// Only the minimum drop level is reported. A deeper level describes a query that
+// lost more of what was asked, and offering it would suggest discarding signal
+// the caller did not ask to discard.
+func BuildNoMatchRetryQueries(groups []QueryGroup, resourceType string, count RetryCounter) []FocusedRetryQuery {
+	const (
+		maxIdentityGroups = 4
+		maxDroppedGroups  = 2
+		maxRetries        = 3
+	)
+
+	if count == nil || len(groups) == 0 {
+		return nil
+	}
+
+	identities := 0
 	for _, group := range groups {
-		switch group.Role {
-		case ConceptRoleIdentity:
-			identities = append(identities, group.Original)
-		case ConceptRoleTopic:
-			topics = append(topics, group.Original)
-		default:
-			dropped = append(dropped, group.Original)
+		if group.Role == ConceptRoleIdentity {
+			identities++
 		}
 	}
 	// Four identities already fill the focused-query budget, leaving no room to
 	// add the topic that would make a retry narrower than the original query.
-	if len(identities) >= maxIdentityGroups {
+	if identities >= maxIdentityGroups {
 		return nil
 	}
 
-	build := func(parts []string) FocusedRetryQuery {
-		return FocusedRetryQuery{
-			Query: strings.Join(parts, " "),
-			Type:  resourceType,
-			// Copied per retry so a caller appending to one does not mutate the
-			// rest. Nil when nothing was dropped, which omits the field.
-			DroppedTerms: append([]string(nil), dropped...),
+	var retries []FocusedRetryQuery
+	for dropCount := 1; dropCount <= maxDroppedGroups; dropCount++ {
+		level := make([]FocusedRetryQuery, 0)
+		for _, dropped := range dropCombinations(len(groups), dropCount) {
+			keep := make([]string, 0, len(groups)-dropCount)
+			blocked := make([]string, 0, dropCount)
+			dropsIdentity := false
+			for index, group := range groups {
+				if dropped[index] {
+					blocked = append(blocked, group.Original)
+					if group.Role == ConceptRoleIdentity {
+						dropsIdentity = true
+					}
+					continue
+				}
+				keep = append(keep, group.Original)
+			}
+			if dropsIdentity || len(keep) == 0 {
+				continue
+			}
+			candidate := strings.Join(keep, " ")
+			hits, err := count(candidate)
+			if err != nil || hits == 0 {
+				continue
+			}
+			level = append(level, FocusedRetryQuery{
+				Query: candidate,
+				Type:  resourceType,
+				// Copied per retry so a caller appending to one does not mutate
+				// the rest. Nil when nothing was dropped, which omits the field.
+				DroppedTerms: append([]string(nil), blocked...),
+				Hits:         hits,
+			})
 		}
-	}
-
-	if len(topics) == 0 {
-		// No topic to pivot on. The identities alone are still a narrower query
-		// than the one that failed, and returning nothing would leave the caller
-		// with no suggestion at all.
-		if len(identities) == 0 {
-			return nil
+		if len(level) == 0 {
+			continue
 		}
-		return []FocusedRetryQuery{build(identities)}
-	}
-	if len(identities) == 0 && len(topics) == 1 {
-		// A single topic with nothing to qualify it is the original query minus
-		// the unrecognised words, which is exactly the suggestion worth making.
-		return []FocusedRetryQuery{build(topics)}
-	}
-
-	// One retry per topic, so a multi-topic question ("sql注入 提权") yields a
-	// query per topic instead of one that still demands both.
-	retries := make([]FocusedRetryQuery, 0, len(topics))
-	for _, topic := range topics {
-		parts := append([]string(nil), identities...)
-		parts = append(parts, topic)
-		retries = append(retries, build(parts))
+		// Rarest first, so the tightest suggestion the corpus can support leads.
+		// The sort is stable over the enumeration order, which follows group
+		// order, so equal counts keep the caller's own phrasing ahead.
+		sort.SliceStable(level, func(i, j int) bool { return level[i].Hits < level[j].Hits })
+		if len(level) > maxRetries {
+			level = level[:maxRetries]
+		}
+		retries = level
+		break
 	}
 	return retries
+}
+
+// dropCombinations enumerates the index sets of size dropCount over n items, in
+// ascending lexicographic order, so the enumeration is deterministic.
+func dropCombinations(n, dropCount int) []map[int]bool {
+	if dropCount <= 0 || dropCount > n {
+		return nil
+	}
+	combinations := make([]map[int]bool, 0)
+	current := make([]int, dropCount)
+	var walk func(start, depth int)
+	walk = func(start, depth int) {
+		if depth == dropCount {
+			dropped := make(map[int]bool, dropCount)
+			for _, index := range current {
+				dropped[index] = true
+			}
+			combinations = append(combinations, dropped)
+			return
+		}
+		for index := start; index < n; index++ {
+			current[depth] = index
+			walk(index+1, depth+1)
+		}
+	}
+	walk(0, 0)
+	return combinations
 }
 
 type conceptSpan struct {
