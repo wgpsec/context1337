@@ -112,6 +112,9 @@ func handleUsage(endpoint UsageEndpoint) http.Handler {
 	})
 }
 
+// handleHealth reports enabled resource counts per type. It always counts
+// enabled resources only: the numbers are published as availability, and a
+// disabled resource is not available.
 func handleHealth(db *sql.DB) http.HandlerFunc {
 	// type → JSON field name
 	typeKey := map[string]string{
@@ -158,15 +161,83 @@ func handleHealth(db *sql.DB) http.HandlerFunc {
 	}
 }
 
+// statsEnabledClause maps the `enabled` query value onto a WHERE term using the
+// same vocabulary as handleListResources. An absent value keeps the historical
+// default of enabled-only counting, so existing callers see no change.
+func statsEnabledClause(value string) (string, bool) {
+	switch value {
+	case "false":
+		return "enabled = 0", true
+	case "all":
+		return "", false
+	case "true", "":
+		return "enabled = 1", true
+	default:
+		return "enabled = 1", true
+	}
+}
+
+// handleStats reports resource counts, optionally grouped by category.
+//
+// Without `group` the response is the historical type x source breakdown and
+// carries no `group` key; clients that do not know about grouping keep working
+// byte for byte. With `group=category` the same filters are applied but the
+// rows are bucketed per type and category, including the empty-category bucket,
+// so a facet list always sums back to the type totals from /api/health.
 func handleStats(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireRead(w, r) {
 			return
 		}
-		where := []string{"enabled = 1"}
+		group := strings.TrimSpace(r.URL.Query().Get("group"))
+		if group != "" && group != "category" {
+			http.Error(w, `{"error":"unsupported group"}`, http.StatusBadRequest)
+			return
+		}
+
+		where := []string{}
 		var args []interface{}
+		if clause, ok := statsEnabledClause(r.URL.Query().Get("enabled")); ok {
+			where = append(where, clause)
+		}
 		where, args = appendSourceAllowlist(where, args, "source", principalOf(r))
-		query := "SELECT type, source, count(*) FROM resources WHERE " + strings.Join(where, " AND ") + " GROUP BY type, source"
+
+		whereClause := ""
+		if len(where) > 0 {
+			whereClause = " WHERE " + strings.Join(where, " AND ")
+		}
+
+		if group == "category" {
+			type facet struct {
+				Type     string `json:"type"`
+				Category string `json:"category"`
+				Count    int    `json:"count"`
+			}
+			rows, err := db.Query(
+				"SELECT type, COALESCE(category, ''), count(*) FROM resources"+whereClause+
+					" GROUP BY type, COALESCE(category, '') ORDER BY type, count(*) DESC",
+				args...,
+			)
+			if err != nil {
+				http.Error(w, `{"error":"internal server error"}`, 500)
+				return
+			}
+			defer rows.Close()
+
+			facets := []facet{}
+			for rows.Next() {
+				var f facet
+				if err := rows.Scan(&f.Type, &f.Category, &f.Count); err != nil {
+					continue
+				}
+				facets = append(facets, f)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"group": group, "stats": facets})
+			return
+		}
+
+		query := "SELECT type, source, count(*) FROM resources" + whereClause + " GROUP BY type, source"
 		rows, err := db.Query(query, args...)
 		if err != nil {
 			http.Error(w, `{"error":"internal server error"}`, 500)

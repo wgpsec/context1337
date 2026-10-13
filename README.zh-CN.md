@@ -204,7 +204,7 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 | `GET /health` | 存活探针，免鉴权，不暴露 source 计数 |
 | `GET /admin` | 管理台（独立 `ABOUTSECURITY_ADMIN_KEY`；未设置则关闭） |
 | `GET /api/health` | 需认证；按已授权 source 返回已启用资源计数 |
-| `GET /api/stats` | 需认证；按类型/来源统计已启用资源（仅已授权 source） |
+| `GET /api/stats` | 需认证；资源统计（仅已授权 source）。默认按类型/来源统计已启用资源；`?group=category` 改为按类型/类目分桶（保留空类目桶）并回带 `"group":"category"`；`?enabled=true\|false\|all` 覆盖默认的仅启用过滤 |
 | `GET /api/usage` | MCP 使用与搜索关键词聚合（仅 write 密钥；关闭认证时禁用） |
 | `GET /api/resources` | 分页列表（仅已授权 source，含 disabled） |
 | `POST /api/resources` | 创建自定义资源（需要 write 且含 `custom`；source 强制为 custom） |

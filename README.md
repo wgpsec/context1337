@@ -199,7 +199,7 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools
 | `GET /health` | Liveness probe. Unauthenticated; no source counts |
 | `GET /admin` | Admin console (independent `ABOUTSECURITY_ADMIN_KEY`; disabled when unset) |
 | `GET /api/health` | Authenticated health + enabled resource counts for granted sources |
-| `GET /api/stats` | Enabled resource statistics by type/source (granted sources only) |
+| `GET /api/stats` | Resource statistics (granted sources only). Default: enabled resources by type/source. `?group=category` buckets by type/category instead (empty category kept) and echoes `"group":"category"`; `?enabled=true\|false\|all` overrides the default enabled-only filter |
 | `GET /api/usage` | MCP usage and search-query aggregates (write keys only; disabled when auth is off) |
 | `GET /api/resources` | List resources with pagination and filters (granted sources; includes disabled) |
 | `POST /api/resources` | Create custom resource (write + `custom`; source forced to "custom") |
