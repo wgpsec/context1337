@@ -280,7 +280,7 @@ class ReleaseImageContractTest(unittest.TestCase):
     def test_release_reports_version_and_security_concepts_v6(self):
         initialize, result = self._search_security("360", "vuln")
 
-        self.assertEqual(initialize["result"]["serverInfo"]["version"], "0.7.19")
+        self.assertEqual(initialize["result"]["serverInfo"]["version"], "0.7.20")
         self.assertEqual(result["search_version"], "security-concepts-v6")
 
     def test_chinese_product_query_uses_pinyin_fallback(self):
@@ -310,12 +310,13 @@ class ReleaseImageContractTest(unittest.TestCase):
         )
         self.assertNotIn("resolution", result)
 
-    def test_pinyin_fallback_does_not_bypass_default_vulnerability_exclusion(self):
+    def test_cross_type_search_answers_a_vulnerability_only_query(self):
         _, result = self._search_security("天擎 360 sqli")
 
-        self.assertEqual(result["status"], "no_match", result)
-        self.assertEqual(result["items"], [])
-        self.assertIn('type="vuln"', result["hint"])
+        self.assertEqual(result["status"], "matched", result)
+        self.assertEqual(result["items"][0]["id"], "absec://nuclei/vuln/CNVD-2021-32799")
+        self.assertEqual(result["items"][0]["type"], "vuln")
+        self.assertNotIn('type="vuln"', result["hint"])
 
 
 if __name__ == "__main__":
