@@ -148,10 +148,6 @@ func buildSearchFilters(q SearchQuery) (string, []interface{}) {
 		filterArgs = append(filterArgs, q.Category)
 	}
 	filters, filterArgs = appendSourceConstraints(filters, filterArgs, "r.source", q.Source, q.Sources)
-	// Exclude vuln from default search (no type specified)
-	if q.Type == "" {
-		filters = append(filters, "r.type != 'vuln'")
-	}
 	// Metadata filters (vuln-specific)
 	if q.Severity != "" {
 		filters = append(filters, "json_extract(r.metadata, '$.severity') = ?")
@@ -375,10 +371,6 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 		args = append(args, q.Category)
 	}
 	conditions, args = appendSourceConstraints(conditions, args, "source", q.Source, q.Sources)
-	// Exclude vuln from default list (no type specified)
-	if q.Type == "" {
-		conditions = append(conditions, "type != 'vuln'")
-	}
 	// Metadata filters (vuln-specific)
 	if q.Severity != "" {
 		conditions = append(conditions, "json_extract(metadata, '$.severity') = ?")

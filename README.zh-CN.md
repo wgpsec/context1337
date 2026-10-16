@@ -159,7 +159,7 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 
 | 工具 | 说明 |
 |------|------|
-| `search_security` | 搜索或列出所有资源类型（skill、dict、payload），结果包含稳定 `id`。搜索漏洞须显式指定 type="vuln"（默认搜索排除漏洞）。漏洞支持 severity 和 product 过滤 |
+| `search_security` | 搜索或列出所有资源类型（skill、dict、payload、vuln），结果包含稳定 `id`。要收窄就显式指定 type=skill / dict / payload / vuln：漏洞占语料多数（此处 1219 条启用资源中 665 条是漏洞），因此交叉类型搜索天然偏漏洞。漏洞支持 severity 和 product 过滤 |
 | `get_security_detail` | 通过稳定 `id`（推荐）或旧参数 `name` + `type` 获取 skill / vuln 详情 |
 | `read_security_file` | 通过稳定 `id`（推荐）或旧参数 `path` + `type` 按行分页读取字典或 payload 文件内容 |
 

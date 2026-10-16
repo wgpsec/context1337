@@ -277,11 +277,11 @@ class ReleaseImageContractTest(unittest.TestCase):
         self.assertIn("# Nuclei Template", json.dumps(detail))
         self.assertIn("```yaml", json.dumps(detail))
 
-    def test_release_reports_version_and_security_concepts_v5(self):
+    def test_release_reports_version_and_security_concepts_v6(self):
         initialize, result = self._search_security("360", "vuln")
 
-        self.assertEqual(initialize["result"]["serverInfo"]["version"], "0.7.18")
-        self.assertEqual(result["search_version"], "security-concepts-v5")
+        self.assertEqual(initialize["result"]["serverInfo"]["version"], "0.7.19")
+        self.assertEqual(result["search_version"], "security-concepts-v6")
 
     def test_chinese_product_query_uses_pinyin_fallback(self):
         _, result = self._search_security("天擎 360 sqli", "vuln")

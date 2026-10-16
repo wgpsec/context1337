@@ -20,7 +20,12 @@ const (
 // measured against the corpus (a candidate is offered only after it was counted)
 // instead of synthesised from the concept registry, and each retry carries the
 // hit count and the words it dropped.
-const SearchContractVersion = "security-concepts-v5"
+//
+// Bumped to v6 when cross-type search stopped excluding vulns. The version is
+// the only thing that makes the change attributable in production: pojun records
+// it per knowledge resolution, so hit rate before and after can be separated
+// without guessing from dates.
+const SearchContractVersion = "security-concepts-v6"
 
 type SecurityConcept struct {
 	ID      string

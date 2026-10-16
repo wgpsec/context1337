@@ -156,7 +156,7 @@ Default mode is **lite** (3 tools). Use `--tool-mode full` for 12 per-type tools
 
 | Tool | Description |
 |------|-------------|
-| `search_security` | Search or list all resource types (skill, dict, payload). Results include stable `id` fields. To search vulnerabilities, specify type="vuln" explicitly (excluded from default search). Vuln supports severity and product filters. |
+| `search_security` | Search or list every resource type (skill, dict, payload, vuln). Results include stable `id` fields. Pass type=skill, type=dict, type=payload or type=vuln to narrow: vulnerabilities dominate the corpus (665 of 1219 enabled rows here), so a cross-type search is vuln-weighted. Vuln supports severity and product filters. |
 | `get_security_detail` | Get full detail for a skill or vulnerability by stable `id` (preferred) or legacy `name` + `type` |
 | `read_security_file` | Read dictionary or payload file content by stable `id` (preferred) or legacy `path` + `type`, with line-level pagination |
 

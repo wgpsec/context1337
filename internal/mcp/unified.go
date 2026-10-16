@@ -185,7 +185,7 @@ func diversifyByType(results []search.SearchResult) []search.SearchResult {
 
 type SearchInput struct {
 	Query    string `json:"query,omitempty"    jsonschema:"Search keywords (omit to list all)"`
-	Type     string `json:"type,omitempty"     jsonschema:"Filter by type: skill|dict|payload|vuln (omit to search all non-vuln types)"`
+	Type     string `json:"type,omitempty"     jsonschema:"Filter by type: skill|dict|payload|vuln (omit to search every type; vulnerabilities dominate the corpus, so name a type to narrow)"`
 	Category string `json:"category,omitempty" jsonschema:"Filter by category"`
 	Severity string `json:"severity,omitempty" jsonschema:"Filter by severity (vuln only): CRITICAL|HIGH|MEDIUM|LOW"`
 	Product  string `json:"product,omitempty"  jsonschema:"Filter by product name (vuln only)"`
@@ -277,7 +277,7 @@ func searchHint(query, typ string) string {
 		)
 	}
 	return fmt.Sprintf(
-		"no results for %q; try broader or alternative keywords. Vulnerabilities are excluded by default; retry with type=\"vuln\" for CVE, product vulnerability, endpoint, or PoC searches",
+		"no results for %q; try broader or alternative keywords",
 		query,
 	)
 }

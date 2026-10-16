@@ -907,7 +907,12 @@ func insertVuln(t *testing.T, db *sql.DB, name, category, severity, product stri
 	}
 }
 
-func TestSearch_ExcludesVulnByDefault(t *testing.T) {
+// A cross-type search used to append `type != 'vuln'` unconditionally, which
+// silently dropped 95% of the corpus (10207 of 10763 resources are vulns) from
+// every query that did not name a type. An agent searching a product name got
+// no_match while the product's CVEs sat in the index: ruoyi returned 0 versus
+// 2 with type=vuln, finereport 0 versus 29, sangfor 0 versus 42.
+func TestSearch_CrossTypeIncludesVuln(t *testing.T) {
 	db := setupTestDB(t)
 	// Insert a skill and a vuln that both match "injection"
 	InsertResource(db, Resource{
@@ -917,14 +922,43 @@ func TestSearch_ExcludesVulnByDefault(t *testing.T) {
 	})
 	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "Apache Log4j")
 
-	// Search without specifying type — vuln should be excluded
-	results, _, err := Search(db, SearchQuery{Query: "vuln", Limit: 10})
+	results, total, err := Search(db, SearchQuery{Query: "vuln", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if total == 0 {
+		t.Fatal("cross-type search returned nothing; the vuln row matches the query")
+	}
+	found := false
+	for _, r := range results {
+		if r.Type == "vuln" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("cross-type search dropped the matching vuln row: %v", results)
+	}
+}
+
+// The narrowed search must still be available for callers that want only
+// techniques, since vulnerabilities now dominate what a cross-type search
+// returns.
+func TestSearch_TypeFilterStillNarrowsToNonVuln(t *testing.T) {
+	db := setupTestDB(t)
+	InsertResource(db, Resource{
+		Type: "skill", Name: "sql-injection", Source: "builtin",
+		Category: "exploit", Description: "SQL Injection techniques",
+		Body: "SQL injection attack details",
+	})
+	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "Apache Log4j")
+
+	results, _, err := Search(db, SearchQuery{Query: "vuln", Type: "skill", Limit: 10})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	for _, r := range results {
-		if r.Type == "vuln" {
-			t.Errorf("expected no vuln results in default search, got %q", r.Name)
+		if r.Type != "skill" {
+			t.Errorf("type=skill returned a %q row: %q", r.Type, r.Name)
 		}
 	}
 }
@@ -1029,7 +1063,10 @@ func TestSearch_ProductFilter(t *testing.T) {
 	}
 }
 
-func TestListByType_ExcludesVulnByDefault(t *testing.T) {
+// Listing without a type used to append `type != 'vuln'`, so the "list
+// everything" call returned 478 of 1191 enabled resources and silently omitted
+// every vulnerability.
+func TestListByType_CrossTypeIncludesVuln(t *testing.T) {
 	db := setupTestDB(t)
 	InsertResource(db, Resource{
 		Type: "skill", Name: "test-skill", Source: "builtin",
@@ -1037,18 +1074,21 @@ func TestListByType_ExcludesVulnByDefault(t *testing.T) {
 	})
 	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "Apache Log4j")
 
-	// List without type — vuln should be excluded
 	result, err := ListByType(db, ListQuery{Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if result.Total != 2 {
+		t.Errorf("total = %d, want 2 (skill + vuln)", result.Total)
+	}
+	seenVuln := false
 	for _, item := range result.Items {
 		if item.Type == "vuln" {
-			t.Errorf("expected no vuln in default list, got %q", item.Name)
+			seenVuln = true
 		}
 	}
-	if result.Total != 1 {
-		t.Errorf("total = %d, want 1 (only skill)", result.Total)
+	if !seenVuln {
+		t.Errorf("cross-type list omitted the vuln row: %v", result.Items)
 	}
 }
 

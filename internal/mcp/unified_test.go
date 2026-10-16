@@ -182,7 +182,11 @@ func TestSearch_ExactChineseMatchDoesNotAdvertiseFallback(t *testing.T) {
 	}
 }
 
-func TestSearch_PinyinFallbackDoesNotBypassDefaultVulnerabilityExclusion(t *testing.T) {
+// The pinyin retry rewrites the query; it must not also widen the caller's
+// scope. It used to be tested as "fallback must not escape the default vuln
+// exclusion", which no longer exists — the invariant that survives is that it
+// does not escape the caller's own type filter.
+func TestSearch_PinyinFallbackRespectsExplicitTypeFilter(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	if err := search.InsertResource(svc.DB, search.Resource{
 		Type: "vuln", Name: "CNVD-2021-32799", Source: "nuclei",
@@ -191,15 +195,26 @@ func TestSearch_PinyinFallbackDoesNotBypassDefaultVulnerabilityExclusion(t *test
 		t.Fatal(err)
 	}
 
-	result, err := svc.Search(context.Background(), SearchInput{Query: "天擎 360 sqli"})
+	// Cross-type: the fallback reaches the vuln, which is now correct.
+	crossType, err := svc.Search(context.Background(), SearchInput{Query: "天擎 360 sqli"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "no_match" || len(result.Items) != 0 {
-		t.Fatalf("default search exposed vuln through fallback: %#v", result)
+	if crossType.Status != "matched" || len(crossType.Items) != 1 {
+		t.Fatalf("cross-type fallback missed the transliterated vuln: %#v", crossType)
 	}
-	if !strings.Contains(result.Hint, `type="vuln"`) {
-		t.Fatalf("hint = %q, want explicit vuln filter guidance", result.Hint)
+	if crossType.Items[0].Type != "vuln" {
+		t.Errorf("fallback returned a %q row, want vuln", crossType.Items[0].Type)
+	}
+
+	// Narrowed to skill: the same fallback must return nothing rather than
+	// reaching past the type the caller asked for.
+	narrowed, err := svc.Search(context.Background(), SearchInput{Query: "天擎 360 sqli", Type: "skill"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if narrowed.Status != "no_match" || len(narrowed.Items) != 0 {
+		t.Fatalf("fallback escaped an explicit type filter: %#v", narrowed)
 	}
 }
 
@@ -254,7 +269,7 @@ func TestSearch_ResponseAdvertisesSecurityConceptSearchVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(payload), `"search_version":"security-concepts-v5"`) {
+	if !strings.Contains(string(payload), `"search_version":"security-concepts-v6"`) {
 		t.Fatalf("search response does not advertise the active contract: %s", payload)
 	}
 }
@@ -343,8 +358,8 @@ func TestSearch_EmptyQuery_ListAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Total < 4 {
-		t.Errorf("total = %d, want >= 4 (all non-vuln resource types)", result.Total)
+	if result.Total < 5 {
+		t.Errorf("total = %d, want >= 5 (every resource type, vuln included)", result.Total)
 	}
 }
 
@@ -899,18 +914,21 @@ func TestSearch_ZeroResults_HintWithoutType(t *testing.T) {
 	}
 }
 
-func TestSearch_DefaultVulnExclusionReturnsActionableTypeHint(t *testing.T) {
+// The inverse of the old behaviour: a query only a vuln row answers must now be
+// answered by a cross-type search rather than a no_match plus a hint telling the
+// caller to name the type they should not have had to name.
+func TestSearch_CrossTypeAnswersVulnOnlyQuery(t *testing.T) {
 	svc := setupUnifiedTest(t)
 
 	result, err := svc.Search(context.Background(), SearchInput{Query: "JNDI", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "no_match" || result.Total != 0 {
-		t.Fatalf("default search unexpectedly returned vuln content: %#v", result)
+	if result.Status != "matched" || result.Total == 0 {
+		t.Fatalf("cross-type search missed a vuln-only match: %#v", result)
 	}
-	if !strings.Contains(result.Hint, `type="vuln"`) {
-		t.Fatalf("hint = %q, want an explicit type=vuln retry", result.Hint)
+	if result.Items[0].Type != "vuln" {
+		t.Errorf("top result type = %q, want vuln", result.Items[0].Type)
 	}
 }
 
@@ -944,16 +962,21 @@ func TestGet_InvalidType_Tool(t *testing.T) {
 	}
 }
 
-func TestSearch_VulnExcludedByDefault(t *testing.T) {
+func TestSearch_CrossTypeRanksVulnAlongsideTechniques(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	res, err := svc.Search(context.Background(), SearchInput{Query: "injection", Limit: 20})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
+	types := make(map[string]bool)
 	for _, item := range res.Items {
-		if item.Type == "vuln" {
-			t.Errorf("vuln should not appear in default search, got %q", item.Name)
-		}
+		types[item.Type] = true
+	}
+	if !types["vuln"] {
+		t.Errorf("cross-type search for a term the vuln row matches returned no vuln: %#v", res.Items)
+	}
+	if !types["skill"] {
+		t.Errorf("cross-type search dropped the technique row: %#v", res.Items)
 	}
 }
 
