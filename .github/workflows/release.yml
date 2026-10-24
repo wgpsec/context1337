@@ -20,6 +20,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The contract test compares the built image against buildinfo.Version, so
+      # a forgotten bump would pass while the tag advertised a new release.
+      # Fail before the expensive build when the tag and the source disagree.
+      - name: Verify tag matches buildinfo.Version
+        run: |
+          version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' internal/buildinfo/version.go)
+          if [ -z "$version" ]; then
+            echo "could not read const Version from internal/buildinfo/version.go" >&2
+            exit 1
+          fi
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match buildinfo.Version v${version}" >&2
+            exit 1
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

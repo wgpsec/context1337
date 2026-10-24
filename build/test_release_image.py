@@ -14,6 +14,22 @@ import urllib.request
 import uuid
 
 
+def _source_version():
+    """Read the release version from its single source of truth in buildinfo."""
+    version_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        os.pardir,
+        "internal",
+        "buildinfo",
+        "version.go",
+    )
+    with open(version_path, encoding="utf-8") as handle:
+        match = re.search(r'^const Version = "([^"]+)"$', handle.read(), re.MULTILINE)
+    if match is None:
+        raise AssertionError(f"cannot read const Version from {version_path}")
+    return match.group(1)
+
+
 class ReleaseImageContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -280,7 +296,9 @@ class ReleaseImageContractTest(unittest.TestCase):
     def test_release_reports_version_and_security_concepts_v6(self):
         initialize, result = self._search_security("360", "vuln")
 
-        self.assertEqual(initialize["result"]["serverInfo"]["version"], "0.8.0")
+        self.assertEqual(
+            initialize["result"]["serverInfo"]["version"], _source_version()
+        )
         self.assertEqual(result["search_version"], "security-concepts-v6")
 
     def test_chinese_product_query_uses_pinyin_fallback(self):
