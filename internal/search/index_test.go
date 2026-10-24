@@ -1063,6 +1063,51 @@ func TestSearch_ProductFilter(t *testing.T) {
 	}
 }
 
+func TestSearch_SeverityFilterIsCaseInsensitive(t *testing.T) {
+	db := setupTestDB(t)
+	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "Apache Log4j")
+	insertVuln(t, db, "CVE-2023-0001", "rce", "LOW", "SomeProduct")
+
+	for _, severity := range []string{"CRITICAL", "critical", " Critical "} {
+		results, total, err := Search(db, SearchQuery{
+			Query: "vuln", Type: "vuln", Severity: severity, Limit: 10,
+		})
+		if err != nil {
+			t.Fatalf("Search severity=%q: %v", severity, err)
+		}
+		if total != 1 || len(results) != 1 || results[0].Name != "CVE-2021-44228" {
+			t.Errorf("severity=%q: total = %d, results = %v, want CVE-2021-44228", severity, total, resultNames(results))
+		}
+	}
+}
+
+// Sources spell the same product differently: builtin and team author
+// `weblogic`, nuclei templates carry `weblogic_server`. Filtering used to be an
+// exact JSON equality, so either spelling silently hid the other's rows.
+func TestSearch_ProductFilterMatchesAcrossSourceSpellings(t *testing.T) {
+	db := setupTestDB(t)
+	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "weblogic")
+	insertVuln(t, db, "CVE-2023-0002", "rce", "HIGH", "weblogic_server")
+	insertVuln(t, db, "CVE-2023-0003", "rce", "HIGH", "OpenSSL")
+
+	for _, product := range []string{"WebLogic", "weblogic", "weblogic_server", "WebLogic Server"} {
+		results, total, err := Search(db, SearchQuery{
+			Query: "vuln", Type: "vuln", Product: product, Limit: 10,
+		})
+		if err != nil {
+			t.Fatalf("Search product=%q: %v", product, err)
+		}
+		if total != 2 {
+			t.Errorf("product=%q: total = %d, results = %v, want 2", product, total, resultNames(results))
+		}
+	}
+
+	// A token must not match inside a larger token.
+	if _, total, err := Search(db, SearchQuery{Query: "vuln", Type: "vuln", Product: "web", Limit: 10}); err != nil || total != 0 {
+		t.Errorf("product=web: total = %d, err = %v, want 0", total, err)
+	}
+}
+
 // Listing without a type used to append `type != 'vuln'`, so the "list
 // everything" call returned 478 of 1191 enabled resources and silently omitted
 // every vulnerability.
@@ -1113,6 +1158,28 @@ func TestListByType_VulnWithSeverityFilter(t *testing.T) {
 	}
 	if result.Items[0].Name != "CVE-2021-44228" {
 		t.Errorf("expected CVE-2021-44228, got %q", result.Items[0].Name)
+	}
+}
+
+func TestListByType_FiltersAreNormalized(t *testing.T) {
+	db := setupTestDB(t)
+	insertVuln(t, db, "CVE-2021-44228", "rce", "CRITICAL", "weblogic")
+	insertVuln(t, db, "CVE-2023-0002", "rce", "HIGH", "weblogic_server")
+
+	result, err := ListByType(db, ListQuery{Type: "vuln", Product: "WebLogic", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 2 {
+		t.Errorf("product=WebLogic: total = %d, want 2", result.Total)
+	}
+
+	result, err = ListByType(db, ListQuery{Type: "vuln", Severity: "critical", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 || len(result.Items) != 1 || result.Items[0].Name != "CVE-2021-44228" {
+		t.Errorf("severity=critical: total = %d, items = %v, want CVE-2021-44228", result.Total, result.Items)
 	}
 }
 

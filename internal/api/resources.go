@@ -42,7 +42,8 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 			results, total, fallback, err := search.SearchWithFallback(db, search.SearchQuery{
 				Query: query, Type: q.Get("type"), Category: q.Get("category"), Source: q.Get("source"),
 				Sources:    principal.Sources,
-				Severity:   strings.ToUpper(q.Get("severity")),
+				Severity:   q.Get("severity"),
+				Product:    q.Get("product"),
 				Visibility: visibility, Offset: offset, Limit: limit,
 			})
 			if err != nil {
@@ -94,6 +95,14 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 		if v := q.Get("source"); v != "" {
 			where = append(where, "source = ?")
 			args = append(args, v)
+		}
+		if v := search.NormalizeSeverity(q.Get("severity")); v != "" {
+			where = append(where, "UPPER(json_extract(metadata, '$.severity')) = ?")
+			args = append(args, v)
+		}
+		if v := search.NormalizeProduct(q.Get("product")); v != "" {
+			where = append(where, search.ProductMatchExpression("json_extract(metadata, '$.product')"))
+			args = append(args, v, v)
 		}
 		where, args = appendSourceAllowlist(where, args, "source", principal)
 		switch q.Get("enabled") {

@@ -75,6 +75,47 @@ func TestSearch_Keyword(t *testing.T) {
 	}
 }
 
+func TestSearch_SeverityFilterIsCaseInsensitive(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "JNDI", Type: "vuln", Severity: "critical", Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 || len(result.Items) != 1 {
+		t.Fatalf("result = %#v, want one CRITICAL Log4j vuln", result)
+	}
+	if result.Items[0].Name != "CVE-2021-44228" {
+		t.Errorf("top = %q, want CVE-2021-44228", result.Items[0].Name)
+	}
+}
+
+func TestSearch_FilterExcludedNoMatchNamesTheFilter(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	result, err := svc.Search(context.Background(), SearchInput{
+		Query: "JNDI", Type: "vuln", Product: "WebLogic", Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "no_match" {
+		t.Fatalf("status = %q, want no_match", result.Status)
+	}
+	if !strings.Contains(result.Hint, "product=weblogic") {
+		t.Errorf("hint = %q, want the product filter named", result.Hint)
+	}
+	if strings.Contains(result.Hint, "retry without the type filter") {
+		t.Errorf("hint blames the type filter: %q", result.Hint)
+	}
+	if !strings.Contains(result.Hint, "matches 1 without the vulnerability filters") {
+		t.Errorf("hint = %q, want the filter-free count", result.Hint)
+	}
+	if len(result.RetryGuidance) == 0 || result.RetryGuidance[0].Action != "relax_vuln_filters" {
+		t.Fatalf("retry guidance = %+v, want relax_vuln_filters first", result.RetryGuidance)
+	}
+}
+
 func TestSearch_TransliteratesUnknownChineseContextAfterExactNoMatch(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	if err := search.InsertResource(svc.DB, search.Resource{
@@ -884,7 +925,9 @@ func TestGet_NotFound_ActionableError(t *testing.T) {
 func TestSearch_ZeroResults_HintWithType(t *testing.T) {
 	svc := setupUnifiedTest(t)
 	ctx := context.Background()
-	result, err := svc.Search(ctx, SearchInput{Query: "nonexistent-xyz-999", Type: "skill", Limit: 10})
+	// "JNDI" reaches the vuln in the fixture but has no skill match, so the type
+	// filter is the only thing standing between the caller and a result.
+	result, err := svc.Search(ctx, SearchInput{Query: "JNDI", Type: "skill", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -896,6 +939,21 @@ func TestSearch_ZeroResults_HintWithType(t *testing.T) {
 	}
 	if !strings.Contains(result.Hint, "without the type filter") {
 		t.Errorf("hint should suggest removing type filter, got: %s", result.Hint)
+	}
+}
+
+func TestSearch_ZeroResults_DoesNotBlameTypeWhenItIsNotTheCause(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	ctx := context.Background()
+	result, err := svc.Search(ctx, SearchInput{Query: "nonexistent-xyz-999", Type: "skill", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(result.Hint, "without the type filter") {
+		t.Errorf("hint blames the type filter although the query matches nothing without it: %s", result.Hint)
+	}
+	if !strings.Contains(result.Hint, "broader") {
+		t.Errorf("hint should suggest broader keywords, got: %s", result.Hint)
 	}
 }
 

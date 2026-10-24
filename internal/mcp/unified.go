@@ -269,17 +269,36 @@ func resourceToSummary(r search.Resource) ResourceSummary {
 	return s
 }
 
-func searchHint(query, typ string) string {
-	if typ != "" {
+// searchHint explains a no_match. filterFreeHits is how many rows the same
+// query matches once the severity/product filters are dropped; typeFreeHits
+// does the same for the type filter. Callers only measure the variant whose
+// filter is actually present, so a zero count has no meaning on its own.
+func searchHint(in SearchInput, filterFreeHits, typeFreeHits int) string {
+	if filterFreeHits > 0 {
+		filters := make([]string, 0, 3)
+		if in.Type != "" {
+			filters = append(filters, "type="+in.Type)
+		}
+		if in.Severity != "" {
+			filters = append(filters, "severity="+search.NormalizeSeverity(in.Severity))
+		}
+		if in.Product != "" {
+			filters = append(filters, "product="+search.NormalizeProduct(in.Product))
+		}
 		return fmt.Sprintf(
-			"no results for %q with type=%s; retry without the type filter to search across all resource types",
-			query, typ,
+			"no results for %q with %s, but the same query matches %d without the vulnerability filters. "+
+				"severity accepts CRITICAL|HIGH|MEDIUM|LOW; product matches normalised names (weblogic also matches weblogic_server). "+
+				"Retry without severity/product, or copy a value from a previous search result.",
+			in.Query, strings.Join(filters, ", "), filterFreeHits,
 		)
 	}
-	return fmt.Sprintf(
-		"no results for %q; try broader or alternative keywords",
-		query,
-	)
+	if typeFreeHits > 0 {
+		return fmt.Sprintf(
+			"no results for %q with type=%s, but the query matches %d without the type filter; retry without type to search across all resource types",
+			in.Query, in.Type, typeFreeHits,
+		)
+	}
+	return fmt.Sprintf("no results for %q; try broader or alternative keywords", in.Query)
 }
 
 func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult, err error) {
@@ -424,18 +443,43 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 		}
 		if total == 0 {
 			out.Status = "no_match"
-			out.Hint = searchHint(in.Query, in.Type)
+			// A query that fails only because a vulnerability filter excluded
+			// every match needs different guidance from one that cannot reach the
+			// corpus at all; measure the filtered-out case before blaming type.
+			sources := auth.FromContext(ctx).Sources
+			filterFreeHits := 0
+			typeFreeHits := 0
+			if in.Severity != "" || in.Product != "" {
+				filterFreeHits, _ = search.CountMatching(s.DB, search.SearchQuery{
+					Query: in.Query, Type: in.Type, Category: in.Category, Sources: sources,
+				})
+			} else if in.Type != "" {
+				typeFreeHits, _ = search.CountMatching(s.DB, search.SearchQuery{
+					Query: in.Query, Category: in.Category, Sources: sources,
+				})
+			}
+			out.Hint = searchHint(in, filterFreeHits, typeFreeHits)
 			out.AttemptedStrategies = []string{"exact"}
 			if fallback.Attempted {
 				out.AttemptedStrategies = append(out.AttemptedStrategies, "pinyin")
-				out.Hint = "Exact and pinyin searches returned no results. Translate Chinese product or component terms to English, or remove non-essential keywords and retry. " + out.Hint
+				// Translation advice is only useful when the corpus genuinely lacks
+				// the term; a filter that removed every match is not a language gap.
+				if filterFreeHits == 0 {
+					out.Hint = "Exact and pinyin searches returned no results. Translate Chinese product or component terms to English, or remove non-essential keywords and retry. " + out.Hint
+					out.RetryGuidance = append(out.RetryGuidance, SearchGuidance{
+						Action: "translate_to_english", Reason: "chinese_context_not_found",
+					})
+				}
+			}
+			if filterFreeHits > 0 {
 				out.RetryGuidance = append(out.RetryGuidance, SearchGuidance{
-					Action: "translate_to_english", Reason: "chinese_context_not_found",
+					Action: "relax_vuln_filters", Reason: "filters_excluded_all_results",
+				})
+			} else {
+				out.RetryGuidance = append(out.RetryGuidance, SearchGuidance{
+					Action: "reduce_keywords", Reason: "focused_query_returned_no_results",
 				})
 			}
-			out.RetryGuidance = append(out.RetryGuidance, SearchGuidance{
-				Action: "reduce_keywords", Reason: "focused_query_returned_no_results",
-			})
 			// Offer a narrower query built by finding which words block the match.
 			// Consecutive no-match queries are the norm for phrasings an agent
 			// writes in prose, and which words are responsible is the one thing the
@@ -444,7 +488,6 @@ func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult
 			if planErr == nil {
 				// Candidates are measured against the caller's own filters and type,
 				// so "this retry hits" means the caller's follow-up search hits too.
-				sources := auth.FromContext(ctx).Sources
 				counter := func(candidate string) (int, error) {
 					return search.CountMatching(s.DB, search.SearchQuery{
 						Query: candidate, Type: in.Type, Category: in.Category,

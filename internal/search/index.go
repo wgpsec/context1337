@@ -150,12 +150,12 @@ func buildSearchFilters(q SearchQuery) (string, []interface{}) {
 	filters, filterArgs = appendSourceConstraints(filters, filterArgs, "r.source", q.Source, q.Sources)
 	// Metadata filters (vuln-specific)
 	if q.Severity != "" {
-		filters = append(filters, "json_extract(r.metadata, '$.severity') = ?")
+		filters = append(filters, "UPPER(json_extract(r.metadata, '$.severity')) = ?")
 		filterArgs = append(filterArgs, q.Severity)
 	}
 	if q.Product != "" {
-		filters = append(filters, "json_extract(r.metadata, '$.product') = ?")
-		filterArgs = append(filterArgs, q.Product)
+		filters = append(filters, ProductMatchExpression("json_extract(r.metadata, '$.product')"))
+		filterArgs = append(filterArgs, q.Product, q.Product)
 	}
 
 	return strings.Join(filters, " AND "), filterArgs
@@ -169,6 +169,7 @@ func buildSearchFilters(q SearchQuery) (string, []interface{}) {
 // The row set is deliberately identical to Search's count, filters included, so
 // "this candidate hits" means the caller's own follow-up search hits too.
 func CountMatching(db *sql.DB, q SearchQuery) (int, error) {
+	q = normalizeSearchQuery(q)
 	plan, err := PlanQuery(q.Query)
 	if err != nil {
 		return 0, err
@@ -197,6 +198,7 @@ func CountMatching(db *sql.DB, q SearchQuery) (int, error) {
 // Search performs a full-text search against the FTS5 index.
 // Returns matching results, total count (before LIMIT/OFFSET), and error.
 func Search(db *sql.DB, q SearchQuery) ([]SearchResult, int, error) {
+	q = normalizeSearchQuery(q)
 	if q.Limit <= 0 {
 		q.Limit = 10
 	}
@@ -352,6 +354,7 @@ func SearchWithFallback(db *sql.DB, q SearchQuery) ([]SearchResult, int, Fallbac
 
 // ListByType returns resources of a given type with pagination and total count.
 func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
+	q = normalizeListQuery(q)
 	if q.Limit <= 0 {
 		q.Limit = 100
 	}
@@ -373,12 +376,12 @@ func ListByType(db *sql.DB, q ListQuery) (ListResult, error) {
 	conditions, args = appendSourceConstraints(conditions, args, "source", q.Source, q.Sources)
 	// Metadata filters (vuln-specific)
 	if q.Severity != "" {
-		conditions = append(conditions, "json_extract(metadata, '$.severity') = ?")
+		conditions = append(conditions, "UPPER(json_extract(metadata, '$.severity')) = ?")
 		args = append(args, q.Severity)
 	}
 	if q.Product != "" {
-		conditions = append(conditions, "json_extract(metadata, '$.product') = ?")
-		args = append(args, q.Product)
+		conditions = append(conditions, ProductMatchExpression("json_extract(metadata, '$.product')"))
+		args = append(args, q.Product, q.Product)
 	}
 
 	where := "1=1"

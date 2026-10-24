@@ -165,11 +165,12 @@ class ReleaseImageContractTest(unittest.TestCase):
         return payload, session_id
 
     @classmethod
-    def _search_security(cls, query, resource_type=None):
+    def _search_security(cls, query, resource_type=None, **extra_arguments):
         initialize, session_id = cls._initialize_mcp()
         arguments = {"query": query}
         if resource_type:
             arguments["type"] = resource_type
+        arguments.update(extra_arguments)
         response, _ = cls._post_mcp(
             {
                 "jsonrpc": "2.0",

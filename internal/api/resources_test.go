@@ -254,3 +254,65 @@ func TestListResourcesOrdersByIDDescending(t *testing.T) {
 		t.Fatalf("items = %+v, want newer-skill then older-skill", body.Items)
 	}
 }
+
+func TestListResourcesFiltersVulnsByNormalizedProductAndSeverity(t *testing.T) {
+	db, err := storage.OpenDB(filepath.Join(t.TempDir(), "filters.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	for _, resource := range []search.Resource{
+		{
+			Type: "vuln", Name: "CVE-2021-44228", Source: "builtin", Category: "middleware",
+			Description: "weblogic remote code execution",
+			Metadata:    `{"severity":"CRITICAL","product":"weblogic"}`,
+		},
+		{
+			Type: "vuln", Name: "CVE-2023-0002", Source: "nuclei", Category: "nuclei-cve",
+			Description: "weblogic server information disclosure",
+			Metadata:    `{"severity":"HIGH","product":"weblogic_server"}`,
+		},
+		{
+			Type: "vuln", Name: "CVE-2023-0003", Source: "builtin", Category: "web",
+			Description: "openssl memory corruption",
+			Metadata:    `{"severity":"LOW","product":"OpenSSL"}`,
+		},
+	} {
+		if err := search.InsertResource(db, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+	router := NewRouter(db, t.TempDir(), nil, nil, "")
+
+	// The listing branch used to ignore severity/product entirely.
+	req := httptest.NewRequest(http.MethodGet, "/api/resources?type=vuln&product=WebLogic", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	var listed struct {
+		Total int `json:"total"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Total != 2 {
+		t.Errorf("product=WebLogic: total = %d, want 2", listed.Total)
+	}
+
+	// The query branch used to drop product and rely on its own ToUpper.
+	req = httptest.NewRequest(http.MethodGet, "/api/resources?type=vuln&q=weblogic&severity=critical&product=WebLogic", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	var searched struct {
+		Total int `json:"total"`
+		Items []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&searched); err != nil {
+		t.Fatal(err)
+	}
+	if searched.Total != 1 || len(searched.Items) != 1 || searched.Items[0].Name != "CVE-2021-44228" {
+		t.Errorf("query+filters = %+v, want only CVE-2021-44228", searched)
+	}
+}
