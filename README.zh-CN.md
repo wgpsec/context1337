@@ -132,24 +132,54 @@ claude mcp add aboutsecurity --transport http --header "Authorization: Bearer yo
 - "有哪些漏洞利用技能？" → `search_security(type="skill", category="exploit")`
 
 **获取详细知识**
-- "详细讲解 SQL 注入攻击技术" → 先搜索，再调用 `get_security_detail(id="absec://builtin/skill/sql-injection", depth="full")` 获取参考资料
+- "详细讲解 SQL 注入攻击技术" → 先搜索，再调用 `get_security_detail(id="absec://builtin/skill/sql-injection-methodology", depth="full")` 获取参考资料
 - "nmap 扫描怎么做？" → `get_security_detail(id="absec://builtin/skill/nmap-scan")` 返回方法论
-- "jenkins 的后渗透手段有哪些"
+- "jenkins 的后渗透手段有哪些" → `search_security(query="jenkins")` 返回 Jenkins 相关漏洞与利用技能
 
 **读取数据文件**
-- "给我常见弱口令字典前 100 行" → 先搜索，再调用 `read_security_file(id="absec://builtin/dict/Auth%2Fpassword%2FTop100.txt")`
-- "XSS 事件触发的 payload 有哪些？" → `read_security_file(id="absec://builtin/payload/XSS%2Fevents.txt")`
+- "给我常见弱口令字典前 100 行" → 先搜索，再调用 `read_security_file(id="absec://builtin/dict/auth%2Fpassword%2Fpassword-top100.txt")`
+- "XSS 事件触发的 payload 有哪些？" → `read_security_file(id="absec://builtin/payload/xss%2Fjs-event.txt")`
 
 **搜索漏洞**
 - "查找 Apache 高危漏洞" → `search_security(query="Apache", type="vuln", severity="CRITICAL")`
 - "列出所有中间件漏洞" → `search_security(type="vuln", category="middleware")`
 - "获取 Log4j RCE 漏洞详情" → 先搜索，再调用 `get_security_detail(id="absec://builtin/vuln/CVE-2021-44228", depth="full")`
 
-搜索结果会返回稳定 `id`，例如 `absec://builtin/skill/sql-injection`。推荐把这个 `id` 传给详情或文件读取工具，因为它保留了明确的数据源和资源身份。旧参数 `name`/`type`、`path`/`type` 仍然兼容，但当多个数据源存在同名资源时，`id` 可以避免歧义。
+搜索结果会返回稳定 `id`，例如 `absec://builtin/skill/sql-injection-methodology`。推荐把这个 `id` 传给详情或文件读取工具，因为它保留了明确的数据源和资源身份。旧参数 `name`/`type`、`path`/`type` 仍然兼容，但当多个数据源存在同名资源时，`id` 可以避免歧义。
 
 例如 `absec://builtin/vuln/CVE-2021-44228` 和 `absec://nuclei/vuln/CVE-2021-44228` 可以同时存在。`get_security_detail(name="CVE-2021-44228", type="vuln")` 无法指定来源，而稳定 ID 可以精确选择目标资源。
 
 AI 会自动调用正确的 MCP 工具来查找相关安全知识。
+
+### 如何拿到真实 ID
+
+示例里的 ID 是示意。来自上游语料（AboutSecurity、nuclei-templates），会随版本改名或下线。
+
+每次 `search_security` 返回的 `items[]` 里已经带了规范 ID：
+
+```json
+{
+  "status": "matched",
+  "items": [
+    {
+      "id": "absec://builtin/dict/auth%2Fpassword%2Fpassword-top100.txt",
+      "type": "dict",
+      "name": "auth/password/password-top100.txt"
+    }
+  ]
+}
+```
+
+ID 格式是 `absec://{source}/{type}/{name}`：`builtin` 是 AboutSecurity 主库，另外还可能出现 `team`、`nuclei`、`custom` 数据源。`{name}` 经过 URL 编码，名字里的 `/` 会写成 `%2F`，复制时保持编码即可。
+
+实际用法是「先搜再取」：把 `items[i].id` 传给 `get_security_detail` 或 `read_security_file`。如果手写的 ID 返回 `resource id "..." not found`，回到搜索结果，不要靠猜拼写。
+
+直接走 REST 的话要注意：`GET /api/resources?q=...&type=...` 返回的 `id` 是内部行号（整数，供启停和管理接口使用），不是稳定 ID；稳定 ID 需要由 `source`、`type` 和 URL 编码后的 `name` 拼出来：
+
+```bash
+curl -s 'http://localhost:1337/api/resources?q=top100&type=dict' \
+  | jq -r '.items[] | "absec://\(.source)/\(.type)/\(.name | @uri)"'
+```
 
 ## 可用 MCP 工具
 

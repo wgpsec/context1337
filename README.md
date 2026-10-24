@@ -130,23 +130,53 @@ Once connected, just ask your AI assistant naturally:
 - "Show me all exploit skills" → `search_security(type="skill", category="exploit")`
 
 **Get detailed knowledge**
-- "Explain the SQL injection skill in detail" → search first, then call `get_security_detail(id="absec://builtin/skill/sql-injection", depth="full")`
+- "Explain the SQL injection skill in detail" → search first, then call `get_security_detail(id="absec://builtin/skill/sql-injection-methodology", depth="full")`
 - "How does nmap scanning work?" → `get_security_detail(id="absec://builtin/skill/nmap-scan")` returns methodology
 
 **Read data files**
-- "Show the top 100 passwords dictionary" → search first, then call `read_security_file(id="absec://builtin/dict/Auth%2Fpassword%2FTop100.txt")`
-- "Get XSS event handler payloads" → `read_security_file(id="absec://builtin/payload/XSS%2Fevents.txt")`
+- "Show the top 100 passwords dictionary" → search first, then call `read_security_file(id="absec://builtin/dict/auth%2Fpassword%2Fpassword-top100.txt")`
+- "Get XSS event handler payloads" → `read_security_file(id="absec://builtin/payload/xss%2Fjs-event.txt")`
 
 **Search vulnerabilities**
 - "Find critical Apache vulnerabilities" → `search_security(query="Apache", type="vuln", severity="CRITICAL")`
 - "List all middleware vulnerabilities" → `search_security(type="vuln", category="middleware")`
 - "Get the Log4j RCE vulnerability details" → search first, then call `get_security_detail(id="absec://builtin/vuln/CVE-2021-44228", depth="full")`
 
-Search results include a stable `id` such as `absec://builtin/skill/sql-injection`. Prefer passing that `id` into detail or file tools because it preserves the exact source and resource. Legacy inputs such as `name`/`type` and `path`/`type` still work, but `id` avoids ambiguity when the same resource appears in multiple sources.
+Search results include a stable `id` such as `absec://builtin/skill/sql-injection-methodology`. Prefer passing that `id` into detail or file tools because it preserves the exact source and resource. Legacy inputs such as `name`/`type` and `path`/`type` still work, but `id` avoids ambiguity when the same resource appears in multiple sources.
 
 Example: `absec://builtin/vuln/CVE-2021-44228` and `absec://nuclei/vuln/CVE-2021-44228` can both exist. `get_security_detail(name="CVE-2021-44228", type="vuln")` cannot choose a source, while the stable ID selects the exact resource.
 
 The AI will automatically call the right MCP tools to find relevant security knowledge.
+
+### Finding real resource IDs
+
+The IDs in the examples above are illustrative. Resource names come from the upstream corpus (AboutSecurity, nuclei-templates), so they can be renamed or removed between releases — don't hand-write an ID you have not seen in a search response.
+
+Every `search_security` result already carries the canonical ID:
+
+```json
+{
+  "status": "matched",
+  "items": [
+    {
+      "id": "absec://builtin/dict/auth%2Fpassword%2Fpassword-top100.txt",
+      "type": "dict",
+      "name": "auth/password/password-top100.txt"
+    }
+  ]
+}
+```
+
+The format is `absec://{source}/{type}/{name}`. `builtin` is the AboutSecurity corpus; `team`, `nuclei` and `custom` can appear as additional sources. `{name}` is URL-encoded, so `%2F` is a literal `/` inside the name — copy it encoded.
+
+In practice, search first and pass `items[i].id` to `get_security_detail` or `read_security_file`. If a hand-written ID returns `resource id "..." not found`, go back to the search results instead of guessing another spelling.
+
+Driving the REST API directly? `GET /api/resources?q=...&type=...` returns the internal numeric row `id` (used by the toggle and admin endpoints), not the stable ID. Build the stable ID from `source`, `type` and the URL-encoded `name`:
+
+```bash
+curl -s 'http://localhost:1337/api/resources?q=top100&type=dict' \
+  | jq -r '.items[] | "absec://\(.source)/\(.type)/\(.name | @uri)"'
+```
 
 ## Available MCP Tools
 

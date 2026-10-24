@@ -118,7 +118,7 @@ func registerLiteTools(server *gomcp.Server, svc *Service) {
 
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "read_security_file",
-		Description: "Read security dictionary (wordlists/passwords) or attack payload file content with line-level pagination. Use after search_security to read file data by stable ID (preferred) or path (legacy). Params: id (from search results, preferred), path (legacy, e.g. Auth/password/Top100.txt), type (dict|payload), offset (default 0 lines), limit (default 200 lines). Returns file content with total_lines count.",
+		Description: "Read security dictionary (wordlists/passwords) or attack payload file content with line-level pagination. Use after search_security to read file data by stable ID (preferred) or path (legacy). Params: id (from search results, preferred), path (legacy, e.g. auth/password/password-top100.txt), type (dict|payload), offset (default 0 lines), limit (default 200 lines). Returns file content with total_lines count.",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.GetFile))
 }

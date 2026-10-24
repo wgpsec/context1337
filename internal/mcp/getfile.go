@@ -15,7 +15,7 @@ import (
 
 type GetFileInput struct {
 	ID     string `json:"id,omitempty"     jsonschema:"Stable resource ID from search results"`
-	Path   string `json:"path,omitempty"   jsonschema:"Relative file path from search results (e.g. Auth/password/Top100.txt)"`
+	Path   string `json:"path,omitempty"   jsonschema:"Relative file path from search results (e.g. auth/password/password-top100.txt)"`
 	Type   string `json:"type,omitempty"   jsonschema:"Resource type: dict|payload"`
 	Offset int    `json:"offset,omitempty" jsonschema:"Line offset for pagination (default 0)"`
 	Limit  int    `json:"limit,omitempty"  jsonschema:"Max lines to return (default 200)"`
