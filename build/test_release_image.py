@@ -122,7 +122,7 @@ class ReleaseImageContractTest(unittest.TestCase):
             return json.load(response)
 
     @classmethod
-    def _post_mcp(cls, payload, session_id=None):
+    def _post_mcp(cls, payload, session_id=None, extra_headers=None):
         headers = {
             "Accept": "application/json, text/event-stream",
             "Authorization": f"Bearer {cls.api_key}",
@@ -130,6 +130,8 @@ class ReleaseImageContractTest(unittest.TestCase):
         }
         if session_id:
             headers["Mcp-Session-Id"] = session_id
+        if extra_headers:
+            headers.update(extra_headers)
         request = urllib.request.Request(
             f"{cls.base_url}/mcp",
             data=json.dumps(payload).encode(),
@@ -146,7 +148,7 @@ class ReleaseImageContractTest(unittest.TestCase):
         return json.loads(data_lines[-1]), response_headers
 
     @classmethod
-    def _initialize_mcp(cls):
+    def _initialize_mcp(cls, extra_headers=None):
         payload, headers = cls._post_mcp(
             {
                 "jsonrpc": "2.0",
@@ -157,12 +159,31 @@ class ReleaseImageContractTest(unittest.TestCase):
                     "capabilities": {},
                     "clientInfo": {"name": "release-contract-test", "version": "1"},
                 },
-            }
+            },
+            extra_headers=extra_headers,
         )
         session_id = headers.get("Mcp-Session-Id")
         if not session_id:
             raise AssertionError(f"MCP initialize omitted session ID: {headers}")
         return payload, session_id
+
+    @classmethod
+    def _call_tool(cls, name, arguments, extra_headers=None):
+        _, session_id = cls._initialize_mcp(extra_headers=extra_headers)
+        response, _ = cls._post_mcp(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            },
+            session_id,
+            extra_headers=extra_headers,
+        )
+        content = response["result"]["content"]
+        if not content or content[0].get("type") != "text":
+            raise AssertionError(f"tool response omitted text content: {response}")
+        return json.loads(content[0]["text"])
 
     @classmethod
     def _search_security(cls, query, resource_type=None, **extra_arguments):
@@ -301,6 +322,56 @@ class ReleaseImageContractTest(unittest.TestCase):
             initialize["result"]["serverInfo"]["version"], _source_version()
         )
         self.assertEqual(result["search_version"], "security-concepts-v6")
+
+    def test_vuln_filters_accept_any_case_and_across_source_spellings(self):
+        _, result = self._search_security("weblogic", "vuln", product="WebLogic")
+        self.assertEqual(result["status"], "matched", result)
+        self.assertGreater(result["total"], 0, result)
+
+        _, result = self._search_security("Apache", "vuln", severity="critical")
+        self.assertEqual(result["status"], "matched", result)
+        self.assertGreater(result["total"], 0, result)
+
+    def test_negative_ref_offset_is_clamped(self):
+        result = self._call_tool(
+            "get_security_detail",
+            {
+                "id": "absec://builtin/skill/ad-domain-attack",
+                "depth": "full",
+                "ref_offset": -1,
+                "ref_limit": 2,
+            },
+        )
+        self.assertGreaterEqual(result["ref_total"], 2, result)
+        self.assertEqual(len(result["references"]), 2, result)
+
+    def test_read_file_offset_beyond_end_reports_zero_lines(self):
+        result = self._call_tool(
+            "read_security_file",
+            {
+                "id": "absec://builtin/dict/auth%2Fpassword%2Fpassword-top100.txt",
+                "offset": 999999,
+                "limit": 5,
+            },
+        )
+        self.assertGreater(result["total_lines"], 0, result)
+        self.assertEqual(result["returned_lines"], 0, result)
+        self.assertEqual(result["content"], "", result)
+
+    def test_full_mode_get_skill_paginates_references(self):
+        headers = {"X-Tool-Mode": "full"}
+        result = self._call_tool(
+            "get_skill",
+            {
+                "id": "absec://builtin/skill/ad-domain-attack",
+                "depth": "full",
+                "ref_offset": 2,
+                "ref_limit": 2,
+            },
+            extra_headers=headers,
+        )
+        self.assertGreaterEqual(result["ref_total"], 4, result)
+        self.assertEqual(len(result["references"]), 2, result)
 
     def test_chinese_product_query_uses_pinyin_fallback(self):
         _, result = self._search_security("天擎 360 sqli", "vuln")

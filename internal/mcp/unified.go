@@ -302,6 +302,17 @@ func searchHint(in SearchInput, filterFreeHits, typeFreeHits int) string {
 }
 
 func (s *Service) Search(ctx context.Context, in SearchInput) (out *SearchResult, err error) {
+	in.Type = strings.ToLower(strings.TrimSpace(in.Type))
+	if in.Offset < 0 {
+		in.Offset = 0
+	}
+	if in.Type != "" {
+		switch in.Type {
+		case "skill", "dict", "payload", "vuln":
+		default:
+			return nil, fmt.Errorf("type must be skill|dict|payload|vuln")
+		}
+	}
 	if strings.TrimSpace(in.Query) != "" {
 		defer func() {
 			resultCount := 0
@@ -569,6 +580,9 @@ type GetResult struct {
 
 func (s *Service) resolveGetResource(ctx context.Context, in GetInput) (*search.Resource, error) {
 	if in.ID == "" {
+		if in.Name == "" {
+			return nil, fmt.Errorf("id or name is required")
+		}
 		if in.Type != "skill" && in.Type != "vuln" {
 			return nil, fmt.Errorf("type must be skill or vuln (use read_security_file for dict/payload)")
 		}
@@ -611,6 +625,14 @@ func (s *Service) resolveGetResource(ctx context.Context, in GetInput) (*search.
 }
 
 func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
+	in.Type = strings.ToLower(strings.TrimSpace(in.Type))
+	in.Depth = strings.ToLower(strings.TrimSpace(in.Depth))
+	if in.RefOffset < 0 {
+		in.RefOffset = 0
+	}
+	if in.RefLimit < 0 {
+		in.RefLimit = 0
+	}
 	r, err := s.resolveGetResource(ctx, in)
 	if err != nil {
 		return nil, err
@@ -671,6 +693,9 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 			if err == nil && len(refs) > 0 {
 				result.RefTotal = len(refs)
 				start := in.RefOffset
+				if start < 0 {
+					start = 0
+				}
 				if start > len(refs) {
 					start = len(refs)
 				}
@@ -687,6 +712,8 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 					result.References[i] = SkillReference{Name: ref.Name, Content: ref.Content}
 				}
 			}
+		default:
+			return nil, fmt.Errorf("depth must be metadata|summary|full for skills")
 		}
 	case "vuln":
 		if in.Depth == "" {
@@ -711,6 +738,8 @@ func (s *Service) Get(ctx context.Context, in GetInput) (*GetResult, error) {
 					result.Body = r.Body + "\n\n---\n# Nuclei Template\n```yaml\n" + string(data) + "\n```"
 				}
 			}
+		default:
+			return nil, fmt.Errorf("depth must be brief|full for vulnerabilities")
 		}
 	}
 

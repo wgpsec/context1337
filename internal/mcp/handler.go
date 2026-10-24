@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -131,12 +133,18 @@ const maxResponseBytes = 150_000
 // the MCP SDK's ToolHandlerFor signature. The Out is serialised as JSON text
 // content.
 func wrapHandler[In any, Out any](fn func(context.Context, In) (Out, error)) gomcp.ToolHandlerFor[In, any] {
-	return func(ctx context.Context, req *gomcp.CallToolRequest, input In) (*gomcp.CallToolResult, any, error) {
+	return func(ctx context.Context, req *gomcp.CallToolRequest, input In) (result *gomcp.CallToolResult, structured any, err error) {
 		start := time.Now()
 		collector := usage.FromContext(ctx)
 		success := false
 		responseBytes := 0
 		defer func() {
+			// A tool panic must fail this call, not the process: the service is
+			// remote and a malformed argument is caller-controlled input.
+			if recovered := recover(); recovered != nil {
+				log.Printf("panic in tool %s: %v\n%s", req.Params.Name, recovered, debug.Stack())
+				result, structured, err = nil, nil, fmt.Errorf("internal error")
+			}
 			collector.RecordTool(req.Params.Name, success, time.Since(start), responseBytes)
 		}()
 

@@ -1577,3 +1577,152 @@ func TestDiversifyByType(t *testing.T) {
 		})
 	}
 }
+
+func addSkillWithReferences(t *testing.T, svc *Service, name string, count int) string {
+	t.Helper()
+	skillDir := filepath.Join(svc.DataDir, "skills", name)
+	if err := os.MkdirAll(filepath.Join(skillDir, "references"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# "+name+"\n\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < count; i++ {
+		ref := filepath.Join(skillDir, "references", fmt.Sprintf("ref-%02d.md", i))
+		if err := os.WriteFile(ref, []byte(fmt.Sprintf("# ref %d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := search.InsertResource(svc.DB, search.Resource{
+		Type: "skill", Name: name, Source: "builtin",
+		FilePath: filepath.Join("skills", name, "SKILL.md"),
+		Category: "exploit", Description: "skill with references",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return "absec://builtin/skill/" + name
+}
+
+func TestGet_NegativeRefOffsetIsClamped(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	id := addSkillWithReferences(t, svc, "ref-skill", 5)
+
+	result, err := svc.Get(context.Background(), GetInput{ID: id, Depth: "full", RefOffset: -1, RefLimit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RefTotal != 5 || len(result.References) != 2 {
+		t.Fatalf("ref_total = %d, refs = %d, want 5 and 2", result.RefTotal, len(result.References))
+	}
+	if result.References[0].Name != "ref-00.md" {
+		t.Errorf("first ref = %q, want ref-00.md", result.References[0].Name)
+	}
+}
+
+func TestGet_RefOffsetBeyondTotalReturnsNoReferences(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	id := addSkillWithReferences(t, svc, "ref-skill", 3)
+
+	result, err := svc.Get(context.Background(), GetInput{ID: id, Depth: "full", RefOffset: 99, RefLimit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RefTotal != 3 || len(result.References) != 0 {
+		t.Fatalf("ref_total = %d, refs = %d, want 3 and 0", result.RefTotal, len(result.References))
+	}
+}
+
+func TestGetSkillAdapterPaginatesReferences(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	id := addSkillWithReferences(t, svc, "ref-skill", 5)
+
+	result, err := svc.getSkillAdapter(context.Background(), GetSkillInput{
+		ID: id, Depth: "full", RefOffset: 2, RefLimit: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.References) != 2 || result.References[0].Name != "ref-02.md" {
+		t.Fatalf("refs = %+v, want ref-02.md and ref-03.md", result.References)
+	}
+}
+
+func TestGet_InvalidDepthReturnsError(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	_, err := svc.Get(context.Background(), GetInput{Name: "sql-injection", Type: "skill", Depth: "bogus"})
+	if err == nil || !strings.Contains(err.Error(), "depth must") {
+		t.Fatalf("err = %v, want a depth validation error", err)
+	}
+}
+
+func TestGet_MissingIDAndNameReturnsClearError(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	_, err := svc.Get(context.Background(), GetInput{})
+	if err == nil || !strings.Contains(err.Error(), "id or name is required") {
+		t.Fatalf("err = %v, want an id/name requirement error", err)
+	}
+}
+
+func TestSearch_NegativeOffsetIsClamped(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	result, err := svc.Search(context.Background(), SearchInput{Query: "SQL injection", Offset: -5, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Offset != 0 {
+		t.Errorf("offset = %d, want 0", result.Offset)
+	}
+}
+
+func TestSearch_TypeIsCaseInsensitive(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	result, err := svc.Search(context.Background(), SearchInput{Query: "JNDI", Type: "VULN", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Errorf("total = %d, want 1", result.Total)
+	}
+}
+
+func TestSearch_InvalidTypeReturnsError(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	_, err := svc.Search(context.Background(), SearchInput{Query: "tomcat", Type: "foo"})
+	if err == nil || !strings.Contains(err.Error(), "type must") {
+		t.Fatalf("err = %v, want a type validation error", err)
+	}
+}
+
+func TestGetFile_OffsetBeyondTotalReportsZeroReturnedLines(t *testing.T) {
+	svc := setupUnifiedTest(t)
+	dictDir := filepath.Join(svc.DataDir, "Dic", "test")
+	if err := os.MkdirAll(dictDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dictDir, "words.txt"), []byte("a\nb\nc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := search.InsertResource(svc.DB, search.Resource{
+		Type: "dict", Name: "test/words.txt", Source: "builtin",
+		FilePath: "Dic/test/words.txt", Category: "test", Description: "three words",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	id := "absec://builtin/dict/test%2Fwords.txt"
+
+	result, err := svc.GetFile(context.Background(), GetFileInput{ID: id, Offset: 999999, Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TotalLines != 3 || result.ReturnedLines != 0 || result.Content != "" {
+		t.Fatalf("result = %+v, want total 3, returned 0, empty content", result)
+	}
+
+	result, err = svc.GetFile(context.Background(), GetFileInput{ID: id, Offset: -2, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ReturnedLines != 2 {
+		t.Errorf("negative offset returned_lines = %d, want 2", result.ReturnedLines)
+	}
+}

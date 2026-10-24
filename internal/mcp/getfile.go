@@ -38,12 +38,18 @@ func (s *Service) GetFile(ctx context.Context, in GetFileInput) (*GetFileResult,
 	if in.Limit <= 0 {
 		in.Limit = 200
 	}
+	if in.Offset < 0 {
+		in.Offset = 0
+	}
 
 	content, total, err := storage.ReadFileLines(absPath, in.Offset, in.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("read %s %q: %w", typ, path, err)
 	}
 	returned := total - in.Offset
+	if returned < 0 {
+		returned = 0
+	}
 	if in.Limit > 0 && returned > in.Limit {
 		returned = in.Limit
 	}

@@ -69,9 +69,11 @@ type ListVulnsInput struct {
 // --- Get adapter inputs ---
 
 type GetSkillInput struct {
-	ID    string `json:"id,omitempty"    jsonschema:"Stable resource ID from search results (preferred)"`
-	Name  string `json:"name,omitempty"  jsonschema:"Skill name from search results (legacy; use id when available)"`
-	Depth string `json:"depth,omitempty" jsonschema:"Loading depth: metadata|summary|full (default summary). full includes references."`
+	ID        string `json:"id,omitempty"         jsonschema:"Stable resource ID from search results (preferred)"`
+	Name      string `json:"name,omitempty"       jsonschema:"Skill name from search results (legacy; use id when available)"`
+	Depth     string `json:"depth,omitempty"      jsonschema:"Loading depth: metadata|summary|full (default summary). full includes references."`
+	RefOffset int    `json:"ref_offset,omitempty" jsonschema:"Reference pagination offset (default 0, depth=full only)"`
+	RefLimit  int    `json:"ref_limit,omitempty"  jsonschema:"Max references to include (default 3, depth=full only)"`
 }
 
 type GetDictInput struct {
@@ -159,7 +161,10 @@ func (s *Service) listVulnsAdapter(ctx context.Context, in ListVulnsInput) (*Sea
 // --- Get adapters ---
 
 func (s *Service) getSkillAdapter(ctx context.Context, in GetSkillInput) (*GetResult, error) {
-	return s.Get(ctx, GetInput{ID: in.ID, Name: in.Name, Type: "skill", Depth: in.Depth})
+	return s.Get(ctx, GetInput{
+		ID: in.ID, Name: in.Name, Type: "skill", Depth: in.Depth,
+		RefOffset: in.RefOffset, RefLimit: in.RefLimit,
+	})
 }
 
 func (s *Service) getDictAdapter(ctx context.Context, in GetDictInput) (*GetFileResult, error) {
@@ -219,7 +224,7 @@ func registerFullTools(server *gomcp.Server, svc *Service) {
 	// Get tools
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_skill",
-		Description: "Get detailed penetration testing skill content by stable ID (preferred) or name (legacy). Returns full exploit technique documentation including description, body, and optional references. Use after search_skill or list_skills to retrieve complete skill details. Set depth=full to include reference files.",
+		Description: "Get detailed penetration testing skill content by stable ID (preferred) or name (legacy). Returns full exploit technique documentation including description, body, and optional references. Use after search_skill or list_skills to retrieve complete skill details. Set depth=full to include reference files; use ref_offset and ref_limit to page through them (default 3 references).",
 		Annotations: &gomcp.ToolAnnotations{ReadOnlyHint: true},
 	}, wrapHandler(svc.getSkillAdapter))
 
