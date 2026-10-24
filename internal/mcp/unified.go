@@ -190,7 +190,7 @@ type SearchInput struct {
 	Severity string `json:"severity,omitempty" jsonschema:"Filter by severity (vuln only): CRITICAL|HIGH|MEDIUM|LOW"`
 	Product  string `json:"product,omitempty"  jsonschema:"Filter by product name (vuln only)"`
 	Offset   int    `json:"offset,omitempty"   jsonschema:"Pagination offset (default 0)"`
-	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results to return (default 10). Increase only when the caller explicitly needs more."`
+	Limit    int    `json:"limit,omitempty"    jsonschema:"Max results to return (default 10; 50 when type=vuln). Increase only when the caller explicitly needs more."`
 }
 
 type ResourceSummary struct {
