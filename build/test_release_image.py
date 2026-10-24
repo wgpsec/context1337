@@ -280,7 +280,7 @@ class ReleaseImageContractTest(unittest.TestCase):
     def test_release_reports_version_and_security_concepts_v6(self):
         initialize, result = self._search_security("360", "vuln")
 
-        self.assertEqual(initialize["result"]["serverInfo"]["version"], "0.7.20")
+        self.assertEqual(initialize["result"]["serverInfo"]["version"], "0.8.0")
         self.assertEqual(result["search_version"], "security-concepts-v6")
 
     def test_chinese_product_query_uses_pinyin_fallback(self):
