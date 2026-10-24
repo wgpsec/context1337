@@ -150,7 +150,7 @@ The AI will automatically call the right MCP tools to find relevant security kno
 
 ### Finding real resource IDs
 
-The IDs in the examples above are illustrative. Resource names come from the upstream corpus (AboutSecurity, nuclei-templates), so they can be renamed or removed between releases — don't hand-write an ID you have not seen in a search response.
+The IDs in the examples above resolve against the bundled corpus as of this release. Resource names still come from the upstream corpus (AboutSecurity, nuclei-templates), so they can be renamed or removed between releases — don't hand-write an ID you have not seen in a search response.
 
 Every `search_security` result already carries the canonical ID:
 

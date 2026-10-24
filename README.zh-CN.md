@@ -153,7 +153,7 @@ AI 会自动调用正确的 MCP 工具来查找相关安全知识。
 
 ### 如何拿到真实 ID
 
-示例里的 ID 是示意。来自上游语料（AboutSecurity、nuclei-templates），会随版本改名或下线。
+示例里的 ID 在当前版本的内置语料中可以正常解析。不过资源名来自上游语料（AboutSecurity、nuclei-templates），仍可能随版本改名或下线。
 
 每次 `search_security` 返回的 `items[]` 里已经带了规范 ID：
 
