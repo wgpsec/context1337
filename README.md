@@ -278,6 +278,7 @@ Custom resources use `source=custom` (server-enforced) and can be edited or dele
 | `ABOUTSECURITY_API_KEYS_FILE` | `{dataDir}/runtime/api-keys.json` | Extra API keys with source/access RBAC. Missing file means no extra keys. Admin console creates and writes this file. Mount a persistent runtime volume; do not bake into the image or team zip |
 | `ABOUTSECURITY_ADMIN_KEY` | (unset) | Independent super-admin key for `/admin` only. Must not equal any MCP/REST key. Empty disables the console |
 | `ABOUTSECURITY_TOOL_MODE` | `lite` | Tool registration mode: `lite` (3 tools) or `full` (12 tools) |
+| `ABOUTSECURITY_MCP_SESSION_TIMEOUT` | `30m` | Idle MCP session timeout (Go duration, minimum `1m`). `0`/`off` disables; idle sessions are closed after this period |
 | `NUCLEI_TEMPLATES_DIR` | Native: empty; official image: bundled snapshot | Path to nuclei-templates repo root, enables secondary data source |
 | `NUCLEI_MIN_SEVERITY` | `high` | Minimum severity for nuclei vulnerability import: `critical`/`high`/`medium`/`low` |
 

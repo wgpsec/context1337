@@ -45,7 +45,10 @@ func NewService(db *sql.DB, dataDir string, collectors ...*usage.Collector) *Ser
 // request header is absent. Clients can override per-request:
 //   - "full"  → 12 per-type tools
 //   - "lite"  → 3 core tools
-func NewMCPServer(db *sql.DB, dataDir string, mode ToolMode, collectors ...*usage.Collector) http.Handler {
+//
+// sessionTimeout closes an idle MCP session after that duration; pass 0 to
+// keep the SDK default of never expiring sessions.
+func NewMCPServer(db *sql.DB, dataDir string, mode ToolMode, sessionTimeout time.Duration, collectors ...*usage.Collector) http.Handler {
 	var collector *usage.Collector
 	if len(collectors) > 0 {
 		collector = collectors[0]
@@ -78,6 +81,10 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 		defaultServer = fullServer
 	}
 
+	var handlerOptions *gomcp.StreamableHTTPOptions
+	if sessionTimeout > 0 {
+		handlerOptions = &gomcp.StreamableHTTPOptions{SessionTimeout: sessionTimeout}
+	}
 	handler := gomcp.NewStreamableHTTPHandler(func(r *http.Request) *gomcp.Server {
 		switch r.Header.Get("X-Tool-Mode") {
 		case "full":
@@ -87,7 +94,7 @@ Resources: skills (attack methodologies), dicts (wordlists), payloads (attack pa
 		default:
 			return defaultServer
 		}
-	}, nil)
+	}, handlerOptions)
 	if collector == nil {
 		return handler
 	}

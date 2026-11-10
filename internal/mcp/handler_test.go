@@ -17,14 +17,14 @@ func TestNewMCPServer_Instructions_LiteMode(t *testing.T) {
 	db := setupUnifiedTest(t).DB
 	dir := t.TempDir()
 
-	_ = NewMCPServer(db, dir, ToolModeLite)
-	_ = NewMCPServer(db, dir, ToolModeFull)
+	_ = NewMCPServer(db, dir, ToolModeLite, 0)
+	_ = NewMCPServer(db, dir, ToolModeFull, 0)
 }
 
 func TestNewMCPServerRecordsSearchQueriesAndZeroResults(t *testing.T) {
 	db := setupUnifiedTest(t).DB
 	collector := usage.NewCollector()
-	handler := NewMCPServer(db, t.TempDir(), ToolModeLite, collector)
+	handler := NewMCPServer(db, t.TempDir(), ToolModeLite, 0, collector)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
@@ -93,7 +93,7 @@ func TestNewMCPServerRecordsSearchQueriesAndZeroResults(t *testing.T) {
 func TestNewMCPServer_HeaderDispatch(t *testing.T) {
 	db := setupUnifiedTest(t).DB
 	dir := t.TempDir()
-	h := NewMCPServer(db, dir, ToolModeLite)
+	h := NewMCPServer(db, dir, ToolModeLite, 0)
 
 	initBody := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}`
 
@@ -128,7 +128,7 @@ func TestNewMCPServer_HeaderDispatch(t *testing.T) {
 
 func TestNewMCPServer_InitializeReportsReleaseVersion(t *testing.T) {
 	db := setupUnifiedTest(t).DB
-	h := NewMCPServer(db, t.TempDir(), ToolModeLite)
+	h := NewMCPServer(db, t.TempDir(), ToolModeLite, 0)
 	initBody := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}`
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(initBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -143,4 +143,127 @@ func TestNewMCPServer_InitializeReportsReleaseVersion(t *testing.T) {
 	if want := `"version":"` + buildinfo.Version + `"`; !strings.Contains(rec.Body.String(), want) {
 		t.Fatalf("initialize response does not report %s: %s", want, rec.Body.String())
 	}
+}
+
+const (
+	testMCPInitialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"timeout-test","version":"0.1"}}}`
+	testMCPToolsList  = `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`
+)
+
+func postMCPTest(t *testing.T, h http.Handler, sessionID, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	if sessionID != "" {
+		req.Header.Set("Mcp-Session-Id", sessionID)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func deleteMCPTest(t *testing.T, h http.Handler, sessionID string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, "/mcp", nil)
+	req.Header.Set("Mcp-Session-Id", sessionID)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func initializeMCPTest(t *testing.T, h http.Handler) string {
+	t.Helper()
+	rec := postMCPTest(t, h, "", testMCPInitialize)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("initialize status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	sessionID := rec.Header().Get("Mcp-Session-Id")
+	if sessionID == "" {
+		t.Fatal("initialize response omitted Mcp-Session-Id")
+	}
+	ack := postMCPTest(t, h, sessionID, `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	if ack.Code != http.StatusAccepted && ack.Code != http.StatusOK {
+		t.Fatalf("initialized notification status = %d, body: %s", ack.Code, ack.Body.String())
+	}
+	return sessionID
+}
+
+func waitActiveSessions(t *testing.T, collector *usage.Collector, want int64) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if got := collector.Snapshot().MCP.ActiveSessions; got == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("active sessions = %d, want %d", collector.Snapshot().MCP.ActiveSessions, want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestNewMCPServer_SessionIdleTimeout(t *testing.T) {
+	db := setupUnifiedTest(t).DB
+	collector := usage.NewCollector()
+	h := NewMCPServer(db, t.TempDir(), ToolModeLite, 150*time.Millisecond, collector)
+
+	sessionID := initializeMCPTest(t, h)
+	waitActiveSessions(t, collector, 1)
+	time.Sleep(350 * time.Millisecond)
+
+	rec := postMCPTest(t, h, sessionID, testMCPToolsList)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("tools/list after timeout status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
+	}
+	waitActiveSessions(t, collector, 0)
+}
+
+func TestNewMCPServer_SessionTimeoutResetsOnPost(t *testing.T) {
+	db := setupUnifiedTest(t).DB
+	collector := usage.NewCollector()
+	h := NewMCPServer(db, t.TempDir(), ToolModeLite, 250*time.Millisecond, collector)
+
+	sessionID := initializeMCPTest(t, h)
+	time.Sleep(100 * time.Millisecond)
+	if rec := postMCPTest(t, h, sessionID, testMCPToolsList); rec.Code != http.StatusOK {
+		t.Fatalf("first post status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	time.Sleep(100 * time.Millisecond)
+	if rec := postMCPTest(t, h, sessionID, testMCPToolsList); rec.Code != http.StatusOK {
+		t.Fatalf("second post status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	time.Sleep(450 * time.Millisecond)
+	if rec := postMCPTest(t, h, sessionID, testMCPToolsList); rec.Code != http.StatusNotFound {
+		t.Fatalf("post after idle status = %d, want 404 (body: %s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestNewMCPServer_SessionDeleteClosesSession(t *testing.T) {
+	db := setupUnifiedTest(t).DB
+	collector := usage.NewCollector()
+	h := NewMCPServer(db, t.TempDir(), ToolModeLite, time.Hour, collector)
+
+	sessionID := initializeMCPTest(t, h)
+	rec := deleteMCPTest(t, h, sessionID)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE status = %d, want 204", rec.Code)
+	}
+	if rec := postMCPTest(t, h, sessionID, testMCPToolsList); rec.Code != http.StatusNotFound {
+		t.Fatalf("tools/list after DELETE status = %d, want 404", rec.Code)
+	}
+	waitActiveSessions(t, collector, 0)
+}
+
+func TestNewMCPServer_SessionTimeoutDisabled(t *testing.T) {
+	db := setupUnifiedTest(t).DB
+	collector := usage.NewCollector()
+	h := NewMCPServer(db, t.TempDir(), ToolModeLite, 0, collector)
+
+	sessionID := initializeMCPTest(t, h)
+	time.Sleep(250 * time.Millisecond)
+	if rec := postMCPTest(t, h, sessionID, testMCPToolsList); rec.Code != http.StatusOK {
+		t.Fatalf("disabled timeout closed the session: status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	waitActiveSessions(t, collector, 1)
 }

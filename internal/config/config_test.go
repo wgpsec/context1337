@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestLoad_Defaults(t *testing.T) {
@@ -75,5 +76,53 @@ func TestLoad_AdminKey(t *testing.T) {
 	}
 	if cfg.AdminKey != "console-key" {
 		t.Fatalf("AdminKey = %q", cfg.AdminKey)
+	}
+}
+
+func TestLoad_MCPSessionTimeoutDefault(t *testing.T) {
+	t.Setenv("ABOUTSECURITY_MCP_SESSION_TIMEOUT", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.MCPSessionTimeout != DefaultMCPSessionTimeout {
+		t.Fatalf("MCPSessionTimeout = %s, want %s", cfg.MCPSessionTimeout, DefaultMCPSessionTimeout)
+	}
+}
+
+func TestLoad_MCPSessionTimeoutOverride(t *testing.T) {
+	t.Setenv("ABOUTSECURITY_MCP_SESSION_TIMEOUT", "30m")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.MCPSessionTimeout != 30*time.Minute {
+		t.Fatalf("MCPSessionTimeout = %s, want 30m", cfg.MCPSessionTimeout)
+	}
+}
+
+func TestLoad_MCPSessionTimeoutDisabled(t *testing.T) {
+	for _, value := range []string{"0", "0s", "off", "OFF"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("ABOUTSECURITY_MCP_SESSION_TIMEOUT", value)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.MCPSessionTimeout != 0 {
+				t.Fatalf("MCPSessionTimeout = %s, want disabled", cfg.MCPSessionTimeout)
+			}
+		})
+	}
+}
+
+func TestLoad_MCPSessionTimeoutInvalid(t *testing.T) {
+	for _, value := range []string{"15", "30s", "-5m", "bogus"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("ABOUTSECURITY_MCP_SESSION_TIMEOUT", value)
+			if _, err := Load(); err == nil {
+				t.Fatalf("Load accepted invalid timeout %q", value)
+			}
+		})
 	}
 }

@@ -178,7 +178,7 @@ func serveCmd() *cobra.Command {
 			}
 
 			usageCollector := usage.NewCollector()
-			mcpHandler := mcphandler.NewMCPServer(db, cfg.DataDir, mcphandler.ToolMode(toolMode), usageCollector)
+			mcpHandler := mcphandler.NewMCPServer(db, cfg.DataDir, mcphandler.ToolMode(toolMode), cfg.MCPSessionTimeout, usageCollector)
 			if err := auth.RequireIndependentAdminKey(store, cfg.AdminKey); err != nil {
 				return err
 			}
@@ -189,6 +189,11 @@ func serveCmd() *cobra.Command {
 			addr := fmt.Sprintf(":%d", cfg.Port)
 			counts := storage.CountByType(db)
 			log.Printf("absec server starting on %s (data: %s, tool-mode: %s)", addr, cfg.DataDir, toolMode)
+			if cfg.MCPSessionTimeout > 0 {
+				log.Printf("mcp session timeout: %s", cfg.MCPSessionTimeout)
+			} else {
+				log.Printf("mcp session timeout: disabled")
+			}
 			log.Printf("resources loaded: %d skills, %d dicts, %d payloads, %d vulns",
 				counts["skill"], counts["dict"], counts["payload"], counts["vuln"])
 			if cfg.NucleiDir != "" {
