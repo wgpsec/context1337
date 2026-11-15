@@ -23,6 +23,7 @@ type LoaderConfig struct {
 	TeamDir           string
 	NucleiDir         string
 	NucleiMinSeverity string
+	CorpusProfiles    CorpusProfiles
 }
 
 const (
@@ -118,11 +119,27 @@ func insertResource(db *sql.DB, typ, name, source, filePath, category, tags, des
 
 // insertResourceWithMeta inserts a resource with a metadata JSON blob.
 func insertResourceWithMeta(db *sql.DB, typ, name, source, filePath, category, tags, description, body, metadata string) error {
+	return insertResourceWithFacets(db, typ, name, source, filePath, category, tags, description, body, metadata, "", "", "", "")
+}
+
+// insertResourceWithFacets inserts a resource with its source-independent
+// classification. Empty facet values remain NULL/empty and are valid: ABSEC
+// Markdown resources have a domain but no Nuclei template type, while Nuclei
+// templates have a vuln type but no imported target domain.
+func insertResourceWithFacets(db *sql.DB, typ, name, source, filePath, category, tags, description, body, metadata, origin, format, vulnType, targetDomain string) error {
+	if strings.TrimSpace(origin) == "" {
+		origin, format = defaultResourceFacets(source)
+	}
+	if strings.TrimSpace(format) == "" {
+		_, format = defaultResourceFacets(source)
+	}
 	res, err := db.Exec(`
 		INSERT OR REPLACE INTO resources
-			(type, name, source, file_path, category, tags, description, body, metadata, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+			(type, name, source, file_path, category, tags, description, body, metadata,
+			 origin, format, vuln_type, target_domain, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
 		typ, name, source, filePath, category, tags, description, body, metadata,
+		origin, format, nullIfEmpty(vulnType), nullIfEmpty(targetDomain),
 	)
 	if err != nil {
 		return err
@@ -147,6 +164,7 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 	if cfg.TeamDir == "" {
 		return nil
 	}
+	teamProfile := cfg.CorpusProfiles.Get("team", "private", "markdown")
 
 	dirs := map[string]string{
 		"skills":   filepath.Join(cfg.TeamDir, "skills"),
@@ -167,8 +185,8 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			log.Printf("loader: scan team skills: %v", err)
 		}
 		for _, s := range skills {
-			if err := insertResource(db, "skill", s.Name, "team", s.FilePath,
-				s.Category, s.Tags, s.Description, s.Body); err != nil {
+			if err := insertResourceWithFacets(db, "skill", s.Name, "team", s.FilePath,
+				s.Category, s.Tags, s.Description, s.Body, "", teamProfile.Origin, teamProfile.Format, "", ""); err != nil {
 				log.Printf("loader: insert team skill %q: %v", s.Name, err)
 			}
 		}
@@ -180,8 +198,8 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			log.Printf("loader: scan team dicts: %v", err)
 		}
 		for _, d := range dicts {
-			if err := insertResource(db, "dict", d.Path, "team", d.FilePath,
-				d.Category, d.Tags, d.Description, ""); err != nil {
+			if err := insertResourceWithFacets(db, "dict", d.Path, "team", d.FilePath,
+				d.Category, d.Tags, d.Description, "", "", teamProfile.Origin, "unknown", "", ""); err != nil {
 				log.Printf("loader: insert team dict %q: %v", d.Path, err)
 			}
 		}
@@ -193,8 +211,8 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 			log.Printf("loader: scan team payloads: %v", err)
 		}
 		for _, p := range payloads {
-			if err := insertResource(db, "payload", p.Path, "team", p.FilePath,
-				p.Category, p.Tags, p.Description, ""); err != nil {
+			if err := insertResourceWithFacets(db, "payload", p.Path, "team", p.FilePath,
+				p.Category, p.Tags, p.Description, "", "", teamProfile.Origin, "unknown", "", ""); err != nil {
 				log.Printf("loader: insert team payload %q: %v", p.Path, err)
 			}
 		}
@@ -214,8 +232,9 @@ func scanAndIndex(db *sql.DB, cfg LoaderConfig) error {
 				"fingerprint":      v.Fingerprint,
 			}
 			metaJSON, _ := json.Marshal(metaObj)
-			if err := insertResourceWithMeta(db, "vuln", v.ID, "team", v.FilePath,
-				v.Category, v.Tags, v.Description, v.Body, string(metaJSON)); err != nil {
+			if err := insertResourceWithFacets(db, "vuln", v.ID, "team", v.FilePath,
+				v.Category, v.Tags, v.Description, v.Body, string(metaJSON),
+				teamProfile.Origin, teamProfile.Format, "", v.Category); err != nil {
 				log.Printf("loader: insert team vuln %s: %v", v.ID, err)
 			}
 		}
@@ -288,7 +307,7 @@ func syncTeamSource(db *sql.DB, cfg LoaderConfig) error {
 	if err := deleteTeamResources(db); err != nil {
 		return err
 	}
-	if err := scanAndIndex(db, LoaderConfig{TeamDir: teamDir}); err != nil {
+	if err := scanAndIndex(db, LoaderConfig{TeamDir: teamDir, CorpusProfiles: cfg.CorpusProfiles}); err != nil {
 		return err
 	}
 	count, err := countTeamResources(db)
@@ -453,6 +472,7 @@ func syncNucleiSource(db *sql.DB, cfg LoaderConfig) error {
 		}
 	}
 
+	nucleiProfile := cfg.CorpusProfiles.Get("nuclei", "nuclei-official", "nuclei-yaml")
 	nvulns, err := ScanNucleiVulns(nucleiDir, minSeverity)
 	if err != nil {
 		return err
@@ -469,8 +489,9 @@ func syncNucleiSource(db *sql.DB, cfg LoaderConfig) error {
 			"vendor":   v.Vendor,
 		}
 		metaJSON, _ := json.Marshal(metaObj)
-		if err := insertResourceWithMeta(db, "vuln", v.ID, "nuclei", v.FilePath,
-			v.Category, v.Tags, v.Description, v.Body, string(metaJSON)); err != nil {
+		if err := insertResourceWithFacets(db, "vuln", v.ID, "nuclei", v.FilePath,
+			v.Category, v.Tags, v.Description, v.Body, string(metaJSON),
+			nucleiProfile.Origin, nucleiProfile.Format, nucleiProfileVulnType(nucleiProfile, v.Category), ""); err != nil {
 			return fmt.Errorf("insert nuclei vuln %s: %w", v.ID, err)
 		}
 	}
@@ -485,6 +506,48 @@ func syncNucleiSource(db *sql.DB, cfg LoaderConfig) error {
 	}
 	log.Printf("loader: nuclei vulns indexed: %d", len(nvulns))
 	return nil
+}
+
+func defaultResourceFacets(source string) (string, string) {
+	switch source {
+	case "nuclei":
+		return "nuclei-official", "nuclei-yaml"
+	case "team":
+		return "private", "markdown"
+	default:
+		return "platform", "unknown"
+	}
+}
+
+func nullIfEmpty(value string) interface{} {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
+}
+
+func nucleiProfileVulnType(profile CorpusProfile, category string) string {
+	if value := strings.TrimSpace(profile.VulnTypes[category]); value != "" {
+		return value
+	}
+	return nucleiVulnType(category)
+}
+
+func nucleiVulnType(category string) string {
+	switch category {
+	case "nuclei-cve":
+		return "cve"
+	case "nuclei-cnvd":
+		return "cnvd"
+	case "nuclei-default-login":
+		return "default-login"
+	case "nuclei-misconfiguration":
+		return "misconfiguration"
+	case "nuclei-vulnerability":
+		return "vulnerability"
+	default:
+		return ""
+	}
 }
 
 func normalizeNucleiDir(dir string) (string, error) {

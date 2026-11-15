@@ -396,3 +396,36 @@ context1337 是 **WgpSec Agentic 生态** 的服务层 — 连接结构化安全
 | [benchmark-platform](https://github.com/wgpsec/benchmark-platform) | 浑象 CTF 靶场竞赛平台，评估 Agent 攻防能力 |
 | [benchmark-challenges](https://github.com/wgpsec/benchmark-challenges) | 靶场数据仓库 — 通过 GitHub Releases 打包分发 |
 | 破军 PoJun | 通用 AI 问题求解引擎（内部项目，未开源） |
+
+## 资源 facet 与 corpus profile
+
+资源不再只用 `category` 表达全部语义。新增字段：
+
+```text
+origin          platform / private / nuclei-official
+format          markdown / nuclei-yaml / unknown
+vuln_type       cve / cnvd / default-login / misconfiguration / vulnerability
+target_domain   web / middleware / network / ai / cloud
+```
+
+`category` 保留用于旧客户端兼容；`nuclei-*` 不再作为推荐的展示分类。
+
+`/api/stats` 支持：
+
+```text
+group=category
+group=origin
+group=format
+group=vuln_type
+group=target_domain
+```
+
+`/api/resources` 支持对应的查询参数。
+
+语料映射可通过 profile 文件覆盖：
+
+```bash
+ABOUTSECURITY_CORPUS_PROFILES_FILE=/app/data/corpus-profiles.yaml
+```
+
+参考 `configs/corpus-profiles.example.yaml`。新增私有 Nuclei YAML 语料时，增加一个 profile，不要把 Markdown 语料标成 Nuclei。

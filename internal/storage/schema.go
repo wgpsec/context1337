@@ -19,6 +19,10 @@ CREATE TABLE IF NOT EXISTS resources (
     description TEXT,
     body        TEXT,
     metadata    TEXT,
+    origin      TEXT NOT NULL DEFAULT '',
+    format      TEXT NOT NULL DEFAULT '',
+    vuln_type   TEXT,
+    target_domain TEXT,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     enabled     INTEGER NOT NULL DEFAULT 1,
@@ -71,11 +75,60 @@ func OpenDB(path string) (*sql.DB, error) {
 	// database, which is the expected steady state, so only the index is worth
 	// reporting; a genuinely broken schema surfaces on the first query.
 	_, _ = db.Exec("ALTER TABLE resources ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
-	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_resources_enabled ON resources(enabled)"); err != nil {
-		return nil, fmt.Errorf("create enabled index: %w", err)
+	_, _ = db.Exec("ALTER TABLE resources ADD COLUMN origin TEXT NOT NULL DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE resources ADD COLUMN format TEXT NOT NULL DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE resources ADD COLUMN vuln_type TEXT")
+	_, _ = db.Exec("ALTER TABLE resources ADD COLUMN target_domain TEXT")
+	for _, index := range []string{
+		"CREATE INDEX IF NOT EXISTS idx_resources_enabled ON resources(enabled)",
+		"CREATE INDEX IF NOT EXISTS idx_resources_origin ON resources(type, origin)",
+		"CREATE INDEX IF NOT EXISTS idx_resources_format ON resources(type, format)",
+		"CREATE INDEX IF NOT EXISTS idx_resources_vuln_type ON resources(type, vuln_type)",
+		"CREATE INDEX IF NOT EXISTS idx_resources_target_domain ON resources(type, target_domain)",
+	} {
+		if _, err := db.Exec(index); err != nil {
+			return nil, fmt.Errorf("create resource index: %w", err)
+		}
+	}
+	if err := backfillResourceFacets(db); err != nil {
+		return nil, fmt.Errorf("backfill resource facets: %w", err)
 	}
 
 	return db, nil
+}
+
+// backfillResourceFacets gives pre-facet rows a source-agnostic origin/format
+// and migrates the old category-only taxonomy. It only fills empty columns, so
+// it is safe to run on every startup and preserves explicitly imported values.
+func backfillResourceFacets(db *sql.DB) error {
+	updates := []string{
+		`UPDATE resources SET origin = 'platform',
+		 format = CASE WHEN COALESCE(format, '') = '' THEN (CASE source WHEN 'builtin' THEN 'markdown' ELSE 'unknown' END) ELSE format END
+		 WHERE COALESCE(origin, '') = '' AND source IN ('builtin', 'custom')`,
+		`UPDATE resources SET origin = 'private',
+		 format = CASE WHEN COALESCE(format, '') = '' THEN 'markdown' ELSE format END
+		 WHERE COALESCE(origin, '') = '' AND source = 'team'`,
+		`UPDATE resources SET origin = 'nuclei-official',
+		 format = CASE WHEN COALESCE(format, '') = '' THEN 'nuclei-yaml' ELSE format END,
+		 vuln_type = CASE category
+		   WHEN 'nuclei-cve' THEN 'cve'
+		   WHEN 'nuclei-cnvd' THEN 'cnvd'
+		   WHEN 'nuclei-default-login' THEN 'default-login'
+		   WHEN 'nuclei-misconfiguration' THEN 'misconfiguration'
+		   WHEN 'nuclei-vulnerability' THEN 'vulnerability'
+		   ELSE NULL END
+		 WHERE COALESCE(origin, '') = '' AND source = 'nuclei'`,
+		`UPDATE resources SET target_domain = category
+		 WHERE type = 'vuln' AND COALESCE(target_domain, '') = ''
+		   AND COALESCE(category, '') <> ''
+		   AND source IN ('builtin', 'team')`,
+	}
+	for _, query := range updates {
+		if _, err := db.Exec(query); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetMeta stores a key-value pair in the meta table.

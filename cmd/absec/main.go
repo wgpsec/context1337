@@ -154,12 +154,17 @@ func serveCmd() *cobra.Command {
 				log.Printf("benchmark: logging to %s (scenario: %s)", logPath, benchmarkScenario)
 			}
 
+			profiles, err := storage.LoadCorpusProfiles(cfg.CorpusProfilesFile)
+			if err != nil {
+				return fmt.Errorf("load corpus profiles: %w", err)
+			}
 			db, err := storage.InitRuntime(storage.LoaderConfig{
 				BuiltinDB:         cfg.BuiltinDB,
 				RuntimeDB:         cfg.RuntimeDB,
 				TeamDir:           cfg.TeamDir,
 				NucleiDir:         cfg.NucleiDir,
 				NucleiMinSeverity: cfg.NucleiMinSeverity,
+				CorpusProfiles:    profiles,
 			})
 			if err != nil {
 				return fmt.Errorf("init runtime: %w", err)

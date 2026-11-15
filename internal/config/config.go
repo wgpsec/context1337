@@ -14,17 +14,18 @@ import (
 const DefaultMCPSessionTimeout = 30 * time.Minute
 
 type Config struct {
-	Port              int
-	DataDir           string
-	BuiltinDB         string
-	RuntimeDB         string
-	TeamDir           string
-	APIKey            string
-	APIKeysFile       string
-	AdminKey          string
-	NucleiDir         string
-	NucleiMinSeverity string
-	MCPSessionTimeout time.Duration
+	Port               int
+	DataDir            string
+	BuiltinDB          string
+	RuntimeDB          string
+	TeamDir            string
+	APIKey             string
+	APIKeysFile        string
+	AdminKey           string
+	NucleiDir          string
+	NucleiMinSeverity  string
+	CorpusProfilesFile string
+	MCPSessionTimeout  time.Duration
 }
 
 func Load() (*Config, error) {
@@ -46,17 +47,18 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		Port:              port,
-		DataDir:           dataDir,
-		BuiltinDB:         dataDir + "/builtin.db",
-		RuntimeDB:         dataDir + "/runtime/runtime.db",
-		TeamDir:           dataDir + "/team",
-		APIKey:            os.Getenv("ABOUTSECURITY_API_KEY"),
-		APIKeysFile:       os.Getenv("ABOUTSECURITY_API_KEYS_FILE"),
-		AdminKey:          os.Getenv("ABOUTSECURITY_ADMIN_KEY"),
-		NucleiDir:         nucleiDir,
-		NucleiMinSeverity: nucleiMinSeverity,
-		MCPSessionTimeout: mcpSessionTimeout,
+		Port:               port,
+		DataDir:            dataDir,
+		BuiltinDB:          dataDir + "/builtin.db",
+		RuntimeDB:          dataDir + "/runtime/runtime.db",
+		TeamDir:            dataDir + "/team",
+		APIKey:             os.Getenv("ABOUTSECURITY_API_KEY"),
+		APIKeysFile:        os.Getenv("ABOUTSECURITY_API_KEYS_FILE"),
+		AdminKey:           os.Getenv("ABOUTSECURITY_ADMIN_KEY"),
+		NucleiDir:          nucleiDir,
+		NucleiMinSeverity:  nucleiMinSeverity,
+		CorpusProfilesFile: os.Getenv("ABOUTSECURITY_CORPUS_PROFILES_FILE"),
+		MCPSessionTimeout:  mcpSessionTimeout,
 	}, nil
 }
 

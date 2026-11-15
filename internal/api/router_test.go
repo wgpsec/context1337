@@ -310,3 +310,48 @@ func TestLivenessEndpoint(t *testing.T) {
 		t.Errorf("body = %q, want \"OK\"", body)
 	}
 }
+
+func TestStatsGroupOriginAndVulnType(t *testing.T) {
+	dir := t.TempDir()
+	db, err := storage.OpenDB(filepath.Join(dir, "facets.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_, err = db.Exec(`INSERT INTO resources
+		(type, name, source, file_path, category, origin, format, vuln_type, target_domain)
+		VALUES
+		('vuln', 'CVE-1', 'nuclei', 'n.yaml', 'nuclei-cve', 'nuclei-official', 'nuclei-yaml', 'cve', NULL),
+		('vuln', 'PRIV-1', 'team', 'p.md', 'web', 'private', 'markdown', NULL, 'web')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(db, dir, nil, nil, "")
+
+	for group, wanted := range map[string]string{"origin": "nuclei-official", "vuln_type": "cve"} {
+		req := httptest.NewRequest("GET", "/api/stats?group="+group+"&enabled=all", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d: %s", group, rec.Code, rec.Body.String())
+		}
+		var payload struct {
+			Group string `json:"group"`
+			Stats []struct {
+				Value string `json:"value"`
+			} `json:"stats"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("%s decode: %v", group, err)
+		}
+		found := false
+		for _, stat := range payload.Stats {
+			if stat.Value == wanted {
+				found = true
+			}
+		}
+		if payload.Group != group || !found {
+			t.Fatalf("%s payload = %s", group, rec.Body.String())
+		}
+	}
+}

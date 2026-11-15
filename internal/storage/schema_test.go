@@ -158,3 +158,70 @@ func TestOpenSQLite_ReadOnly(t *testing.T) {
 		t.Fatalf("builtin_version = %q, want v1", got)
 	}
 }
+
+func TestBackfillResourceFacets(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "facets.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`INSERT INTO resources (type, name, source, file_path, category)
+		VALUES
+		('vuln', 'CVE-2026-1', 'nuclei', 'x.yaml', 'nuclei-cve'),
+		('vuln', 'PRIVATE-1', 'team', 'x.md', 'web'),
+		('skill', 'team-skill', 'team', 'SKILL.md', 'recon')`)
+	if err != nil {
+		t.Fatalf("insert resources: %v", err)
+	}
+	if err := backfillResourceFacets(db); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+
+	var origin, format, vulnType, targetDomain string
+	err = db.QueryRow(`SELECT origin, format, COALESCE(vuln_type, ''), COALESCE(target_domain, '')
+		FROM resources WHERE name = 'CVE-2026-1'`).Scan(&origin, &format, &vulnType, &targetDomain)
+	if err != nil {
+		t.Fatalf("read nuclei facets: %v", err)
+	}
+	if origin != "nuclei-official" || format != "nuclei-yaml" || vulnType != "cve" || targetDomain != "" {
+		t.Fatalf("nuclei facets = %q/%q/%q/%q", origin, format, vulnType, targetDomain)
+	}
+
+	err = db.QueryRow(`SELECT origin, format, COALESCE(vuln_type, ''), COALESCE(target_domain, '')
+		FROM resources WHERE name = 'PRIVATE-1'`).Scan(&origin, &format, &vulnType, &targetDomain)
+	if err != nil {
+		t.Fatalf("read private facets: %v", err)
+	}
+	if origin != "private" || format != "markdown" || vulnType != "" || targetDomain != "web" {
+		t.Fatalf("private facets = %q/%q/%q/%q", origin, format, vulnType, targetDomain)
+	}
+}
+
+func TestOpenDBMigratesLegacyResourcesTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	legacy, err := openSQLite(path, false)
+	if err != nil {
+		t.Fatalf("open legacy: %v", err)
+	}
+	_, err = legacy.Exec(`CREATE TABLE resources (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, name TEXT NOT NULL,
+		source TEXT NOT NULL, file_path TEXT NOT NULL, category TEXT, tags TEXT,
+		description TEXT, body TEXT, metadata TEXT, enabled INTEGER NOT NULL DEFAULT 1)`)
+	if err != nil {
+		t.Fatalf("create legacy schema: %v", err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatalf("close legacy: %v", err)
+	}
+
+	db, err := OpenDB(path)
+	if err != nil {
+		t.Fatalf("OpenDB legacy: %v", err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM resources").Scan(&count); err != nil {
+		t.Fatalf("query migrated resources: %v", err)
+	}
+}

@@ -190,7 +190,15 @@ func handleStats(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		group := strings.TrimSpace(r.URL.Query().Get("group"))
-		if group != "" && group != "category" {
+		groupColumns := map[string]string{
+			"category":      "category",
+			"origin":        "origin",
+			"format":        "format",
+			"vuln_type":     "vuln_type",
+			"target_domain": "target_domain",
+		}
+		groupColumn, groupOK := groupColumns[group]
+		if group != "" && !groupOK {
 			http.Error(w, `{"error":"unsupported group"}`, http.StatusBadRequest)
 			return
 		}
@@ -207,15 +215,16 @@ func handleStats(db *sql.DB) http.HandlerFunc {
 			whereClause = " WHERE " + strings.Join(where, " AND ")
 		}
 
-		if group == "category" {
+		if group != "" {
 			type facet struct {
 				Type     string `json:"type"`
-				Category string `json:"category"`
+				Category string `json:"category,omitempty"`
+				Value    string `json:"value,omitempty"`
 				Count    int    `json:"count"`
 			}
 			rows, err := db.Query(
-				"SELECT type, COALESCE(category, ''), count(*) FROM resources"+whereClause+
-					" GROUP BY type, COALESCE(category, '') ORDER BY type, count(*) DESC",
+				"SELECT type, COALESCE("+groupColumn+", ''), count(*) FROM resources"+whereClause+
+					" GROUP BY type, COALESCE("+groupColumn+", '') ORDER BY type, count(*) DESC",
 				args...,
 			)
 			if err != nil {
@@ -227,8 +236,12 @@ func handleStats(db *sql.DB) http.HandlerFunc {
 			facets := []facet{}
 			for rows.Next() {
 				var f facet
-				if err := rows.Scan(&f.Type, &f.Category, &f.Count); err != nil {
+				if err := rows.Scan(&f.Type, &f.Value, &f.Count); err != nil {
 					continue
+				}
+				if group == "category" {
+					f.Category = f.Value
+					f.Value = ""
 				}
 				facets = append(facets, f)
 			}

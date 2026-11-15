@@ -92,6 +92,17 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 			where = append(where, "category = ?")
 			args = append(args, v)
 		}
+		for _, filter := range []struct{ param, column string }{
+			{"origin", "origin"},
+			{"format", "format"},
+			{"vuln_type", "vuln_type"},
+			{"target_domain", "target_domain"},
+		} {
+			if v := strings.TrimSpace(q.Get(filter.param)); v != "" {
+				where = append(where, filter.column+" = ?")
+				args = append(args, v)
+			}
+		}
 		if v := q.Get("source"); v != "" {
 			where = append(where, "source = ?")
 			args = append(args, v)
@@ -122,7 +133,7 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 		var total int
 		_ = db.QueryRow("SELECT count(*) FROM resources"+whereClause, args...).Scan(&total)
 
-		rows, err := db.Query("SELECT id, type, name, category, source, description, tags, enabled FROM resources"+whereClause+" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
+		rows, err := db.Query("SELECT id, type, name, COALESCE(category,''), source, COALESCE(description,''), COALESCE(tags,''), COALESCE(origin,''), COALESCE(format,''), COALESCE(vuln_type,''), COALESCE(target_domain,''), enabled FROM resources"+whereClause+" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
 		if err != nil {
 			http.Error(w, `{"error":"query failed"}`, 500)
 			return
@@ -132,13 +143,14 @@ func handleListResources(db *sql.DB) http.HandlerFunc {
 		items := []map[string]interface{}{}
 		for rows.Next() {
 			var id, enabled int
-			var typ, name, category, source, description, tags string
-			if err := rows.Scan(&id, &typ, &name, &category, &source, &description, &tags, &enabled); err != nil {
+			var typ, name, category, source, description, tags, origin, format, vulnType, targetDomain string
+			if err := rows.Scan(&id, &typ, &name, &category, &source, &description, &tags, &origin, &format, &vulnType, &targetDomain, &enabled); err != nil {
 				continue
 			}
 			items = append(items, map[string]interface{}{
 				"id": id, "type": typ, "name": name, "category": category,
 				"source": source, "description": description, "tags": tags, "enabled": enabled == 1,
+				"origin": origin, "format": format, "vuln_type": vulnType, "target_domain": targetDomain,
 			})
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -155,11 +167,12 @@ func handleGetResource(db *sql.DB) http.HandlerFunc {
 		var (
 			itemID, enabled                                                int
 			typ, name, category, source, description, tags, body, metadata string
+			origin, format, vulnType, targetDomain                         string
 		)
 		err := db.QueryRow(
-			"SELECT id, type, COALESCE(name,''), COALESCE(category,''), COALESCE(source,''), COALESCE(description,''), COALESCE(tags,''), COALESCE(body,''), COALESCE(metadata,''), enabled FROM resources WHERE id = ?",
+			"SELECT id, type, COALESCE(name,''), COALESCE(category,''), COALESCE(source,''), COALESCE(description,''), COALESCE(tags,''), COALESCE(body,''), COALESCE(metadata,''), COALESCE(origin,''), COALESCE(format,''), COALESCE(vuln_type,''), COALESCE(target_domain,''), enabled FROM resources WHERE id = ?",
 			id,
-		).Scan(&itemID, &typ, &name, &category, &source, &description, &tags, &body, &metadata, &enabled)
+		).Scan(&itemID, &typ, &name, &category, &source, &description, &tags, &body, &metadata, &origin, &format, &vulnType, &targetDomain, &enabled)
 		if err != nil || !principalOf(r).AllowsSource(source) {
 			http.Error(w, `{"error":"not found"}`, 404)
 			return
@@ -169,6 +182,7 @@ func handleGetResource(db *sql.DB) http.HandlerFunc {
 			"id": itemID, "type": typ, "name": name, "category": category,
 			"source": source, "description": description, "tags": tags,
 			"body": body, "metadata": metadata, "enabled": enabled == 1,
+			"origin": origin, "format": format, "vuln_type": vulnType, "target_domain": targetDomain,
 		})
 	}
 }
@@ -300,6 +314,7 @@ func handleCreateResource(db *sql.DB) http.HandlerFunc {
 			Description string `json:"description"`
 			Body        string `json:"body"`
 			Metadata    string `json:"metadata"`
+			Format      string `json:"format"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, `{"error":"invalid body"}`, 400)
@@ -314,9 +329,18 @@ func handleCreateResource(db *sql.DB) http.HandlerFunc {
 			http.Error(w, `{"error":"name is required"}`, 400)
 			return
 		}
+		format := strings.TrimSpace(body.Format)
+		switch format {
+		case "markdown", "nuclei-yaml":
+		case "":
+			format = "unknown"
+		default:
+			http.Error(w, `{"error":"format must be markdown|nuclei-yaml|unknown"}`, 400)
+			return
+		}
 		res, err := db.Exec(
-			"INSERT INTO resources (type, name, category, tags, description, body, metadata, source, file_path) VALUES (?,?,?,?,?,?,?,?,?)",
-			body.Type, body.Name, body.Category, body.Tags, body.Description, body.Body, body.Metadata, "custom", "",
+			"INSERT INTO resources (type, name, category, tags, description, body, metadata, source, file_path, origin, format) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+			body.Type, body.Name, body.Category, body.Tags, body.Description, body.Body, body.Metadata, "custom", "", "platform", format,
 		)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
@@ -362,6 +386,7 @@ func handleUpdateResource(db *sql.DB) http.HandlerFunc {
 			Description *string `json:"description"`
 			Body        *string `json:"body"`
 			Metadata    *string `json:"metadata"`
+			Format      *string `json:"format"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, `{"error":"invalid body"}`, 400)
@@ -392,6 +417,18 @@ func handleUpdateResource(db *sql.DB) http.HandlerFunc {
 		if body.Metadata != nil {
 			sets = append(sets, "metadata = ?")
 			args = append(args, *body.Metadata)
+		}
+		if body.Format != nil {
+			format := strings.TrimSpace(*body.Format)
+			if format == "" {
+				format = "unknown"
+			}
+			if format != "markdown" && format != "nuclei-yaml" && format != "unknown" {
+				http.Error(w, `{"error":"format must be markdown|nuclei-yaml|unknown"}`, 400)
+				return
+			}
+			sets = append(sets, "format = ?")
+			args = append(args, format)
 		}
 		args = append(args, id)
 		// The ignored errors here are the tracked P2-5 finding: the handler

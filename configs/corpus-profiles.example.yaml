@@ -1,0 +1,28 @@
+# Optional. Point ABOUTSECURITY_CORPUS_PROFILES_FILE at this file.
+profiles:
+  builtin:
+    origin: platform
+    format: markdown
+  team:
+    origin: private
+    format: markdown
+  nuclei:
+    origin: nuclei-official
+    format: nuclei-yaml
+    vuln_types:
+      nuclei-cve: cve
+      nuclei-cnvd: cnvd
+      nuclei-default-login: default-login
+      nuclei-misconfiguration: misconfiguration
+      nuclei-vulnerability: vulnerability
+  # Future private Nuclei YAML repository. The loader source name should be
+  # wired to this profile when that corpus is added.
+  nuclei-internal:
+    origin: private
+    format: nuclei-yaml
+    vuln_types:
+      cves: cve
+      cnvd: cnvd
+      default-logins: default-login
+      misconfiguration: misconfiguration
+      vulnerabilities: vulnerability
